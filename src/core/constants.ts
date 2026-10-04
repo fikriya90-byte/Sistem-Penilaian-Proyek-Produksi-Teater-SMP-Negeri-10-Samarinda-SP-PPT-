@@ -1,22 +1,26 @@
 import { DivisionType, ProductionStage, UserRole } from './types';
-// Kode undangan registrasi Guru pengampu.
-// GANTI kode ini dan simpan sebagai rahasia internal sekolah.
-export const TEACHER_INVITE_CODE = 'GURU-SPPPT-2025';
+
 export const APP_CONFIG = {
   appName: 'SP-PPT',
   schoolName: 'SMP Negeri 10 Samarinda',
   tagline: 'Sistem Penilaian & Manajemen Proyek Produksi Teater Kelas IX',
   academicYear: '2025/2026',
-  // Official school & subject assets provided
   logoSchool: 'https://iili.io/nBiviCX.png',
   logoMapel: 'https://iili.io/nap50AB.png',
   bgMotif: 'https://iili.io/nJ1Rcj1.png',
 };
 
+// ========================================================
+// KODE UNDANGAN GURU
+// HANYA bagikan kode ini ke guru yang berwenang.
+// Admin dapat menggantinya kapan saja untuk alasan keamanan.
+// ========================================================
+export const TEACHER_INVITE_CODE = 'SPPPT-GURU-2025!';
+
 export const COLOR_PALETTE = {
-  primary: '#D4AF37', // Emas/Kuning
+  primary: '#D4AF37',
   primaryDark: '#B8972E',
-  secondary: '#2E5090', // Biru
+  secondary: '#2E5090',
   secondaryDark: '#1E3A6E',
   success: '#27AE60',
   warning: '#E67E22',
