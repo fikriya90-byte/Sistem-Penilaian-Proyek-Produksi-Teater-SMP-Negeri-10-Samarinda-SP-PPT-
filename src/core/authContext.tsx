@@ -58,7 +58,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeClass, setActiveClass] = useState<ClassRoom | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // ==== INIT: seed database (classes only) + load classes + listen auth ====
   useEffect(() => {
     let isMounted = true;
 
@@ -87,7 +86,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (profile) {
             setUser(profile);
           } else {
-            // Auth ada tapi profile Firestore belum ada → buat minimal profile
             const fallbackProfile: UserProfile = {
               uid: fbUser.uid,
               email: fbUser.email || '',
@@ -104,7 +102,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.warn('Fetch profile error:', err);
         }
       } else {
-        // ✅ FIX: TIDAK auto-login sebagai DEMO_USERS[0]
         setUser(null);
       }
       if (isMounted) setLoading(false);
@@ -116,7 +113,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Sinkronisasi activeClass saat user punya classId
   useEffect(() => {
     if (user?.classId && classes.length > 0) {
       const match = classes.find(c => c.id === user.classId);
@@ -124,7 +120,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user?.classId, classes]);
 
-  // ================= LOGIN =================
   const loginWithEmail = async (email: string, pass: string): Promise<{ ok: boolean; message?: string }> => {
     setLoading(true);
     try {
@@ -133,7 +128,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       let profile = await fetchUserProfile(res.user.uid);
       if (!profile) {
-        // Auto-provision profile jika auth ada tapi Firestore belum punya
         profile = {
           uid: res.user.uid,
           email: res.user.email || clean,
@@ -168,13 +162,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         message = 'Terlalu banyak percobaan. Tunggu beberapa menit.';
       else if (code === 'auth/network-request-failed')
         message = 'Koneksi internet bermasalah.';
+      else if (code === 'auth/operation-not-allowed')
+        message = 'Login Email/Password belum diaktifkan oleh admin sistem.';
       return { ok: false, message };
     } finally {
       setLoading(false);
     }
   };
 
-  // ================= REGISTER =================
   const registerUser = async (data: {
     classCode: string;
     displayName: string;
@@ -184,11 +179,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     role: UserRole;
     isTeacherRegistration?: boolean;
   }): Promise<{ success: boolean; message: string }> => {
-    const isTeacher = !!data.isTeacherRegistration &&
+    const isTeacherReg = !!data.isTeacherRegistration &&
       data.classCode.trim().toUpperCase() === TEACHER_INVITE_CODE.toUpperCase();
 
     let validClass: ClassRoom | undefined;
-    if (isTeacher) {
+    if (isTeacherReg) {
       validClass = classes[0];
     } else {
       validClass = classes.find(
@@ -199,29 +194,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!validClass) {
       return {
         success: false,
-        message: isTeacher
-          ? 'Kode Guru tidak valid.'
+        message: isTeacherReg
+          ? 'Kode Undangan Guru tidak valid.'
           : 'Kode Kelas tidak valid / belum terdaftar. Tanyakan ke Guru Pembina.',
       };
     }
 
     try {
-      // 1. Buat akun Firebase Auth asli
       const res = await createUserWithEmailAndPassword(auth, data.email.trim(), data.pass);
 
-      // 2. Set display name di Firebase Auth
       try {
         await updateProfile(res.user, { displayName: data.displayName.trim() });
-      } catch (_) {
-        /* non-fatal */
-      }
+      } catch (_) { /* non-fatal */ }
 
-      // 3. Simpan profile ke Firestore
       const newProfile: UserProfile = {
         uid: res.user.uid,
         email: data.email.trim(),
         displayName: data.displayName.trim(),
-        role: isTeacher ? 'Guru Pembina' : (data.role || 'Pemain'),
+        role: isTeacherReg ? 'Guru Pembina' : (data.role || 'Pemain'),
         classId: validClass.id,
         className: validClass.name,
         phone: data.phone.trim(),
@@ -252,11 +242,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, message: 'Password minimal 6 karakter.' };
       if (code === 'auth/invalid-email')
         return { success: false, message: 'Format email tidak valid.' };
+      if (code === 'auth/operation-not-allowed')
+        return { success: false, message: 'Login Email/Password belum diaktifkan oleh admin sistem.' };
       return { success: false, message: 'Gagal registrasi: ' + (err?.message || 'Unknown error') };
     }
   };
 
-  // ================= LOGOUT =================
   const logout = async () => {
     if (user) {
       try {
@@ -286,7 +277,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   };
 
-  // ================= ROLE FLAGS =================
   const role = user?.role || 'Pemain';
   const isTeacher = role === 'Guru Pembina' || role === 'Admin' || role === 'Super Admin';
   const isPimprod = role === 'Pimpinan Produksi';
@@ -307,9 +297,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
     if (target.uid === user.uid) return false;
-
     if (isTeacher) return true;
-
     if (isPimprod) {
       return (
         target.role === 'Sekretaris' ||
@@ -317,9 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         target.role.startsWith('Koordinator ')
       );
     }
-    if (isSutradara) {
-      return target.role === 'Pemain' || target.role === 'Asisten Sutradara';
-    }
+    if (isSutradara) return target.role === 'Pemain' || target.role === 'Asisten Sutradara';
     if (isAsisten) return target.role === 'Pemain';
     if (isKoordinator) {
       return target.divisionId === user.divisionId && target.role.startsWith('Anggota ');
