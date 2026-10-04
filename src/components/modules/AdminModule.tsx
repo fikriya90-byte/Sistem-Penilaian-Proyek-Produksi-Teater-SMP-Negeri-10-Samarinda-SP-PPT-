@@ -62,11 +62,14 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
     }
   };
 
-  const teachers = allUsers.filter(u =>
+  // Filter keluar user tanpa data valid
+  const validUsers = allUsers.filter(u => u && u.uid && (u.email || u.displayName));
+
+  const teachers = validUsers.filter(u =>
     u.role === 'Guru Pembina' || u.role === 'Admin' || u.role === 'Super Admin'
   );
 
-  const students = allUsers.filter(u =>
+  const students = validUsers.filter(u =>
     u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
   );
 
@@ -76,10 +79,10 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
-      u.displayName.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
+      (u.displayName || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
       (u.phone || '').includes(q) ||
-      u.role.toLowerCase().includes(q) ||
+      (u.role || '').toLowerCase().includes(q) ||
       (u.className || '').toLowerCase().includes(q)
     );
   });
@@ -316,10 +319,10 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                     <td className="py-3.5 px-4">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center shrink-0 border border-slate-200 text-xs">
-                          {u.displayName.charAt(0).toUpperCase()}
+                          {(u.displayName || u.email || '?').charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-bold text-slate-900">{u.displayName}</p>
+                          <p className="font-bold text-slate-900">{u.displayName || '(Tanpa Nama)'}</p>
                           <p className="text-[10px] text-slate-400 font-mono truncate max-w-[140px]">
                             UID: {u.uid.slice(0, 12)}...
                           </p>
