@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Eye, EyeOff, Lock, LogIn, Mail, ShieldCheck, UserPlus,
+  Eye, EyeOff, Lock, LogIn, Mail, ShieldCheck, UserPlus, X, AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { APP_CONFIG } from '../../core/constants';
@@ -15,7 +15,6 @@ export const LoginModal: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<LoginTab>('siswa');
   const [isRegistering, setIsRegistering] = useState(false);
-  const [isTeacherMode, setIsTeacherMode] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const [email, setEmail] = useState('');
@@ -23,7 +22,6 @@ export const LoginModal: React.FC = () => {
   const [rememberMe, setRememberMe] = useState(true);
 
   const [regClassCode, setRegClassCode] = useState('');
-  const [regTeacherCode, setRegTeacherCode] = useState('');
   const [regName, setRegName] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPhone, setRegPhone] = useState('');
@@ -32,11 +30,19 @@ export const LoginModal: React.FC = () => {
   const [regRole, setRegRole] = useState<UserRole>('Pemain');
   const [submitting, setSubmitting] = useState(false);
 
+  // Error banner state
+  const [roleMismatch, setRoleMismatch] = useState<{
+    loggedInAs: string;
+    expectedTab: LoginTab;
+    actualRole: string;
+  } | null>(null);
+
   const handleTabChange = (tab: LoginTab) => {
     setActiveTab(tab);
     setEmail('');
     setPassword('');
     setShowPassword(false);
+    setRoleMismatch(null);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -45,37 +51,84 @@ export const LoginModal: React.FC = () => {
     if (!password) { showToast('Harap masukkan Kata Sandi.', 'warning'); return; }
 
     setSubmitting(true);
+    setRoleMismatch(null);
+
+    // Login dulu — dapatkan profile dari auth context
     const res = await loginWithEmail(email, password);
     setSubmitting(false);
 
-    if (res.ok) {
-      showToast('Login berhasil! Selamat datang di SP-PPT.', 'success');
-    } else {
+    if (!res.ok) {
       showToast(res.message || 'Login gagal.', 'error');
+      return;
     }
+
+    // Login berhasil. Cek role user untuk validasi tab.
+    // Kita perlu tahu profile — panggil fetchUserProfile? Atau cek dari context.
+    // Karena loginWithEmail sudah set user, kita validasi di App.tsx level.
+    // Tapi kita bisa cek sederhana: tampilkan pesan kalau tab mismatch.
+
+    // Ambil role dari result kalau ada, atau abaikan validasi dan biarkan App yang menentukan.
+    const role = res.role || '';
+    const isTeacherRole = role === 'Guru Pembina';
+    const isAdminRole = role === 'Admin' || role === 'Super Admin';
+    const isStudentRole = !isTeacherRole && !isAdminRole;
+
+    let mismatch = false;
+    let expectedRole = '';
+
+    if (activeTab === 'guru' && !isTeacherRole) {
+      mismatch = true;
+      expectedRole = isAdminRole ? 'Admin' : 'Siswa';
+    } else if (activeTab === 'admin' && !isAdminRole) {
+      mismatch = true;
+      expectedRole = isTeacherRole ? 'Guru' : 'Siswa';
+    } else if (activeTab === 'siswa' && !isStudentRole) {
+      mismatch = true;
+      expectedRole = isAdminRole ? 'Admin' : 'Guru';
+    }
+
+    if (mismatch) {
+      setRoleMismatch({
+        loggedInAs: role,
+        expectedTab: activeTab,
+        actualRole: expectedRole,
+      });
+      showToast(`Akun ini adalah ${role}. Silakan gunakan tab ${expectedRole}.`, 'warning');
+      return;
+    }
+
+    showToast('Login berhasil! Selamat datang di SP-PPT.', 'success');
   };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isTeacherMode) {
-      if (!regTeacherCode.trim()) { showToast('Harap isi Kode Undangan Guru.', 'warning'); return; }
-    } else {
-      if (!regClassCode.trim()) { showToast('Harap isi Kode Kelas.', 'warning'); return; }
+    if (!regClassCode.trim()) {
+      showToast('Harap isi Kode Kelas.', 'warning');
+      return;
     }
-    if (!regName.trim() || !regEmail.trim()) { showToast('Nama dan Email wajib diisi.', 'warning'); return; }
-    if (regPassword.length < 6) { showToast('Password minimal 6 karakter.', 'warning'); return; }
-    if (regPassword !== regConfirmPassword) { showToast('Konfirmasi password tidak cocok!', 'error'); return; }
+    if (!regName.trim() || !regEmail.trim()) {
+      showToast('Nama dan Email wajib diisi.', 'warning');
+      return;
+    }
+    if (regPassword.length < 6) {
+      showToast('Password minimal 6 karakter.', 'warning');
+      return;
+    }
+    if (regPassword !== regConfirmPassword) {
+      showToast('Konfirmasi password tidak cocok!', 'error');
+      return;
+    }
 
     setSubmitting(true);
     const result = await registerUser({
-      classCode: isTeacherMode ? regTeacherCode : regClassCode,
+      classCode: regClassCode,
       displayName: regName,
       email: regEmail,
       phone: regPhone,
       pass: regPassword,
       role: regRole,
-      isTeacherRegistration: isTeacherMode,
+      isTeacherRegistration: false,
     });
     setSubmitting(false);
 
@@ -91,6 +144,12 @@ export const LoginModal: React.FC = () => {
     siswa: { label: '🎭 Siswa', title: 'Email Siswa', activeClass: 'bg-white text-slate-900 shadow-sm' },
     guru: { label: '👨‍🏫 Guru', title: 'Email Guru', activeClass: 'bg-white text-amber-800 shadow-sm' },
     admin: { label: '🛡️ Admin', title: 'Email Administrator', activeClass: 'bg-white text-blue-800 shadow-sm' },
+  };
+
+  const mismatchLabel = {
+    guru: 'Guru',
+    admin: 'Admin',
+    siswa: 'Siswa',
   };
 
   return (
@@ -137,6 +196,36 @@ export const LoginModal: React.FC = () => {
         <div className="p-6 pt-2">
           {!isRegistering ? (
             <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
+              {/* Role mismatch warning banner */}
+              {roleMismatch && (
+                <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 text-xs text-rose-900">
+                    <p className="font-extrabold">Role tidak cocok dengan tab login</p>
+                    <p className="mt-1 leading-relaxed">
+                      Akun <strong>{email}</strong> terdaftar sebagai <strong>{roleMismatch.loggedInAs}</strong>.
+                      Silakan gunakan tab <strong>{mismatchLabel[roleMismatch.expectedTab]}</strong> untuk masuk.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleTabChange(roleMismatch.expectedTab);
+                      }}
+                      className="mt-2 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px]"
+                    >
+                      Ganti ke Tab {mismatchLabel[roleMismatch.expectedTab]}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRoleMismatch(null)}
+                    className="p-1 text-rose-400 hover:text-rose-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   {tabConfig[activeTab].title}
@@ -144,7 +233,7 @@ export const LoginModal: React.FC = () => {
                 <div className="relative">
                   <Mail className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
                   <input type="email" required name="spppt_email_field" autoComplete="off"
-                    value={email} onChange={(e) => setEmail(e.target.value)}
+                    value={email} onChange={(e) => { setEmail(e.target.value); setRoleMismatch(null); }}
                     placeholder="Ketik email Anda"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500" />
                 </div>
@@ -197,7 +286,7 @@ export const LoginModal: React.FC = () => {
                   <p className="text-xs text-slate-500">
                     Belum memiliki akun?{' '}
                     <button type="button"
-                      onClick={() => { setIsRegistering(true); setIsTeacherMode(false); }}
+                      onClick={() => { setIsRegistering(true); }}
                       className="font-bold text-amber-600 hover:text-amber-700">
                       Daftar Siswa
                     </button>
