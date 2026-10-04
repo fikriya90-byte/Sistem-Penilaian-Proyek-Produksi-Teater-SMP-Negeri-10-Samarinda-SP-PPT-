@@ -14,13 +14,17 @@ import {
 } from '../../services/adminService';
 import { useToast } from '../common/Toast';
 
-export const AdminModule: React.FC = () => {
+interface AdminModuleProps {
+  defaultTab?: 'guru' | 'siswa';
+}
+
+export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' }) => {
   const { user } = useAuth();
   const { showToast } = useToast();
 
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'guru' | 'siswa'>('guru');
+  const [activeTab, setActiveTab] = useState<'guru' | 'siswa'>(defaultTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
@@ -40,6 +44,11 @@ export const AdminModule: React.FC = () => {
   useEffect(() => {
     loadUsers();
   }, []);
+
+  // Sinkronisasi tab dengan navigasi sidebar
+  useEffect(() => {
+    setActiveTab(defaultTab);
+  }, [defaultTab]);
 
   const loadUsers = async () => {
     setLoading(true);
