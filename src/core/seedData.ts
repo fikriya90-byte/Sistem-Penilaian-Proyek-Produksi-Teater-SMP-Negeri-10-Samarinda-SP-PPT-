@@ -303,10 +303,10 @@ export async function checkAndSeedDatabase() {
   try {
     const classesSnap = await getDocs(collection(db, 'classes'));
     if (classesSnap.size > 0) {
-      // Firebase already has active real classes. Never overwrite with dummy data!
+      // Kelas sudah ada, jangan timpa
       return;
     }
-    console.log('Seeding initial theater database...');
+    console.log('Seeding initial theater database (classes + productions only)...');
     await forceSeedDatabase();
   } catch (error) {
     console.error('Error during database check/seed:', error);
@@ -326,16 +326,7 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'productions', p.id), p);
   }
 
-  // 3. Users
-  for (const u of DEMO_USERS) {
-    batch.set(doc(db, 'users', u.uid), {
-      ...u,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-
-  // 4. Tasks & Deadlines (Simulate real due dates: some overdue, some <24h, some upcoming)
+  // 3. Tasks & Deadlines (Simulate real due dates: some overdue, some <24h, some upcoming)
   const now = new Date();
   const sampleTasks: TaskItem[] = [
     {
@@ -449,7 +440,7 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'tasks', t.id), t);
   }
 
-  // 5. Attendance Sessions
+  // 4. Attendance Sessions
   const sampleSessions: AttendanceSession[] = [
     {
       id: 'att-session-1',
@@ -510,7 +501,7 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'attendanceSessions', s.id), s);
   }
 
-  // 6. Schedules
+  // 5. Schedules
   const sampleSchedules: ScheduleEvent[] = [
     {
       id: 'sch-1',
@@ -582,7 +573,7 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'documents', d.id), d);
   }
 
-  // 8. Notifications
+  // 7. Notifications
   const sampleNotifications: SystemNotification[] = [
     {
       id: 'notif-1',
@@ -620,7 +611,7 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'notifications', n.id), n);
   }
 
-  // 9. Prompt book initial scene
+  // 8. Prompt book initial scene
   const samplePromptBook: PromptBookScene = {
     id: 'pb-scene-1',
     classId: 'class-ix-a',
