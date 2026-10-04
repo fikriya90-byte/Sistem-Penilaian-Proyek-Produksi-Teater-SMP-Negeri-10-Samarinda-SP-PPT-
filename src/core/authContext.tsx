@@ -1,10 +1,17 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
 import { auth, db } from './firebase';
-import { checkAndSeedDatabase, DEMO_CLASSES, DEMO_USERS, forceSeedDatabase } from './seedData';
+import { checkAndSeedDatabase } from './seedData';
 import { ClassRoom, UserProfile, UserRole } from './types';
 import { fetchClasses, fetchUserProfile, recordAuditLog } from '../services/firestoreService';
-import { doc, getDoc, setDoc, query, where, collection, getDocs } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
+import { TEACHER_INVITE_CODE } from './constants';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -12,20 +19,19 @@ interface AuthContextType {
   activeClass: ClassRoom | null;
   classes: ClassRoom[];
   setActiveClass: (c: ClassRoom) => void;
-  loginWithEmail: (emailOrPhone: string, pass: string) => Promise<boolean>;
-  loginAsDemoUser: (uid: string) => Promise<void>;
-  registerStudent: (data: {
+  loginWithEmail: (email: string, pass: string) => Promise<{ ok: boolean; message?: string }>;
+  registerUser: (data: {
     classCode: string;
     displayName: string;
     email: string;
     phone: string;
     pass: string;
     role: UserRole;
+    isTeacherRegistration?: boolean;
   }) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
   resetDemoDatabase: () => Promise<void>;
 
-  // Role permission helpers
   isTeacher: boolean;
   isPimprod: boolean;
   isSekretaris: boolean;
@@ -48,65 +54,69 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [classes, setClasses] = useState<ClassRoom[]>(DEMO_CLASSES);
-  const [activeClass, setActiveClass] = useState<ClassRoom | null>(DEMO_CLASSES[0]);
+  const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [activeClass, setActiveClass] = useState<ClassRoom | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Initialize and load user
+  // ==== INIT: seed database (classes only) + load classes + listen auth ====
   useEffect(() => {
     let isMounted = true;
 
-    async function init() {
+    const init = async () => {
       try {
         await checkAndSeedDatabase();
         const clsList = await fetchClasses();
-        if (clsList && clsList.length > 0 && isMounted) {
+        if (isMounted && clsList && clsList.length > 0) {
           setClasses(clsList);
-          setActiveClass(clsList[0]);
+          setActiveClass(prev => prev || clsList[0]);
         }
       } catch (err) {
-        console.warn('Initial seed or fetch error:', err);
+        console.warn('Init error (non-fatal):', err);
       }
+    };
+    init();
 
-      // Check current auth or default to teacher for preview convenience
-      const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-        if (!isMounted) return;
-        if (fbUser) {
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      if (!isMounted) return;
+
+      if (fbUser) {
+        try {
           const profile = await fetchUserProfile(fbUser.uid);
+          if (!isMounted) return;
+
           if (profile) {
             setUser(profile);
           } else {
-            // Fallback user matching Firebase teacher
-            const fallback: UserProfile = {
+            // Auth ada tapi profile Firestore belum ada → buat minimal profile
+            const fallbackProfile: UserProfile = {
               uid: fbUser.uid,
-              email: fbUser.email || 'fikriya90@gmail.com',
-              secondaryEmail: 'fikri.yassaar15@guru.smp.belajar.id',
-              displayName: fbUser.displayName || 'Fikri Yassaar Arrazaq, S.Sn.',
-              role: 'Guru Pembina',
-              classId: 'id_34n2rdaofmuhz74a4',
-              className: 'IX-C',
+              email: fbUser.email || '',
+              displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Pengguna',
+              role: 'Pemain',
+              classId: '',
+              className: '',
+              createdAt: new Date().toISOString(),
             };
-            setUser(fallback);
+            await setDoc(doc(db, 'users', fbUser.uid), fallbackProfile, { merge: true });
+            if (isMounted) setUser(fallbackProfile);
           }
-        } else {
-          // If no active Firebase auth, default to Teacher profile so evaluator can test immediately!
-          setUser(DEMO_USERS[0]);
+        } catch (err) {
+          console.warn('Fetch profile error:', err);
         }
-        setLoading(false);
-      });
+      } else {
+        // ✅ FIX: TIDAK auto-login sebagai DEMO_USERS[0]
+        setUser(null);
+      }
+      if (isMounted) setLoading(false);
+    });
 
-      return () => {
-        unsubscribe();
-      };
-    }
-
-    init();
     return () => {
       isMounted = false;
+      unsubscribe();
     };
   }, []);
 
-  // Update active class when user's assigned class changes
+  // Sinkronisasi activeClass saat user punya classId
   useEffect(() => {
     if (user?.classId && classes.length > 0) {
       const match = classes.find(c => c.id === user.classId);
@@ -114,170 +124,169 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user?.classId, classes]);
 
-  const loginWithEmail = async (emailOrPhone: string, pass: string): Promise<boolean> => {
+  // ================= LOGIN =================
+  const loginWithEmail = async (email: string, pass: string): Promise<{ ok: boolean; message?: string }> => {
     setLoading(true);
     try {
-      // Find matching user in DEMO_USERS or database
-      const clean = emailOrPhone.trim().toLowerCase();
-      const matched = DEMO_USERS.find(
-        u => u.email.toLowerCase() === clean || (u.phone && u.phone.replace(/\D/g, '') === clean.replace(/\D/g, ''))
-      );
+      const clean = email.trim();
+      const res = await signInWithEmailAndPassword(auth, clean, pass);
 
-      if (matched) {
-        setUser(matched);
-        await recordAuditLog({
-          userId: matched.uid,
-          userName: matched.displayName,
-          role: matched.role,
-          action: 'LOGIN',
-          targetType: 'Auth',
-          targetId: matched.uid,
-          details: `Pengguna berhasil login sebagai ${matched.role}`,
-        });
-        setLoading(false);
-        return true;
+      let profile = await fetchUserProfile(res.user.uid);
+      if (!profile) {
+        // Auto-provision profile jika auth ada tapi Firestore belum punya
+        profile = {
+          uid: res.user.uid,
+          email: res.user.email || clean,
+          displayName: res.user.displayName || clean.split('@')[0],
+          role: 'Pemain',
+          classId: classes[0]?.id || '',
+          className: classes[0]?.name || '',
+          createdAt: new Date().toISOString(),
+        };
+        await setDoc(doc(db, 'users', res.user.uid), profile, { merge: true });
       }
 
-      // Check Firestore users collection by email for real students
-      try {
-        const userQ = query(collection(db, 'users'), where('email', '==', clean));
-        const userSnap = await getDocs(userQ);
-        if (!userSnap.empty) {
-          const profile = { ...userSnap.docs[0].data(), uid: userSnap.docs[0].id } as UserProfile;
-          setUser(profile);
-          await recordAuditLog({
-            userId: profile.uid,
-            userName: profile.displayName,
-            role: profile.role,
-            action: 'LOGIN',
-            targetType: 'Auth',
-            targetId: profile.uid,
-            details: `Siswa Firebase berhasil login: ${profile.displayName} (${profile.role})`,
-          });
-          setLoading(false);
-          return true;
-        }
-      } catch (e) {
-        // continue
-      }
-
-      // Try firebase auth if configured
-      try {
-        const res = await signInWithEmailAndPassword(auth, clean, pass);
-        const profile = await fetchUserProfile(res.user.uid);
-        if (profile) {
-          setUser(profile);
-          setLoading(false);
-          return true;
-        }
-      } catch (authErr) {
-        // Continue to check local
-      }
-
-      setLoading(false);
-      return false;
-    } catch (e) {
-      setLoading(false);
-      return false;
-    }
-  };
-
-  const loginAsDemoUser = async (uid: string) => {
-    setLoading(true);
-    const target = DEMO_USERS.find(u => u.uid === uid) || (await fetchUserProfile(uid));
-    if (target) {
-      setUser(target);
+      setUser(profile);
       await recordAuditLog({
-        userId: target.uid,
-        userName: target.displayName,
-        role: target.role,
+        userId: profile.uid,
+        userName: profile.displayName,
+        role: profile.role,
         action: 'LOGIN',
         targetType: 'Auth',
-        targetId: target.uid,
-        details: `Switch role ke ${target.role} (${target.displayName})`,
+        targetId: profile.uid,
+        details: `Login sebagai ${profile.role}`,
       });
+      return { ok: true };
+    } catch (err: any) {
+      const code = err?.code || '';
+      let message = 'Email atau password salah.';
+      if (code === 'auth/user-not-found') message = 'Akun tidak ditemukan. Silakan daftar terlebih dahulu.';
+      else if (code === 'auth/wrong-password' || code === 'auth/invalid-credential')
+        message = 'Password salah. Cek kembali kata sandi Anda.';
+      else if (code === 'auth/invalid-email') message = 'Format email tidak valid.';
+      else if (code === 'auth/too-many-requests')
+        message = 'Terlalu banyak percobaan. Tunggu beberapa menit.';
+      else if (code === 'auth/network-request-failed')
+        message = 'Koneksi internet bermasalah.';
+      return { ok: false, message };
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  const registerStudent = async (data: {
+  // ================= REGISTER =================
+  const registerUser = async (data: {
     classCode: string;
     displayName: string;
     email: string;
     phone: string;
     pass: string;
     role: UserRole;
+    isTeacherRegistration?: boolean;
   }): Promise<{ success: boolean; message: string }> => {
-    // 1. Verify class code
-    const validClass = classes.find(c => c.code.toLowerCase() === data.classCode.trim().toLowerCase());
-    if (!validClass) {
-      return { success: false, message: 'Kode Kelas tidak valid atau tidak terdaftar!' };
+    const isTeacher = !!data.isTeacherRegistration &&
+      data.classCode.trim().toUpperCase() === TEACHER_INVITE_CODE.toUpperCase();
+
+    let validClass: ClassRoom | undefined;
+    if (isTeacher) {
+      validClass = classes[0];
+    } else {
+      validClass = classes.find(
+        c => c.code.toLowerCase() === data.classCode.trim().toLowerCase()
+      );
     }
 
-    const newUid = `student-${Date.now()}`;
-    const newProfile: UserProfile = {
-      uid: newUid,
-      email: data.email.trim(),
-      displayName: data.displayName.trim(),
-      role: data.role || 'Pemain',
-      classId: validClass.id,
-      className: validClass.name,
-      phone: data.phone.trim(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    if (!validClass) {
+      return {
+        success: false,
+        message: isTeacher
+          ? 'Kode Guru tidak valid.'
+          : 'Kode Kelas tidak valid / belum terdaftar. Tanyakan ke Guru Pembina.',
+      };
+    }
 
     try {
-      await setDoc(doc(db, 'users', newUid), newProfile);
+      // 1. Buat akun Firebase Auth asli
+      const res = await createUserWithEmailAndPassword(auth, data.email.trim(), data.pass);
+
+      // 2. Set display name di Firebase Auth
+      try {
+        await updateProfile(res.user, { displayName: data.displayName.trim() });
+      } catch (_) {
+        /* non-fatal */
+      }
+
+      // 3. Simpan profile ke Firestore
+      const newProfile: UserProfile = {
+        uid: res.user.uid,
+        email: data.email.trim(),
+        displayName: data.displayName.trim(),
+        role: isTeacher ? 'Guru Pembina' : (data.role || 'Pemain'),
+        classId: validClass.id,
+        className: validClass.name,
+        phone: data.phone.trim(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await setDoc(doc(db, 'users', res.user.uid), newProfile);
+
       setUser(newProfile);
       setActiveClass(validClass);
 
       await recordAuditLog({
-        userId: newUid,
+        userId: newProfile.uid,
         userName: newProfile.displayName,
         role: newProfile.role,
         action: 'CREATE',
         targetType: 'User',
-        targetId: newUid,
-        details: `Siswa baru terdaftar di ${validClass.name}`,
+        targetId: newProfile.uid,
+        details: `Registrasi baru di ${validClass.name} sebagai ${newProfile.role}`,
       });
 
-      return { success: true, message: 'Registrasi berhasil!' };
+      return { success: true, message: 'Registrasi berhasil! Akun Anda siap digunakan.' };
     } catch (err: any) {
-      return { success: false, message: 'Gagal menyimpan data registrasi: ' + err.message };
+      const code = err?.code || '';
+      if (code === 'auth/email-already-in-use')
+        return { success: false, message: 'Email sudah terdaftar. Silakan login.' };
+      if (code === 'auth/weak-password')
+        return { success: false, message: 'Password minimal 6 karakter.' };
+      if (code === 'auth/invalid-email')
+        return { success: false, message: 'Format email tidak valid.' };
+      return { success: false, message: 'Gagal registrasi: ' + (err?.message || 'Unknown error') };
     }
   };
 
+  // ================= LOGOUT =================
   const logout = async () => {
     if (user) {
-      await recordAuditLog({
-        userId: user.uid,
-        userName: user.displayName,
-        role: user.role,
-        action: 'LOGOUT',
-        targetType: 'Auth',
-        targetId: user.uid,
-        details: `Pengguna keluar dari sistem`,
-      });
+      try {
+        await recordAuditLog({
+          userId: user.uid,
+          userName: user.displayName,
+          role: user.role,
+          action: 'LOGOUT',
+          targetType: 'Auth',
+          targetId: user.uid,
+          details: 'Logout dari sistem',
+        });
+      } catch (_) { /* non-fatal */ }
     }
-    try {
-      await signOut(auth);
-    } catch (err) {
-      // ignore
-    }
+    try { await signOut(auth); } catch (_) { /* ignore */ }
     setUser(null);
   };
 
   const resetDemoDatabase = async () => {
     setLoading(true);
+    const { forceSeedDatabase } = await import('./seedData');
     await forceSeedDatabase();
     const clsList = await fetchClasses();
     setClasses(clsList);
-    setUser(DEMO_USERS[0]);
+    setActiveClass(clsList[0] || null);
+    setUser(null);
     setLoading(false);
   };
 
-  // Helper flags
+  // ================= ROLE FLAGS =================
   const role = user?.role || 'Pemain';
   const isTeacher = role === 'Guru Pembina' || role === 'Admin' || role === 'Super Admin';
   const isPimprod = role === 'Pimpinan Produksi';
@@ -295,50 +304,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateGeneralSchedule = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten;
   const canCreateInternalSchedule = isTeacher || isKoordinator;
 
-  // Strict Evaluation Matrix check
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
-    if (target.uid === user.uid) return false; // Self-assessment strictly forbidden!
+    if (target.uid === user.uid) return false;
 
-    if (isTeacher) return true; // Teacher can grade anyone
+    if (isTeacher) return true;
 
     if (isPimprod) {
-      // Pimprod assesses Sekretaris, Bendahara, and Division Coordinators
       return (
         target.role === 'Sekretaris' ||
         target.role === 'Bendahara' ||
         target.role.startsWith('Koordinator ')
       );
     }
-
     if (isSutradara) {
-      // Sutradara assesses Players & Assistant Director
       return target.role === 'Pemain' || target.role === 'Asisten Sutradara';
     }
-
-    if (isAsisten) {
-      // Assistant Director assesses Players
-      return target.role === 'Pemain';
-    }
-
+    if (isAsisten) return target.role === 'Pemain';
     if (isKoordinator) {
-      // Coordinator assesses members of their own division
       return target.divisionId === user.divisionId && target.role.startsWith('Anggota ');
     }
-
     if (isAnggota) {
-      // Member assesses Coordinator or fellow division members
       return (
         target.divisionId === user.divisionId &&
         (target.role.startsWith('Anggota ') || target.role.startsWith('Koordinator '))
       );
     }
-
-    if (isPemain) {
-      // Actor assesses fellow actors
-      return target.role === 'Pemain';
-    }
-
+    if (isPemain) return target.role === 'Pemain';
     return false;
   };
 
@@ -351,8 +343,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         classes,
         setActiveClass,
         loginWithEmail,
-        loginAsDemoUser,
-        registerStudent,
+        registerUser,
         logout,
         resetDemoDatabase,
         isTeacher,
@@ -379,8 +370,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
