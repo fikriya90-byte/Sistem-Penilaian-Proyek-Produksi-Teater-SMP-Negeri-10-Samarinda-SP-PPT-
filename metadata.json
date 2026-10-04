@@ -1,0 +1,6 @@
+{
+  "name": "SP-PPT - Sistem Penilaian & Manajemen Proyek Produksi Teater SMPN 10 Samarinda",
+  "description": "Platform terintegrasi penilaian multi-peran, manajemen tugas, absensi, jadwal, deadline, dan koordinasi produksi teater siswa kelas IX SMP Negeri 10 Samarinda.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

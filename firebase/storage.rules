@@ -1,0 +1,86 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Default deny catch-all
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isTeacherOrAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'fikriya90@gmail.com' ||
+        request.auth.token.email.matches('.*@smpn10\\.sch\\.id')
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Size limit helpers
+    function isValidImage() {
+      return request.resource.contentType.matches('image/.*') &&
+             request.resource.size <= 10 * 1024 * 1024; // 10MB max
+    }
+
+    function isValidDocument() {
+      return (
+        request.resource.contentType.matches('application/pdf') ||
+        request.resource.contentType.matches('application/vnd.*') ||
+        request.resource.contentType.matches('application/msword') ||
+        request.resource.contentType.matches('text/.*')
+      ) && request.resource.size <= 25 * 1024 * 1024; // 25MB max
+    }
+
+    function isValidAudio() {
+      return request.resource.contentType.matches('audio/.*') &&
+             request.resource.size <= 30 * 1024 * 1024; // 30MB max
+    }
+
+    function isValidMedia() {
+      return isValidImage() || isValidDocument() || isValidAudio();
+    }
+
+    // 1. User Profile Photos
+    match /users/{userId}/avatar/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) && isValidImage();
+      allow delete: if isOwner(userId) || isTeacherOrAdmin();
+    }
+
+    // 2. Task Submission Proofs
+    match /classes/{classId}/tasks/{taskId}/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidMedia();
+      allow update: if isOwner(userId) && isValidMedia();
+      allow delete: if isOwner(userId) || isTeacherOrAdmin();
+    }
+
+    // 3. Audio Voice Recordings (Pemain Latihan Dialog)
+    match /classes/{classId}/recordings/{userId}/{fileName} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidAudio();
+      allow update, delete: if isOwner(userId) || isTeacherOrAdmin();
+    }
+
+    // 4. Production Official Documents & Archives (Naskah, Proposal, LPJ)
+    match /classes/{classId}/documents/{category}/{fileName} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isValidDocument() || isValidImage());
+      allow update, delete: if isTeacherOrAdmin();
+    }
+
+    // 5. Media & Documentation Gallery (Foto Latihan, Poster, BTS)
+    match /classes/{classId}/gallery/{fileName} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isValidImage() || request.resource.size <= 100 * 1024 * 1024);
+      allow update, delete: if isTeacherOrAdmin();
+    }
+  }
+}

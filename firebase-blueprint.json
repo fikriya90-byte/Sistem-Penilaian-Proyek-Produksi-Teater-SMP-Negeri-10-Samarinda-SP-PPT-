@@ -1,0 +1,339 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role, assigned class, and production team division",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "User email address" },
+        "displayName": { "type": "string", "description": "Full name of student or teacher" },
+        "role": { "type": "string", "description": "Assigned theater production role" },
+        "classId": { "type": "string", "description": "Class identifier (e.g. IX A)" },
+        "className": { "type": "string", "description": "Readable class name" },
+        "productionId": { "type": "string", "description": "Associated production id" },
+        "divisionId": { "type": "string", "description": "Division id if applicable" },
+        "divisionName": { "type": "string", "description": "Name of division" },
+        "phone": { "type": "string", "description": "WhatsApp phone number" },
+        "photoURL": { "type": "string", "description": "Profile picture URL" },
+        "createdAt": { "type": "string", "description": "Timestamp ISO or server timestamp" },
+        "updatedAt": { "type": "string", "description": "Update timestamp" }
+      },
+      "required": ["uid", "email", "displayName", "role"]
+    },
+    "Class": {
+      "title": "Class",
+      "description": "School class participating in theater production",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Class ID" },
+        "name": { "type": "string", "description": "Class name (e.g. IX A)" },
+        "code": { "type": "string", "description": "Class registration passcode" },
+        "academicYear": { "type": "string", "description": "Academic school year" },
+        "teacherId": { "type": "string", "description": "Supervising teacher UID" },
+        "teacherName": { "type": "string", "description": "Supervising teacher name" },
+        "totalStudents": { "type": "number", "description": "Number of registered students" },
+        "createdAt": { "type": "string", "description": "Created at timestamp" }
+      },
+      "required": ["id", "name", "code"]
+    },
+    "Production": {
+      "title": "Production",
+      "description": "Theater production project for a class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Production ID" },
+        "title": { "type": "string", "description": "Production title / Play name" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "schoolYear": { "type": "string", "description": "School academic year" },
+        "status": { "type": "string", "description": "DRAFT | ACTIVE | PAUSED | COMPLETED | ARCHIVED" },
+        "currentStage": { "type": "string", "description": "PERSIAPAN | PELAKSANAAN | PERTUNJUKAN | PASCA" },
+        "synopsis": { "type": "string", "description": "Play summary and artistic vision" },
+        "startDate": { "type": "string", "description": "Production start date" },
+        "performanceDate": { "type": "string", "description": "Main show performance date" },
+        "endDate": { "type": "string", "description": "Post-production wrap date" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp" }
+      },
+      "required": ["id", "title", "classId", "status", "currentStage"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Production task assignment and checklist item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Task ID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "productionId": { "type": "string", "description": "Production ID" },
+        "stageId": { "type": "string", "description": "Production stage" },
+        "divisionId": { "type": "string", "description": "Division ID" },
+        "role": { "type": "string", "description": "Target role" },
+        "assigneeId": { "type": "string", "description": "Assigned student UID" },
+        "assigneeName": { "type": "string", "description": "Assigned student name" },
+        "title": { "type": "string", "description": "Task title" },
+        "description": { "type": "string", "description": "Task description" },
+        "priority": { "type": "string", "description": "LOW | MEDIUM | HIGH | CRITICAL" },
+        "status": { "type": "string", "description": "NOT_STARTED | IN_PROGRESS | SUBMITTED | REVISION | APPROVED | OVERDUE" },
+        "progress": { "type": "number", "description": "Completion percentage (0-100)" },
+        "dueDate": { "type": "string", "description": "Deadline timestamp" },
+        "proofUrl": { "type": "string", "description": "Submitted proof attachment URL" },
+        "proofNote": { "type": "string", "description": "Student submission note" },
+        "feedback": { "type": "string", "description": "Reviewer comment or feedback" },
+        "createdBy": { "type": "string", "description": "Creator user UID" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Update timestamp" }
+      },
+      "required": ["id", "classId", "title", "status", "priority"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "Evaluation record for a student across criteria and stages",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Assessment ID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "productionId": { "type": "string", "description": "Production ID" },
+        "studentId": { "type": "string", "description": "Evaluated student UID" },
+        "studentName": { "type": "string", "description": "Evaluated student name" },
+        "studentRole": { "type": "string", "description": "Student role" },
+        "assessorId": { "type": "string", "description": "Evaluator user UID" },
+        "assessorName": { "type": "string", "description": "Evaluator name" },
+        "assessorType": { "type": "string", "description": "GURU | KETUA | REKAN" },
+        "stage": { "type": "string", "description": "PERSIAPAN | PELAKSANAAN | PERTUNJUKAN | PASCA" },
+        "scores": { "type": "object", "description": "Criteria scores 1-4 scale" },
+        "totalScore": { "type": "number", "description": "Converted total score (0-100)" },
+        "comment": { "type": "string", "description": "Feedback comment (mandatory if score <= 2)" },
+        "isFinal": { "type": "boolean", "description": "Whether assessment is finalized" },
+        "createdAt": { "type": "string", "description": "Assessment creation date" },
+        "updatedAt": { "type": "string", "description": "Last edit date" }
+      },
+      "required": ["id", "classId", "studentId", "assessorId", "assessorType", "stage", "totalScore"]
+    },
+    "AttendanceSession": {
+      "title": "AttendanceSession",
+      "description": "Attendance roll call session created by authorized role",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Session ID" },
+        "title": { "type": "string", "description": "Session title" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "activityType": { "type": "string", "description": "Rapat | Latihan | Gladi | Pementasan | Evaluasi | Produksi | Fitting | Briefing" },
+        "date": { "type": "string", "description": "Session date" },
+        "startTime": { "type": "string", "description": "Start time" },
+        "endTime": { "type": "string", "description": "End time" },
+        "location": { "type": "string", "description": "Location venue" },
+        "targetScope": { "type": "string", "description": "SEMUA | DIVISI | PEMAIN_MUSIK | CUSTOM" },
+        "targetDivisionId": { "type": "string", "description": "Division ID if scope is DIVISI" },
+        "createdBy": { "type": "string", "description": "Creator user UID" },
+        "creatorRole": { "type": "string", "description": "Creator role" },
+        "creatorName": { "type": "string", "description": "Creator full name" },
+        "agenda": { "type": "string", "description": "Session agenda" },
+        "isOpen": { "type": "boolean", "description": "Whether session is currently accepting attendance" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "title", "classId", "activityType", "createdBy", "isOpen"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Student attendance entry for a session",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Record ID" },
+        "sessionId": { "type": "string", "description": "Attendance session ID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "studentId": { "type": "string", "description": "Student UID" },
+        "studentName": { "type": "string", "description": "Student name" },
+        "role": { "type": "string", "description": "Student role" },
+        "status": { "type": "string", "description": "Hadir | Izin | Sakit | Alpa" },
+        "note": { "type": "string", "description": "Optional excuse or note" },
+        "timestamp": { "type": "string", "description": "Check-in timestamp" }
+      },
+      "required": ["id", "sessionId", "studentId", "status"]
+    },
+    "Schedule": {
+      "title": "Schedule",
+      "description": "Master and division production calendar schedule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Schedule ID" },
+        "title": { "type": "string", "description": "Event title" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "type": { "type": "string", "description": "Rapat | Latihan | Gladi | Pementasan | Evaluasi | Produksi | Fitting | Briefing" },
+        "startAt": { "type": "string", "description": "Start datetime" },
+        "endAt": { "type": "string", "description": "End datetime" },
+        "location": { "type": "string", "description": "Venue / Room" },
+        "participants": { "type": "string", "description": "Scope of participants" },
+        "divisionId": { "type": "string", "description": "Division if internal" },
+        "pic": { "type": "string", "description": "Person in charge name" },
+        "description": { "type": "string", "description": "Schedule details" },
+        "createdBy": { "type": "string", "description": "Creator user UID" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "title", "classId", "type", "startAt", "endAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app notification for users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Notification ID" },
+        "userId": { "type": "string", "description": "Recipient user UID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "title": { "type": "string", "description": "Notification title" },
+        "message": { "type": "string", "description": "Notification message body" },
+        "category": { "type": "string", "description": "Tugas | Nilai | Pengumuman | Urgent | Reminder | Feedback | Sistem" },
+        "read": { "type": "boolean", "description": "Read status" },
+        "link": { "type": "string", "description": "Action link target" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["id", "userId", "title", "message", "category", "read"]
+    },
+    "Broadcast": {
+      "title": "Broadcast",
+      "description": "Mass announcement message sent to classes or roles",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Broadcast ID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "senderId": { "type": "string", "description": "Sender UID" },
+        "senderName": { "type": "string", "description": "Sender full name" },
+        "senderRole": { "type": "string", "description": "Sender role" },
+        "title": { "type": "string", "description": "Broadcast title" },
+        "content": { "type": "string", "description": "Broadcast content text" },
+        "target": { "type": "string", "description": "SEMUA | DIVISI | PERAN | CUSTOM" },
+        "targetDivision": { "type": "string", "description": "Target division name if applicable" },
+        "createdAt": { "type": "string", "description": "Sent timestamp" }
+      },
+      "required": ["id", "classId", "title", "content", "target", "senderId"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "Production files, scripts, proposals, finance logs, and media",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Document ID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "title": { "type": "string", "description": "Document title" },
+        "category": { "type": "string", "description": "Proposal | Surat Izin | Naskah Drama | Notulen Rapat | Dokumentasi | Laporan Keuangan | Laporan Divisi | LPJ" },
+        "fileUrl": { "type": "string", "description": "Download or view URL" },
+        "fileSize": { "type": "string", "description": "Formatted file size" },
+        "fileType": { "type": "string", "description": "MIME type or file extension" },
+        "uploadedBy": { "type": "string", "description": "Uploader UID" },
+        "uploaderName": { "type": "string", "description": "Uploader name" },
+        "createdAt": { "type": "string", "description": "Upload timestamp" }
+      },
+      "required": ["id", "classId", "title", "category", "fileUrl"]
+    },
+    "Complaint": {
+      "title": "Complaint",
+      "description": "Student complaint, issue report, or feedback to teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Complaint ID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "studentId": { "type": "string", "description": "Student UID" },
+        "studentName": { "type": "string", "description": "Student name (or Anonim)" },
+        "isAnonymous": { "type": "boolean", "description": "Whether name is hidden from peers" },
+        "title": { "type": "string", "description": "Complaint title" },
+        "description": { "type": "string", "description": "Detailed explanation" },
+        "category": { "type": "string", "description": "Akademik | Teknis | Sosial | Keamanan | Bullying | Lainnya" },
+        "status": { "type": "string", "description": "OPEN | IN_PROGRESS | RESOLVED | CLOSED" },
+        "teacherResponse": { "type": "string", "description": "Teacher response message" },
+        "createdAt": { "type": "string", "description": "Submission timestamp" },
+        "updatedAt": { "type": "string", "description": "Response timestamp" }
+      },
+      "required": ["id", "classId", "title", "description", "category", "status"]
+    },
+    "PromptBook": {
+      "title": "PromptBook",
+      "description": "Digital prompt book with 3x3 stage blocking and cues",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Prompt book ID" },
+        "classId": { "type": "string", "description": "Class ID" },
+        "scene": { "type": "string", "description": "Scene name or number" },
+        "gridPositions": { "type": "object", "description": "3x3 actor mapping" },
+        "notes": { "type": "string", "description": "Director notes" },
+        "cues": { "type": "string", "description": "Cue sheet notes" },
+        "updatedBy": { "type": "string", "description": "Assistant director UID" },
+        "updatedAt": { "type": "string", "description": "Update timestamp" }
+      },
+      "required": ["id", "classId", "scene"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System audit trail record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Log ID" },
+        "userId": { "type": "string", "description": "Actor UID" },
+        "userName": { "type": "string", "description": "Actor display name" },
+        "role": { "type": "string", "description": "Actor role" },
+        "action": { "type": "string", "description": "LOGIN | CREATE | UPDATE | DELETE | ASSESS | LOCK | SUBMIT" },
+        "targetType": { "type": "string", "description": "Entity category" },
+        "targetId": { "type": "string", "description": "Target record ID" },
+        "details": { "type": "string", "description": "Human readable action detail" },
+        "timestamp": { "type": "string", "description": "Event timestamp" }
+      },
+      "required": ["id", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/classes/{classId}": {
+      "schema": "Class",
+      "description": "School classes"
+    },
+    "/productions/{productionId}": {
+      "schema": "Production",
+      "description": "Theater productions per class"
+    },
+    "/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "Production tasks and checklists"
+    },
+    "/assessments/{assessmentId}": {
+      "schema": "Assessment",
+      "description": "Multi-evaluator assessment records"
+    },
+    "/attendanceSessions/{sessionId}": {
+      "schema": "AttendanceSession",
+      "description": "Attendance sessions"
+    },
+    "/attendanceRecords/{recordId}": {
+      "schema": "AttendanceRecord",
+      "description": "Individual attendance check-ins"
+    },
+    "/schedules/{scheduleId}": {
+      "schema": "Schedule",
+      "description": "Production master schedules"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/broadcasts/{broadcastId}": {
+      "schema": "Broadcast",
+      "description": "Broadcast announcements"
+    },
+    "/documents/{documentId}": {
+      "schema": "Document",
+      "description": "Production documents and archives"
+    },
+    "/complaints/{complaintId}": {
+      "schema": "Complaint",
+      "description": "Student complaints and teacher resolutions"
+    },
+    "/promptBooks/{promptBookId}": {
+      "schema": "PromptBook",
+      "description": "Stage blocking and prompt books"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "System activity audit logs"
+    }
+  }
+}
