@@ -1,18 +1,8 @@
 import React from 'react';
 import {
-  Award,
-  Calendar,
-  CheckSquare,
-  ClipboardList,
-  FileText,
-  HelpCircle,
-  Home,
-  MessageSquare,
-  Radio,
-  Settings,
-  Sparkles,
-  Users,
-  X
+  Award, Calendar, CheckSquare, ClipboardList, FileText,
+  HelpCircle, Home, MessageSquare, Radio, Settings,
+  Sparkles, Users, X, ShieldCheck, GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -26,9 +16,20 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isOpen, onClose }) => {
   const { user, isTeacher } = useAuth();
 
-  const navItems = [
+  const isAdminUser = user?.role === 'Admin' || user?.role === 'Super Admin';
+
+  // Menu khusus Administrator
+  const adminNavItems = [
+    { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck, badge: 'Kelola' },
+    { id: 'admin-guru', label: 'Manajemen Guru', icon: Users, badge: 'Akun' },
+    { id: 'admin-siswa', label: 'Manajemen Siswa', icon: GraduationCap, badge: 'Akun' },
+    { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings, badge: '' },
+  ];
+
+  // Menu Guru Pembina
+  const teacherNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
-    { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: isTeacher ? 'Multi-Penilai' : '' },
+    { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: 'Multi-Penilai' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
     { id: 'tugas', label: 'Checklist & Deadline', icon: CheckSquare, badge: '' },
@@ -41,37 +42,50 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings, badge: '' },
   ];
 
+  // Menu Siswa / Anggota
+  const studentNavItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
+    { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: '' },
+    { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
+    { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
+    { id: 'tugas', label: 'Checklist & Deadline', icon: CheckSquare, badge: '' },
+    { id: 'struktur', label: 'Struktur Kerabat', icon: Users, badge: '' },
+    { id: 'studio', label: 'Studio & Naskah', icon: Sparkles, badge: '' },
+    { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText, badge: '' },
+    { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare, badge: '' },
+    { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle, badge: '' },
+    { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings, badge: '' },
+  ];
+
+  const navItems = isAdminUser ? adminNavItems : isTeacher ? teacherNavItems : studentNavItems;
+
   return (
     <>
-      {/* Mobile backdrop */}
       {isOpen && (
         <div
           onClick={onClose}
-          className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs z-40 lg:hidden"
+          className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden"
         />
       )}
 
-      {/* Sidebar container */}
       <aside
         className={`fixed top-0 bottom-0 left-0 z-40 w-64 bg-white border-r border-slate-200/80 transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
         <div className="flex flex-col h-full">
-          
-          {/* Header inside mobile drawer */}
           <div className="p-4 flex items-center justify-between border-b border-slate-100 lg:hidden">
             <span className="font-extrabold text-base text-amber-600">Menu Navigasi</span>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-lg text-slate-500 hover:bg-slate-100"
-            >
+            <button onClick={onClose} className="p-1 rounded-lg text-slate-500 hover:bg-slate-100">
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* User miniature banner */}
-          <div className="p-4 m-3 rounded-2xl bg-linear-to-br from-slate-900 to-slate-800 text-white shadow-md">
+          <div className={`p-4 m-3 rounded-2xl text-white shadow-md ${
+            isAdminUser
+              ? 'bg-gradient-to-br from-blue-900 to-blue-800'
+              : 'bg-gradient-to-br from-slate-900 to-slate-800'
+          }`}>
             <div className="flex items-center gap-3">
               {user?.photoURL ? (
                 <img
@@ -86,19 +100,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
               )}
               <div className="overflow-hidden">
                 <p className="text-xs font-bold truncate text-white">{user?.displayName || 'Pengguna'}</p>
-                <span className="inline-block text-[10px] font-semibold px-2 py-0.5 mt-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30">
+                <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 mt-0.5 rounded-full border ${
+                  isAdminUser
+                    ? 'bg-blue-400/20 text-blue-200 border-blue-400/30'
+                    : 'bg-amber-400/20 text-amber-300 border-amber-400/30'
+                }`}>
                   {user?.role || 'Siswa'}
                 </span>
               </div>
             </div>
-            {user?.divisionName && (
+            {!isAdminUser && user?.divisionName && (
               <p className="text-[10px] text-slate-400 mt-2 truncate font-medium">
                 Divisi: <span className="text-slate-200">{user.divisionName}</span>
               </p>
             )}
+            {isAdminUser && (
+              <p className="text-[10px] text-blue-200 mt-2 font-medium">
+                Panel Administrator Sistem
+              </p>
+            )}
           </div>
 
-          {/* Nav links */}
           <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto">
             {navItems.map(item => {
               const Icon = item.icon;
@@ -107,29 +129,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
               return (
                 <button
                   key={item.id}
-                  onClick={() => {
-                    onNavigate(item.id);
-                    onClose();
-                  }}
+                  onClick={() => { onNavigate(item.id); onClose(); }}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${
                     isActive
-                      ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
+                      ? isAdminUser
+                        ? 'bg-blue-600 text-white font-bold shadow-sm'
+                        : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100/80'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Icon className={`w-4 h-4 ${isActive ? 'text-slate-950' : 'text-slate-500'}`} />
+                    <Icon className={`w-4 h-4 ${isActive ? (isAdminUser ? 'text-white' : 'text-slate-950') : 'text-slate-500'}`} />
                     <span>{item.label}</span>
                   </div>
-
                   {item.badge && (
-                    <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
-                        isActive
-                          ? 'bg-slate-950 text-amber-300'
-                          : 'bg-slate-100 text-slate-600 border border-slate-200'
-                      }`}
-                    >
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
+                      isActive
+                        ? isAdminUser
+                          ? 'bg-white text-blue-700'
+                          : 'bg-slate-950 text-amber-300'
+                        : 'bg-slate-100 text-slate-600 border border-slate-200'
+                    }`}>
                       {item.badge}
                     </span>
                   )}
@@ -138,13 +158,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
             })}
           </nav>
 
-          {/* Footer note */}
           <div className="p-3 border-t border-slate-100 text-center">
             <p className="text-[10px] font-semibold text-slate-400">
               SP-PPT © 2026 SMPN 10 Samarinda
             </p>
           </div>
-
         </div>
       </aside>
     </>
