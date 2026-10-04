@@ -1,5 +1,7 @@
 import { DivisionType, ProductionStage, UserRole } from './types';
-
+// Kode undangan registrasi Guru pengampu.
+// GANTI kode ini dan simpan sebagai rahasia internal sekolah.
+export const TEACHER_INVITE_CODE = 'GURU-SPPPT-2025';
 export const APP_CONFIG = {
   appName: 'SP-PPT',
   schoolName: 'SMP Negeri 10 Samarinda',
