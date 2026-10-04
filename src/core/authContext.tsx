@@ -19,7 +19,7 @@ interface AuthContextType {
   activeClass: ClassRoom | null;
   classes: ClassRoom[];
   setActiveClass: (c: ClassRoom) => void;
-  loginWithEmail: (email: string, pass: string) => Promise<{ ok: boolean; message?: string }>;
+  loginWithEmail: (email: string, pass: string) => Promise<{ ok: boolean; message?: string; role?: string }>;
   registerUser: (data: {
     classCode: string;
     displayName: string;
@@ -120,7 +120,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user?.classId, classes]);
 
-  const loginWithEmail = async (email: string, pass: string): Promise<{ ok: boolean; message?: string }> => {
+  const loginWithEmail = async (email: string, pass: string): Promise<{ ok: boolean; message?: string; role?: string }> => {
     setLoading(true);
     try {
       const clean = email.trim();
@@ -150,7 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         targetId: profile.uid,
         details: `Login sebagai ${profile.role}`,
       });
-      return { ok: true };
+      return { ok: true, role: profile.role };
     } catch (err: any) {
       const code = err?.code || '';
       let message = 'Email atau password salah.';
