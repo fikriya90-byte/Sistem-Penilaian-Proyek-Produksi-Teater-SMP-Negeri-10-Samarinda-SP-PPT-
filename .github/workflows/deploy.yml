@@ -26,10 +26,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: '20'
+          # ⛔ CATATAN: opsi `cache: 'npm'` SENGAJA TIDAK DIPAKAI
+          # karena repo ini tidak menyimpan package-lock.json.
+          # Jika nanti kamu commit package-lock.json, baru aktifkan:
+          # cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install --legacy-peer-deps
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify Build Environment
+        run: |
+          node -v
+          npm -v
+          echo "Vite + React build starting..."
 
       - name: Build Web Application
         run: npm run build
