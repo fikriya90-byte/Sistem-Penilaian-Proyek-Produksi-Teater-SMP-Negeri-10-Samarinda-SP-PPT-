@@ -445,7 +445,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                     required
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    placeholder="Contoh: Ahmad Fauzi, S.Pd."
+                    placeholder="Contoh: Aceng Prangat, S.Sn. M.Hum."
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
                   />
                 </div>
