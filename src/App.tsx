@@ -50,14 +50,16 @@ const MainLayout: React.FC = () => {
     if (isAdminUser) {
       switch (currentModule) {
         case 'admin-dashboard':
-        case 'admin-guru':
-        case 'admin-siswa':
         case 'dashboard':
-          return <AdminModule />;
+          return <AdminModule defaultTab="guru" />;
+        case 'admin-guru':
+          return <AdminModule defaultTab="guru" />;
+        case 'admin-siswa':
+          return <AdminModule defaultTab="siswa" />;
         case 'pengaturan':
           return <SettingsModule />;
         default:
-          return <AdminModule />;
+          return <AdminModule defaultTab="guru" />;
       }
     }
 
