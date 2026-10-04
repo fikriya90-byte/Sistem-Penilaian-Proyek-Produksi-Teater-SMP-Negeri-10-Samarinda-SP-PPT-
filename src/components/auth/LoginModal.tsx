@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import {
-  Eye, EyeOff, Lock, LogIn, Mail, Phone, ShieldCheck, UserPlus, Users,
+  Eye, EyeOff, Lock, LogIn, Mail, Phone, ShieldCheck, UserPlus,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { APP_CONFIG } from '../../core/constants';
 import { UserRole } from '../../core/types';
 import { useToast } from '../common/Toast';
 
+type LoginTab = 'siswa' | 'guru' | 'admin';
+
 export const LoginModal: React.FC = () => {
   const { classes, loginWithEmail, registerUser } = useAuth();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'siswa' | 'guru'>('siswa');
+  const [activeTab, setActiveTab] = useState<LoginTab>('siswa');
   const [isRegistering, setIsRegistering] = useState(false);
   const [isTeacherMode, setIsTeacherMode] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -31,6 +33,14 @@ export const LoginModal: React.FC = () => {
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
   const [regRole, setRegRole] = useState<UserRole>('Pemain');
   const [submitting, setSubmitting] = useState(false);
+
+  // Reset form saat pindah tab
+  const handleTabChange = (tab: LoginTab) => {
+    setActiveTab(tab);
+    setEmail('');
+    setPassword('');
+    setShowPassword(false);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,6 +112,25 @@ export const LoginModal: React.FC = () => {
     }
   };
 
+  // Konfigurasi visual per tab
+  const tabConfig = {
+    siswa: {
+      label: '🎭 Siswa',
+      title: 'Email Siswa',
+      activeClass: 'bg-white text-slate-900 shadow-sm',
+    },
+    guru: {
+      label: '👨‍🏫 Guru',
+      title: 'Email Guru',
+      activeClass: 'bg-white text-amber-800 shadow-sm',
+    },
+    admin: {
+      label: '🛡️ Admin',
+      title: 'Email Administrator',
+      activeClass: 'bg-white text-blue-800 shadow-sm',
+    },
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto bg-slate-950/80 backdrop-blur-md"
@@ -127,24 +156,35 @@ export const LoginModal: React.FC = () => {
           </p>
         </div>
 
-        {/* Tab Login */}
+        {/* Tab Login: Siswa / Guru / Admin */}
         {!isRegistering && (
-          <div className="grid grid-cols-2 p-1.5 m-4 bg-slate-100 rounded-2xl text-xs font-bold text-slate-600">
+          <div className="grid grid-cols-3 p-1.5 m-4 bg-slate-100 rounded-2xl text-xs font-bold text-slate-600">
             <button
-              onClick={() => setActiveTab('siswa')}
+              type="button"
+              onClick={() => handleTabChange('siswa')}
               className={`py-2 rounded-xl transition ${
-                activeTab === 'siswa' ? 'bg-white text-slate-900 shadow-sm' : 'hover:text-slate-900'
+                activeTab === 'siswa' ? tabConfig.siswa.activeClass : 'hover:text-slate-900'
               }`}
             >
-              🎭 Siswa
+              {tabConfig.siswa.label}
             </button>
             <button
-              onClick={() => setActiveTab('guru')}
+              type="button"
+              onClick={() => handleTabChange('guru')}
               className={`py-2 rounded-xl transition ${
-                activeTab === 'guru' ? 'bg-white text-amber-800 shadow-sm' : 'hover:text-slate-900'
+                activeTab === 'guru' ? tabConfig.guru.activeClass : 'hover:text-slate-900'
               }`}
             >
-              👨‍🏫 Guru
+              {tabConfig.guru.label}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabChange('admin')}
+              className={`py-2 rounded-xl transition ${
+                activeTab === 'admin' ? tabConfig.admin.activeClass : 'hover:text-slate-900'
+              }`}
+            >
+              {tabConfig.admin.label}
             </button>
           </div>
         )}
@@ -152,19 +192,21 @@ export const LoginModal: React.FC = () => {
         <div className="p-6 pt-2">
           {!isRegistering ? (
             /* ============ LOGIN FORM ============ */
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  {activeTab === 'guru' ? 'Email Guru' : 'Email Siswa'}
+                  {tabConfig[activeTab].title}
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 absolute left-3.5 top-3.5 text-slate-400" />
                   <input
                     type="email"
                     required
+                    name="spppt_email_field"
+                    autoComplete="off"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder={activeTab === 'guru' ? 'nama.guru@smpn10.sch.id' : 'nama.siswa@smpn10.sch.id'}
+                    placeholder="Ketik email Anda"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                   />
                 </div>
@@ -175,7 +217,7 @@ export const LoginModal: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700">Kata Sandi</label>
                   <button
                     type="button"
-                    onClick={() => showToast('Hubungi Guru Pembina untuk reset password.', 'info')}
+                    onClick={() => showToast('Hubungi Guru Pembina / Admin untuk reset password.', 'info')}
                     className="text-[11px] font-semibold text-amber-600 hover:text-amber-700"
                   >
                     Lupa Password?
@@ -186,9 +228,11 @@ export const LoginModal: React.FC = () => {
                   <input
                     type={showPassword ? 'text' : 'password'}
                     required
+                    name="spppt_password_field"
+                    autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
+                    placeholder="Ketik kata sandi Anda"
                     className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                   />
                   <button
@@ -216,36 +260,59 @@ export const LoginModal: React.FC = () => {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
+                className={`w-full py-3 px-4 rounded-xl font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50 ${
+                  activeTab === 'admin'
+                    ? 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white'
+                    : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950'
+                }`}
               >
                 <LogIn className="w-4 h-4" />
-                <span>{submitting ? 'Memproses...' : `Masuk Sebagai ${activeTab === 'guru' ? 'Guru' : 'Siswa'}`}</span>
+                <span>
+                  {submitting
+                    ? 'Memproses...'
+                    : `Masuk Sebagai ${
+                        activeTab === 'siswa' ? 'Siswa' : activeTab === 'guru' ? 'Guru' : 'Administrator'
+                      }`}
+                </span>
               </button>
 
-              <div className="text-center pt-2 border-t border-slate-100">
-                <p className="text-xs text-slate-500">
-                  Belum memiliki akun?{' '}
-                  <button
-                    type="button"
-                    onClick={() => { setIsRegistering(true); setIsTeacherMode(false); }}
-                    className="font-bold text-amber-600 hover:text-amber-700"
-                  >
-                    Daftar Siswa
-                  </button>
-                  {' • '}
-                  <button
-                    type="button"
-                    onClick={() => { setIsRegistering(true); setIsTeacherMode(true); }}
-                    className="font-bold text-blue-600 hover:text-blue-700"
-                  >
-                    Daftar Guru
-                  </button>
-                </p>
-              </div>
+              {/* Info tambahan & Registrasi */}
+              {activeTab !== 'admin' && (
+                <div className="text-center pt-2 border-t border-slate-100">
+                  <p className="text-xs text-slate-500">
+                    Belum memiliki akun?{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setIsRegistering(true); setIsTeacherMode(false); }}
+                      className="font-bold text-amber-600 hover:text-amber-700"
+                    >
+                      Daftar Siswa
+                    </button>
+                    {' • '}
+                    <button
+                      type="button"
+                      onClick={() => { setIsRegistering(true); setIsTeacherMode(true); }}
+                      className="font-bold text-blue-600 hover:text-blue-700"
+                    >
+                      Daftar Guru
+                    </button>
+                  </p>
+                </div>
+              )}
+
+              {activeTab === 'admin' && (
+                <div className="text-center pt-2 border-t border-slate-100">
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    Akun Administrator dibuat manual oleh pihak sekolah.
+                    <br />
+                    Hubungi pengelola sistem jika membutuhkan akses.
+                  </p>
+                </div>
+              )}
             </form>
           ) : (
             /* ============ REGISTER FORM ============ */
-            <form onSubmit={handleRegister} className="space-y-3">
+            <form onSubmit={handleRegister} className="space-y-3" autoComplete="off">
               <div className="flex items-center justify-between pb-1 border-b border-slate-100">
                 <span className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
                   <UserPlus className="w-4 h-4 text-amber-500" />
@@ -260,7 +327,7 @@ export const LoginModal: React.FC = () => {
                 </button>
               </div>
 
-              {/* Toggle mode */}
+              {/* Toggle mode Guru / Siswa */}
               <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-xl text-xs font-bold">
                 <button
                   type="button"
@@ -290,9 +357,10 @@ export const LoginModal: React.FC = () => {
                   <input
                     type="text"
                     required
+                    autoComplete="off"
                     value={regClassCode}
                     onChange={(e) => setRegClassCode(e.target.value)}
-                    placeholder="Contoh: IXC-8912"
+                    placeholder="Ketik kode kelas dari guru Anda"
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 uppercase"
                   />
                   <p className="text-[10px] text-slate-400 mt-0.5">Dapatkan kode dari guru seni teater Anda.</p>
@@ -308,9 +376,10 @@ export const LoginModal: React.FC = () => {
                   <input
                     type="text"
                     required
+                    autoComplete="off"
                     value={regTeacherCode}
                     onChange={(e) => setRegTeacherCode(e.target.value)}
-                    placeholder="Kode khusus dari admin sekolah"
+                    placeholder="Ketik kode undangan khusus guru"
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 uppercase"
                   />
                   <p className="text-[10px] text-slate-400 mt-0.5">
@@ -326,9 +395,10 @@ export const LoginModal: React.FC = () => {
                 <input
                   type="text"
                   required
+                  autoComplete="off"
                   value={regName}
                   onChange={(e) => setRegName(e.target.value)}
-                  placeholder="Nama sesuai akta / NIP"
+                  placeholder="Ketik nama lengkap Anda"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
                 />
               </div>
@@ -341,9 +411,10 @@ export const LoginModal: React.FC = () => {
                   <input
                     type="email"
                     required
+                    autoComplete="off"
                     value={regEmail}
                     onChange={(e) => setRegEmail(e.target.value)}
-                    placeholder="email@contoh.com"
+                    placeholder="Ketik email Anda"
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
                   />
                 </div>
@@ -351,9 +422,10 @@ export const LoginModal: React.FC = () => {
                   <label className="block text-[11px] font-bold text-slate-700 mb-0.5">No. WhatsApp</label>
                   <input
                     type="tel"
+                    autoComplete="off"
                     value={regPhone}
                     onChange={(e) => setRegPhone(e.target.value)}
-                    placeholder="0812..."
+                    placeholder="Opsional"
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
                   />
                 </div>
@@ -367,6 +439,7 @@ export const LoginModal: React.FC = () => {
                   <input
                     type="password"
                     required
+                    autoComplete="new-password"
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
                     placeholder="Min 6 karakter"
@@ -380,9 +453,10 @@ export const LoginModal: React.FC = () => {
                   <input
                     type="password"
                     required
+                    autoComplete="new-password"
                     value={regConfirmPassword}
                     onChange={(e) => setRegConfirmPassword(e.target.value)}
-                    placeholder="Konfirmasi sandi"
+                    placeholder="Ketik ulang sandi"
                     className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
                   />
                 </div>
@@ -416,7 +490,13 @@ export const LoginModal: React.FC = () => {
                 className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-sm shadow-md transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <UserPlus className="w-4 h-4" />
-                <span>{submitting ? 'Memproses...' : (isTeacherMode ? 'Daftar Sebagai Guru' : 'Daftarkan Akun Siswa')}</span>
+                <span>
+                  {submitting
+                    ? 'Memproses...'
+                    : isTeacherMode
+                    ? 'Daftar Sebagai Guru'
+                    : 'Daftarkan Akun Siswa'}
+                </span>
               </button>
             </form>
           )}
