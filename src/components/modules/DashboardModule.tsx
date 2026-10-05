@@ -379,7 +379,26 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           />
         </div>
       </div>
-
+{/* WIDGET PROGRESS TUGAS */}
+<div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shadow-lg">
+  <div className="flex items-center justify-between mb-2">
+    <div className="flex items-center gap-2">
+      <TrendingUp className="w-5 h-5" />
+      <span className="text-sm font-bold">Progress Tugas Saya</span>
+    </div>
+    <span className="text-2xl font-black">
+      {tasks.length > 0 ? Math.round((tasks.filter((t: any) => t.status === 'APPROVED').length / tasks.length) * 100) : 0}%
+    </span>
+  </div>
+  <div className="w-full bg-white/20 rounded-full h-2.5 overflow-hidden">
+    <div className="h-full bg-white rounded-full transition-all"
+      style={{ width: `${tasks.length > 0 ? Math.round((tasks.filter((t: any) => t.status === 'APPROVED').length / tasks.length) * 100) : 0}%` }} />
+  </div>
+  <button onClick={() => onNavigate('tugas')}
+    className="mt-3 w-full py-2 rounded-xl bg-white/20 hover:bg-white/30 font-bold text-xs">
+    Lihat Detail Tugas →
+  </button>
+</div>
       {/* Aksi Cepat */}
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Sparkles} title="Aksi Cepat" />
