@@ -3,7 +3,7 @@ import {
   Award, BarChart3, Bell, Calendar, CheckSquare, ClipboardList,
   Database, FileText, HelpCircle, MessageSquare, Music, Activity,
   Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
-  Star, Timer, Users, Wallet, X, Megaphone, Camera, Film,
+  Star, Users, Wallet, X, Megaphone, Camera, Film,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -19,7 +19,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
   const role = user?.role || '';
 
   const buildMenu = () => {
-    // ADMIN
+    // ============ ADMIN ============
     if (isAdminRole) return [
       { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck },
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -33,7 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
     ];
 
-    // GURU
+    // ============ GURU ============
     if (isGuruPengampu) return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
@@ -42,12 +42,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       { id: 'master-timeline', label: 'Master Timeline', icon: Film },
       { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
       { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-      { id: 'deadline', label: 'Kirim Deadline', icon: Timer },
+      { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
       { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
       { id: 'statistik-absensi', label: 'Statistik Presensi', icon: BarChart3 },
       { id: 'absensi', label: 'Presensi', icon: ClipboardList },
       { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-      { id: 'tugas', label: 'Checklist Tugas', icon: CheckSquare },
       { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
       { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
       { id: 'broadcast', label: 'Broadcast', icon: Radio },
@@ -58,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
     ];
 
-    // KOORDINATOR
+    // ============ KOORDINATOR ============
     if (role.startsWith('Koordinator ')) {
       const base = [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -68,11 +67,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
         { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
         { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
         { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
         { id: 'nilai', label: 'Nilai Anggota', icon: Award },
         { id: 'absensi', label: 'Absensi Divisi', icon: ClipboardList },
         { id: 'jadwal', label: 'Jadwal Internal', icon: Calendar },
-        { id: 'tugas', label: 'Tugas Divisi', icon: CheckSquare },
-        { id: 'deadline', label: 'Kirim Deadline', icon: Timer },
         { id: 'broadcast', label: 'Broadcast Divisi', icon: Radio },
       ];
       const specific: Record<string, any[]> = {
@@ -94,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       return [...base, ...extras, ...tail];
     }
 
-    // ANGGOTA
+    // ============ ANGGOTA ============
     if (role.startsWith('Anggota ')) {
       const specific: Record<string, any[]> = {
         'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
@@ -111,8 +109,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
         { id: 'master-timeline', label: 'Master Timeline', icon: Film },
         { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
         { id: 'division-schedule', label: 'Jadwal Divisi Saya', icon: Users },
-        { id: 'tugas', label: 'Tugas Saya', icon: CheckSquare },
-        { id: 'deadline', label: 'Deadline Saya', icon: Timer },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
         { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
         { id: 'nilai', label: 'Nilai Rekan', icon: Star },
         ...extras,
@@ -127,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // PEMAIN
+    // ============ PEMAIN ============
     if (role === 'Pemain') return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
@@ -136,8 +133,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
       { id: 'studio', label: 'Naskah & Blocking', icon: Sparkles },
       { id: 'jadwal', label: 'Jadwal Latihan', icon: Calendar },
-      { id: 'tugas', label: 'Tugas Saya', icon: CheckSquare },
-      { id: 'deadline', label: 'Deadline Saya', icon: Timer },
+      { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
       { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
       { id: 'nilai', label: 'Nilai Rekan', icon: Star },
       { id: 'absensi', label: 'Presensi', icon: ClipboardList },
@@ -148,7 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
     ];
 
-    // PENGURUS INTI (Pimprod/Sekretaris/Bendahara/Sutradara/Asisten)
+    // ============ PENGURUS INTI ============
     if (['Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -158,11 +154,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
         { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
         { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
         { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
         { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-        { id: 'deadline', label: 'Kirim Deadline', icon: Timer },
         { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
         { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-        { id: 'tugas', label: 'Checklist Tugas', icon: CheckSquare },
         { id: 'kas', label: 'Kas Produksi', icon: Wallet },
         { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
         { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
@@ -174,17 +169,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // DEFAULT
+    // ============ DEFAULT ============
     return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
       { id: 'master-timeline', label: 'Master Timeline', icon: Film },
       { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
+      { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
       { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-      { id: 'deadline', label: 'Deadline', icon: Timer },
       { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
       { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-      { id: 'tugas', label: 'Checklist Tugas', icon: CheckSquare },
       { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
       { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
       { id: 'broadcast', label: 'Broadcast', icon: Radio },
