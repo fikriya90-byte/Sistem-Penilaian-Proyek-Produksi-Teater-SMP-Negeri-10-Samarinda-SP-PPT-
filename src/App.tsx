@@ -35,6 +35,7 @@ import { MusicCueModule } from './components/modules/MusicCueModule';
 import { FaceChartModule } from './components/modules/FaceChartModule';
 import { CostumeModule } from './components/modules/CostumeModule';
 import { BackupModule } from './components/modules/BackupModule';
+import { ThemeProvider } from './core/themeContext';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
