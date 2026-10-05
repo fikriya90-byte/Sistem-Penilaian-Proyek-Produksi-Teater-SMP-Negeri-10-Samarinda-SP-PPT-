@@ -589,10 +589,6 @@ export async function recordAuditLog(
 // NOTIFIKASI OTOMATIS UNTUK GURU
 // ==========================================
 
-/**
- * Kirim notifikasi ke semua guru pengampu di kelas tertentu.
- * Dipanggil saat siswa melakukan aksi penting (submit tugas, isi presensi, dll).
- */
 export async function notifyTeachers(
   classId: string,
   notif: {
@@ -604,7 +600,6 @@ export async function notifyTeachers(
   }
 ): Promise<void> {
   try {
-    // Cari semua user dengan role guru di kelas ini
     const q = query(
       collection(db, 'users'),
       where('role', 'in', ['Guru Pengampu', 'Guru Pembina'])
