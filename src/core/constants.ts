@@ -92,3 +92,45 @@ export const DIALOG_PRACTICE_STEPS = [
   { step: 9, title: 'Latihan Imajinasi Sensoris', tip: 'Bayangkan suasana ruang, aroma, suhu, dan tekanan situasi dramatis di sekeliling panggung.' },
   { step: 10, title: 'Pementasan Ulang Lengkap', tip: 'Lakukan run-through utuh adegan dengan kostum, properti, dan blocking panggung teruji.' },
 ];
+// ==========================================
+// MAPPING ROLE → DIVISI OTOMATIS
+// ==========================================
+export const ROLE_TO_DIVISION: Record<string, { id: string; name: DivisionType }> = {
+  // Pengurus Inti
+  'Pimpinan Produksi': { id: 'div-inti', name: 'Pengurus Inti' },
+  'Sekretaris': { id: 'div-inti', name: 'Pengurus Inti' },
+  'Bendahara': { id: 'div-inti', name: 'Pengurus Inti' },
+
+  // Pemeran
+  'Sutradara': { id: 'div-pemain', name: 'Pemeran' },
+  'Asisten Sutradara': { id: 'div-pemain', name: 'Pemeran' },
+  'Pemain': { id: 'div-pemain', name: 'Pemeran' },
+
+  // Perlengkapan
+  'Koordinator Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
+  'Anggota Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
+
+  // Publikasi
+  'Koordinator Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
+  'Anggota Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
+
+  // Tata Panggung
+  'Koordinator Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
+  'Anggota Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
+
+  // Tata Rias
+  'Koordinator Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
+  'Anggota Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
+
+  // Tata Busana
+  'Koordinator Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
+  'Anggota Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
+
+  // Tata Musik
+  'Koordinator Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
+  'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
+};
+
+export function getDivisionFromRole(role: string): { id: string; name: DivisionType } {
+  return ROLE_TO_DIVISION[role] || { id: '', name: 'Pemeran' };
+}
