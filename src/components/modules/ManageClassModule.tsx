@@ -19,15 +19,24 @@ export const ManageClassModule: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Form
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
   const [formKerabat, setFormKerabat] = useState('');
 
+  const generateCode = () => {
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let a = '';
+    for (let i = 0; i < 4; i++) a += chars.charAt(Math.floor(Math.random() * chars.length));
+    let b = '';
+    for (let i = 0; i < 4; i++) b += chars.charAt(Math.floor(Math.random() * chars.length));
+    const prefix = formName.trim().slice(0, 3).toUpperCase() || 'KLS';
+    return `${prefix}-${a}${b}`.slice(0, 12);
+  };
+
   const openCreate = () => {
     setEditingClass(null);
     setFormName('');
-    setFormCode(generateCode());
+    setFormCode('');
     setFormKerabat('');
     setIsModalOpen(true);
   };
@@ -40,13 +49,6 @@ export const ManageClassModule: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  const generateCode = () => {
-    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    let a = ''; for (let i = 0; i < 4; i++) a += chars.charAt(Math.floor(Math.random() * chars.length));
-    let b = ''; for (let i = 0; i < 4; i++) b += chars.charAt(Math.floor(Math.random() * chars.length));
-    return `IX${a.charAt(0)}-${a}${b}`.slice(0, 14);
-  };
-
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -57,7 +59,10 @@ export const ManageClassModule: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const classId = editingClass ? editingClass.id : `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const classId = editingClass
+        ? editingClass.id
+        : `id_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
       const newClass: ClassRoom = {
         id: classId,
         name: formName.trim().toUpperCase(),
@@ -92,14 +97,13 @@ export const ManageClassModule: React.FC = () => {
   };
 
   const handleDelete = async (c: ClassRoom) => {
-    if (!confirm(`Hapus kelas ${c.name}?\n\nAkun siswa yang sudah terdaftar di kelas ini TIDAK terhapus, tapi mereka tidak akan bisa akses sampai didaftarkan ke kelas baru.`)) return;
+    if (!confirm(`Hapus kelas ${c.name}?`)) return;
 
     try {
-      // Cek jumlah siswa di kelas
       const q = query(collection(db, 'users'), where('classId', '==', c.id));
       const snap = await getDocs(q);
       if (snap.size > 0) {
-        if (!confirm(`Kelas ini memiliki ${snap.size} siswa terdaftar. Tetap hapus kelas?`)) return;
+        if (!confirm(`Kelas ini memiliki ${snap.size} siswa terdaftar. Tetap hapus?`)) return;
       }
 
       await deleteDoc(doc(db, 'classes', c.id));
@@ -140,7 +144,6 @@ export const ManageClassModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl border border-amber-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -151,9 +154,7 @@ export const ManageClassModule: React.FC = () => {
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
                 Manajemen Kelas
               </span>
-              <h2 className="text-xl font-black text-white mt-1">
-                Kelola Kelas & Kode Pendaftaran
-              </h2>
+              <h2 className="text-xl font-black text-white mt-1">Kelola Kelas & Kode Pendaftaran</h2>
               <p className="text-xs text-slate-300 mt-0.5">
                 Buat, edit, dan kelola kelas produksi teater beserta kode untuk siswa
               </p>
@@ -168,7 +169,6 @@ export const ManageClassModule: React.FC = () => {
         </div>
       </div>
 
-      {/* Action Bar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
           <Users className="w-4 h-4 text-amber-600" />
@@ -181,7 +181,6 @@ export const ManageClassModule: React.FC = () => {
         </button>
       </div>
 
-      {/* Grid Kelas */}
       {classes.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
           <BookOpen className="w-12 h-12 mx-auto text-slate-300 mb-3" />
@@ -219,12 +218,8 @@ export const ManageClassModule: React.FC = () => {
                 </div>
               </div>
 
-              <h3 className="text-lg font-black text-slate-900 tracking-tight">
-                {c.name}
-              </h3>
-              <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                T.A. {c.academicYear}
-              </p>
+              <h3 className="text-lg font-black text-slate-900 tracking-tight">{c.name}</h3>
+              <p className="text-[11px] text-slate-500 font-medium mt-0.5">T.A. {c.academicYear}</p>
 
               {c.kerabatKerja && (
                 <div className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-600">
@@ -260,17 +255,14 @@ export const ManageClassModule: React.FC = () => {
         </div>
       )}
 
-      {/* Info Box */}
       <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 flex items-start gap-3">
         <AlertTriangle className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
         <div className="text-xs text-blue-900 leading-relaxed">
           <strong>Bagikan kode kelas</strong> ke siswa agar mereka bisa mendaftar.
-          Setiap kelas punya kode unik. Menghapus kelas tidak menghapus akun siswa,
-          tetapi mereka perlu didaftarkan ulang ke kelas lain.
+          Setiap kelas punya kode unik. Menghapus kelas tidak menghapus akun siswa.
         </div>
       </div>
 
-      {/* Modal Form Kelas */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6">
@@ -310,9 +302,7 @@ export const ManageClassModule: React.FC = () => {
                     Acak
                   </button>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  Kode ini dibagikan ke siswa untuk mendaftar.
-                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5">Kode ini dibagikan ke siswa untuk mendaftar.</p>
               </div>
 
               <div>
