@@ -8,7 +8,8 @@ import {
   query,
   setDoc,
   updateDoc,
-  where
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../core/firebase';
 import {
@@ -582,5 +583,54 @@ export async function recordAuditLog(
     });
   } catch (error) {
     console.warn('Non-fatal audit log write error:', error);
+  }
+}
+// ==========================================
+// NOTIFIKASI OTOMATIS UNTUK GURU
+// ==========================================
+
+/**
+ * Kirim notifikasi ke semua guru pengampu di kelas tertentu.
+ * Dipanggil saat siswa melakukan aksi penting (submit tugas, isi presensi, dll).
+ */
+export async function notifyTeachers(
+  classId: string,
+  notif: {
+    title: string;
+    message: string;
+    category: SystemNotification['category'];
+    link?: string;
+    senderName?: string;
+  }
+): Promise<void> {
+  try {
+    // Cari semua user dengan role guru di kelas ini
+    const q = query(
+      collection(db, 'users'),
+      where('role', 'in', ['Guru Pengampu', 'Guru Pembina'])
+    );
+    const snap = await getDocs(q);
+
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+
+    snap.docs.forEach(d => {
+      const notifRef = doc(collection(db, 'notifications'));
+      batch.set(notifRef, {
+        id: notifRef.id,
+        userId: d.id,
+        classId,
+        title: notif.title,
+        message: notif.message,
+        category: notif.category,
+        read: false,
+        link: notif.link || '',
+        createdAt: now,
+      });
+    });
+
+    await batch.commit();
+  } catch (err) {
+    console.warn('Non-fatal notify teachers error:', err);
   }
 }
