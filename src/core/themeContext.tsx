@@ -12,65 +12,77 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = 'spppt-theme';
 
-function getInitialTheme(): ThemeMode {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
-  } catch (_) {}
-  return 'auto'; // DEFAULT AUTO → ikut device
+// Helper: safe localStorage
+function safeGet(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function safeSet(key: string, val: string) {
+  try { localStorage.setItem(key, val); } catch { /* ignore */ }
 }
 
-function getSystemDark(): boolean {
+// Helper: device prefers dark?
+function systemPrefersDark(): boolean {
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  } catch (_) {
+  } catch {
     return false;
   }
 }
 
-function applyTheme(mode: 'light' | 'dark') {
+// Helper: apply class ke <html>
+function applyHtmlClass(isDark: boolean) {
   try {
     const root = document.documentElement;
-    root.setAttribute('data-theme', mode);
-    root.style.colorScheme = mode;
-    if (mode === 'dark') {
+    if (isDark) {
       root.classList.add('dark');
+      root.style.colorScheme = 'dark';
     } else {
       root.classList.remove('dark');
+      root.style.colorScheme = 'light';
     }
-  } catch (_) {}
+  } catch { /* ignore */ }
+}
+
+// Ambil mode awal — DEFAULT = 'auto'
+function getInitialTheme(): ThemeMode {
+  const saved = safeGet(STORAGE_KEY);
+  if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
+  return 'auto';
 }
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<ThemeMode>(getInitialTheme);
-  const [systemDark, setSystemDark] = useState<boolean>(getSystemDark);
+  const [systemDark, setSystemDark] = useState<boolean>(systemPrefersDark);
 
-  // Watch device setting
+  // Listen perubahan setting OS
   useEffect(() => {
     try {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+      const handler = (e: MediaQueryListEvent) => {
+        setSystemDark(e.matches);
+      };
       if (mq.addEventListener) {
         mq.addEventListener('change', handler);
         return () => mq.removeEventListener('change', handler);
-      } else if (mq.addListener) {
-        mq.addListener(handler);
-        return () => mq.removeListener(handler);
+      } else if ((mq as any).addListener) {
+        // Fallback browser lama
+        (mq as any).addListener(handler);
+        return () => (mq as any).removeListener(handler);
       }
-    } catch (_) {}
+    } catch { /* ignore */ }
   }, []);
 
   const effectiveTheme: 'light' | 'dark' =
     theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme;
 
-  // Apply ke <html> setiap kali berubah
+  // Apply class ke html setiap kali effectiveTheme berubah
   useEffect(() => {
-    applyTheme(effectiveTheme);
+    applyHtmlClass(effectiveTheme === 'dark');
   }, [effectiveTheme]);
 
   const setTheme = useCallback((t: ThemeMode) => {
     setThemeState(t);
-    try { localStorage.setItem(STORAGE_KEY, t); } catch (_) {}
+    safeSet(STORAGE_KEY, t);
   }, []);
 
   const toggleTheme = useCallback(() => {
@@ -78,7 +90,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const order: ThemeMode[] = ['light', 'dark', 'auto'];
       const idx = order.indexOf(prev);
       const next = order[(idx + 1) % order.length];
-      try { localStorage.setItem(STORAGE_KEY, next); } catch (_) {}
+      safeSet(STORAGE_KEY, next);
       return next;
     });
   }, []);
