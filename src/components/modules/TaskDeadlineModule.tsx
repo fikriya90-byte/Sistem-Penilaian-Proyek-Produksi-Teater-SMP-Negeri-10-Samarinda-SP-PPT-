@@ -165,7 +165,7 @@ export const TaskDeadlineModule: React.FC = () => {
     }
   };
 
-  const handleSubmitProof = async () => {
+      const handleSubmitProof = async () => {
     if (!selectedTaskForProof || !user) return;
     if (!proofUrl.trim() && !proofNote.trim()) {
       showToast('Harap sertakan link bukti hasil kerja atau catatan penjelasan.', 'warning');
@@ -189,6 +189,22 @@ export const TaskDeadlineModule: React.FC = () => {
         targetId: selectedTaskForProof.id,
         details: `Mengirimkan bukti tugas "${selectedTaskForProof.title}"`,
       });
+
+      // Kirim notifikasi ke guru (non-blocking)
+      if (activeClass) {
+        try {
+          const { notifyTeachers } = await import('../../services/firestoreService');
+          await notifyTeachers(activeClass.id, {
+            title: 'Bukti Tugas Baru Dikirim',
+            message: `${user.displayName} mengirim bukti untuk: "${selectedTaskForProof.title}"`,
+            category: 'Tugas',
+            link: 'tugas',
+            senderName: user.displayName,
+          });
+        } catch {
+          /* non-fatal */
+        }
+      }
 
       showToast('Bukti pekerjaan berhasil dikirim untuk diverifikasi!', 'success');
       setSelectedTaskForProof(null);
