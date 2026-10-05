@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 type ThemeMode = 'light' | 'dark' | 'auto';
 
@@ -12,48 +12,69 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 const STORAGE_KEY = 'spppt-theme';
 
+function getInitialTheme(): ThemeMode {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
+  } catch (_) { /* ignore */ }
+  return 'light';
+}
+
+function getSystemDark(): boolean {
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  } catch (_) {
+    return false;
+  }
+}
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setThemeState] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
-    return saved || 'light';
-  });
+  const [theme, setThemeState] = useState<ThemeMode>(getInitialTheme);
+  const [systemDark, setSystemDark] = useState<boolean>(getSystemDark);
 
-  const [systemDark, setSystemDark] = useState(() =>
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-  );
-
+  // Listen perubahan sistem
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
+    try {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+      if (mq.addEventListener) {
+        mq.addEventListener('change', handler);
+        return () => mq.removeEventListener('change', handler);
+      }
+    } catch (_) { /* ignore */ }
   }, []);
 
   const effectiveTheme: 'light' | 'dark' =
     theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme;
 
+  // Apply class ke html
   useEffect(() => {
-    const root = document.documentElement;
-    if (effectiveTheme === 'dark') {
-      root.classList.add('dark');
-      root.style.colorScheme = 'dark';
-    } else {
-      root.classList.remove('dark');
-      root.style.colorScheme = 'light';
-    }
+    try {
+      const root = document.documentElement;
+      if (effectiveTheme === 'dark') {
+        root.classList.add('dark');
+        root.style.colorScheme = 'dark';
+      } else {
+        root.classList.remove('dark');
+        root.style.colorScheme = 'light';
+      }
+    } catch (_) { /* ignore */ }
   }, [effectiveTheme]);
 
-  const setTheme = (t: ThemeMode) => {
+  const setTheme = useCallback((t: ThemeMode) => {
     setThemeState(t);
-    localStorage.setItem(STORAGE_KEY, t);
-  };
+    try { localStorage.setItem(STORAGE_KEY, t); } catch (_) { /* ignore */ }
+  }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     const order: ThemeMode[] = ['light', 'dark', 'auto'];
-    const idx = order.indexOf(theme);
-    const next = order[(idx + 1) % order.length];
-    setTheme(next);
-  };
+    setThemeState(prev => {
+      const idx = order.indexOf(prev);
+      const next = order[(idx + 1) % order.length];
+      try { localStorage.setItem(STORAGE_KEY, next); } catch (_) { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   return (
     <ThemeContext.Provider value={{ theme, effectiveTheme, setTheme, toggleTheme }}>
