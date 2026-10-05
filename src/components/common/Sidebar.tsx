@@ -3,6 +3,7 @@ import {
   Award, BookOpen, Calendar, CheckSquare, ClipboardList, FileText,
   GraduationCap, HelpCircle, Home, MessageSquare, Radio, Settings,
   ShieldCheck, Sparkles, Users, X, Timer, Star, Shield, BarChart3,
+  Wallet,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -31,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: 'Multi-Penilai' },
     { id: 'moderasi', label: 'Moderasi Penilaian', icon: Shield, badge: 'Review' },
     { id: 'statistik-absensi', label: 'Statistik Presensi', icon: BarChart3, badge: 'Analitik' },
+    { id: 'kas', label: 'Kas Produksi', icon: Wallet, badge: 'Keuangan' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
     { id: 'tugas', label: 'Checklist & Deadline', icon: CheckSquare, badge: '' },
@@ -48,6 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     { id: 'nilai-saya', label: 'Nilai Saya', icon: Award, badge: 'Rapor' },
     { id: 'nilai', label: 'Beri Nilai', icon: Star, badge: '' },
     { id: 'deadline', label: 'Deadline Saya', icon: Timer, badge: '' },
+    { id: 'kas', label: 'Kas Saya', icon: Wallet, badge: '' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
     { id: 'tugas', label: 'Checklist & Deadline', icon: CheckSquare, badge: '' },
