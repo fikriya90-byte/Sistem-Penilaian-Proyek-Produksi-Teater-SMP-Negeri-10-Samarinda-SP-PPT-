@@ -213,13 +213,13 @@ const DriveUploadWidget: React.FC<{
 export const GuruDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
   const { tasks, assessments, users, sessions, schedules } = useDashboardData();
   const totalUsers = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
   const completedTasks = tasks.filter(t => t.status === 'APPROVED').length;
   const taskProgress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
   const overdueTasks = tasks.filter(t => t.status === 'OVERDUE');
   const usersWithoutAssessment = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin' &&
+    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin' &&
     !assessments.find(a => a.studentId === u.uid)
   );
 
@@ -294,7 +294,7 @@ export const PimprodDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
   const { tasks, sessions, users, assessments } = useDashboardData();
 
   const totalUsers = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
 
   const completedTasks = tasks.filter(t => t.status === 'APPROVED').length;
@@ -618,7 +618,7 @@ export const SekretarisDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }
   const todaySchedules = schedules.filter(s => new Date(s.startAt).toISOString().slice(0, 10) === today);
   const openSessions = sessions.filter(s => s.isOpen);
   const totalStudents = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
   const attendPct = sessions.length > 0 ? Math.min(100, 75 + openSessions.length * 5) : 0;
 
