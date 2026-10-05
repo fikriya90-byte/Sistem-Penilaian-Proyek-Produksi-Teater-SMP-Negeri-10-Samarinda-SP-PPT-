@@ -1,166 +1,23 @@
-@import "tailwindcss";
-
-/* =========================================================
-   TAILWIND V4 DARK MODE VARIANT
-   ========================================================= */
-@custom-variant dark (&:where(.dark, .dark *));
-
-/* =========================================================
-   ROOT
-   ========================================================= */
-:root { color-scheme: light; }
-html.dark { color-scheme: dark; }
-
-html, body, #root {
-  min-height: 100vh;
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-/* =========================================================
-   BACKGROUND MOTIF — URL YANG BENAR
-   ========================================================= */
-body {
-  position: relative;
-  background-color: #f8fafc;
-  background-image: url("https://iili.io/nJ1Rcj1.md.png");
-  background-size: cover;
-  background-position: center center;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
-}
-
-/* Overlay untuk keterbacaan */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(248, 250, 252, 0.85) 0%,
-    rgba(241, 245, 249, 0.88) 50%,
-    rgba(248, 250, 252, 0.85) 100%
-  );
-  pointer-events: none;
-  z-index: 0;
-}
-
-html.dark body {
-  background-color: #0a0f1e;
-}
-
-html.dark body::before {
-  background: linear-gradient(
-    180deg,
-    rgba(10, 15, 30, 0.85) 0%,
-    rgba(15, 23, 42, 0.88) 50%,
-    rgba(10, 15, 30, 0.85) 100%
-  );
-}
-
-#root {
-  position: relative;
-  z-index: 1;
-}
-
-/* =========================================================
-   DARK MODE OVERRIDES — AGRESSIF
-   ========================================================= */
-
-/* --- Root wrapper: tetap transparan --- */
-.dark .bg-transparent { background-color: transparent !important; }
-.dark .bg-slate-50,
-.dark .bg-slate-950,
-.dark .dark\:bg-slate-950 { background-color: transparent !important; }
-
-/* --- Catch ALL bg-white variant --- */
-.dark [class*="bg-white\/"] { background-color: rgba(15, 23, 42, 0.85) !important; }
-.dark .bg-white { background-color: rgba(15, 23, 42, 0.92) !important; }
-
-/* --- Catch ALL bg-slate-50 with opacity --- */
-.dark [class*="bg-slate-50\/"] { background-color: rgba(15, 23, 42, 0.7) !important; }
-.dark .bg-slate-50 { background-color: rgba(15, 23, 42, 0.85) !important; }
-
-/* --- Catch ALL bg-slate-100 with opacity --- */
-.dark [class*="bg-slate-100\/"] { background-color: rgba(30, 41, 59, 0.7) !important; }
-.dark .bg-slate-100 { background-color: rgba(30, 41, 59, 0.85) !important; }
-
-/* --- bg-slate-200 --- */
-.dark [class*="bg-slate-200\/"] { background-color: rgba(51, 65, 85, 0.7) !important; }
-.dark .bg-slate-200 { background-color: rgba(51, 65, 85, 0.85) !important; }
-
-/* --- bg-slate-800 (untuk tombol FAB) --- */
-.dark .bg-slate-800 { background-color: rgba(30, 41, 59, 0.95) !important; }
-.dark .bg-slate-900 { background-color: rgba(15, 23, 42, 0.95) !important; }
-
-/* --- Text: LIGHT MODE tidak diubah --- */
-/* Light mode default Tailwind sudah benar */
-
-/* --- Text: DARK MODE — semua jadi terang --- */
-.dark .text-slate-900,
-.dark .dark\:text-slate-100 { color: #f8fafc !important; }
-.dark .text-slate-800,
-.dark .dark\:text-slate-200 { color: #e2e8f0 !important; }
-.dark .text-slate-700,
-.dark .dark\:text-slate-300 { color: #cbd5e1 !important; }
-.dark .text-slate-600,
-.dark .dark\:text-slate-400 { color: #94a3b8 !important; }
-.dark .text-slate-500 { color: #94a3b8 !important; }
-.dark .text-slate-400 { color: #64748b !important; }
-
-/* --- Text yang harus TERANG di card gelap --- */
-.dark .text-black { color: #f8fafc !important; }
-
-/* --- Borders --- */
-.dark [class*="border-slate-1"],
-.dark [class*="border-slate-2"],
-.dark .border-slate-100 { border-color: #1e293b !important; }
-.dark .border-slate-200 { border-color: #334155 !important; }
-.dark [class*="border-slate-200\/"] { border-color: rgba(51, 65, 85, 0.7) !important; }
-.dark .border-slate-300 { border-color: #475569 !important; }
-
-/* --- Divide --- */
-.dark .divide-slate-100 > * + * { border-color: #1e293b !important; }
-.dark .divide-slate-200 > * + * { border-color: #334155 !important; }
-
-/* --- Inputs --- */
-.dark input,
-.dark select,
-.dark textarea {
-  background-color: rgba(30, 41, 59, 0.9) !important;
-  color: #f1f5f9 !important;
-  border-color: #334155 !important;
-}
-.dark input::placeholder,
-.dark textarea::placeholder { color: #64748b !important; }
-.dark input:focus,
-.dark select:focus,
-.dark textarea:focus { border-color: #f59e0b !important; }
-
-/* --- Hover --- */
-.dark .hover\:bg-slate-50:hover,
-.dark .hover\:bg-slate-100:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
-.dark .hover\:bg-white:hover { background-color: rgba(51, 65, 85, 0.9) !important; }
-.dark .hover\:text-slate-900:hover,
-.dark .hover\:text-slate-950:hover { color: #f8fafc !important; }
-
-/* --- Modal backdrop --- */
-.dark .bg-slate-950\/70 { background-color: rgba(0, 0, 0, 0.88) !important; }
-
-/* --- Ring --- */
-.dark .ring-amber-400\/20 { --tw-ring-color: rgba(245, 158, 11, 0.35) !important; }
-
-/* =========================================================
-   PRINT
-   ========================================================= */
-@media print {
-  body {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    background: white !important;
-  }
-  body::before { display: none !important; }
-  body * { visibility: hidden; }
-  #rapor-container, #rapor-container * { visibility: visible; }
-  #rapor-container { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
-  .print\:hidden { display: none !important; }
-}
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>SP-PPT - Sistem Penilaian & Manajemen Proyek Produksi Teater SMPN 10 Samarinda</title>
+    <meta name="description" content="Platform terintegrasi penilaian multi-peran, manajemen tugas, absensi, jadwal, deadline, dan koordinasi produksi teater siswa kelas IX SMP Negeri 10 Samarinda." />
+    <meta property="og:title" content="SP-PPT - Sistem Penilaian & Manajemen Proyek Produksi Teater SMPN 10 Samarinda" />
+    <meta property="og:description" content="Platform terintegrasi penilaian multi-peran, manajemen tugas, absensi, jadwal, deadline, dan koordinasi produksi teater siswa kelas IX SMP Negeri 10 Samarinda." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#D4AF37" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet">
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-amber-500/20 selection:text-amber-900">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
