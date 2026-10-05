@@ -50,11 +50,15 @@ interface AuthContextType {
   canCreateDivisionAttendance: boolean;
   canCreateGeneralSchedule: boolean;
   canCreateInternalSchedule: boolean;
+  canCreateTask: boolean;
+  canCreateDeadline: boolean;
+  canCreateBroadcast: boolean;
   canAssessTarget: (target: UserProfile) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Normalisasi role lama → baru
 const normalizeRole = (role: string): UserRole => {
   if (role === 'Guru Pembina') return 'Guru Pengampu';
   return role as UserRole;
@@ -66,6 +70,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [activeClass, setActiveClass] = useState<ClassRoom | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // ==========================================
+  // INIT: Seed DB + load classes + listen auth
+  // ==========================================
   useEffect(() => {
     let isMounted = true;
 
@@ -73,7 +80,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await checkAndSeedDatabase();
         const clsList = await fetchClasses();
-        if (isMounted && clsList) setClasses(clsList);
+        if (isMounted && clsList) {
+          setClasses(clsList);
+        }
       } catch (err) {
         console.warn('Init error (non-fatal):', err);
       }
@@ -82,14 +91,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (!isMounted) return;
+
       if (fbUser) {
         try {
           const profile = await fetchUserProfile(fbUser.uid);
           if (!isMounted) return;
+
           if (profile) {
+            // Normalisasi role lama → baru
             profile.role = normalizeRole(profile.role);
             setUser(profile);
           } else {
+            // Auto-provision jika Firestore doc belum ada
             const fallbackProfile: UserProfile = {
               uid: fbUser.uid,
               email: fbUser.email || '',
@@ -118,28 +131,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // ==========================================
+  // Auto-set activeClass:
+  // - SISWA: auto-set ke kelasnya (classId fix)
+  // - GURU/ADMIN: null dulu (lihat ClassPicker)
+  // ==========================================
   useEffect(() => {
     if (!user) return;
+
     const isTeacherRole =
       user.role === 'Guru Pengampu' ||
       user.role === 'Guru Pembina' ||
       user.role === 'Admin' ||
       user.role === 'Super Admin';
+
     if (isTeacherRole) {
       setActiveClass(null);
       return;
     }
+
+    // Siswa: auto-set ke kelasnya
     if (user.classId && classes.length > 0) {
       const match = classes.find(c => c.id === user.classId);
       if (match) setActiveClass(match);
     }
   }, [user, classes]);
 
+  // ==========================================
+  // RELOAD CLASSES (untuk TeacherClassPicker)
+  // ==========================================
   const reloadClasses = async () => {
     const clsList = await fetchClasses();
     setClasses(clsList);
   };
 
+  // ==========================================
+  // LOGIN
+  // ==========================================
   const loginWithEmail = async (
     email: string,
     pass: string
@@ -163,7 +191,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await setDoc(doc(db, 'users', res.user.uid), profile, { merge: true });
       }
 
+      // Normalisasi role
       profile.role = normalizeRole(profile.role);
+
       setUser(profile);
       await recordAuditLog({
         userId: profile.uid,
@@ -190,6 +220,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // ==========================================
+  // REGISTER
+  // ==========================================
   const registerUser = async (data: {
     classCode: string;
     displayName: string;
@@ -267,10 +300,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Gagal registrasi: ' + (err?.message || 'Unknown error') };
     }
   };
-  const reloadClasses = async () => {
-    const clsList = await fetchClasses();
-    setClasses(clsList);
-  };
+
+  // ==========================================
+  // LOGOUT
+  // ==========================================
   const logout = async () => {
     if (user) {
       try {
@@ -290,21 +323,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setActiveClass(null);
   };
 
+  // ==========================================
+  // RESET DEMO DATABASE
+  // ==========================================
   const resetDemoDatabase = async () => {
     setLoading(true);
-    const { forceSeedDatabase } = await import('./seedData');
-    await forceSeedDatabase();
-    const clsList = await fetchClasses();
-    setClasses(clsList);
-    setActiveClass(null);
-    setUser(null);
-    setLoading(false);
+    try {
+      const { forceSeedDatabase } = await import('./seedData');
+      await forceSeedDatabase();
+      const clsList = await fetchClasses();
+      setClasses(clsList);
+      setActiveClass(null);
+      setUser(null);
+    } catch (err) {
+      console.warn('Reset error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // ==========================================
+  // ROLE FLAGS
+  // ==========================================
   const role = user?.role || 'Pemain';
+
   const isGuruPengampu = role === 'Guru Pengampu' || role === 'Guru Pembina';
   const isAdminRole = role === 'Admin' || role === 'Super Admin';
   const isTeacher = isGuruPengampu || isAdminRole;
+
   const isPimprod = role === 'Pimpinan Produksi';
   const isSekretaris = role === 'Sekretaris';
   const isBendahara = role === 'Bendahara';
@@ -314,14 +360,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAnggota = role.startsWith('Anggota ');
   const isPemain = role === 'Pemain';
 
+  // ==========================================
+  // PERMISSION HELPERS
+  // ==========================================
   const canCreateGeneralAttendance = isTeacher || isPimprod || isSekretaris;
   const canCreateRehearsalAttendance = isTeacher || isSutradara || isAsisten;
   const canCreateDivisionAttendance = isTeacher || isKoordinator;
   const canCreateGeneralSchedule = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten;
   const canCreateInternalSchedule = isTeacher || isKoordinator;
+  const canCreateTask = isTeacher || isPimprod || isSutradara || isKoordinator;
+  const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
+  const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
   // ==========================================
-  // MATRIKS PENILAIAN SESUAI INSTRUKSI
+  // MATRIKS PENILAIAN (sesuai instruksi)
   // ==========================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
@@ -330,12 +382,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const myRole = user.role;
     const targetRole = target.role;
 
-    // 1. GURU PENGAMPU & ADMIN → menilai Sutradara + Pimpinan Produksi
+    // 1. GURU PENGAMPU & ADMIN → Sutradara + Pimpinan Produksi
     if (myRole === 'Guru Pengampu' || myRole === 'Guru Pembina' || myRole === 'Admin' || myRole === 'Super Admin') {
       return targetRole === 'Sutradara' || targetRole === 'Pimpinan Produksi';
     }
 
-    // 2. PIMPINAN PRODUKSI → menilai Sekretaris, Bendahara, semua Koordinator
+    // 2. PIMPINAN PRODUKSI → Sekretaris, Bendahara, semua Koordinator
     if (myRole === 'Pimpinan Produksi') {
       return (
         targetRole === 'Sekretaris' ||
@@ -344,12 +396,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // 3. SEKRETARIS → menilai Pimpinan Produksi
+    // 3. SEKRETARIS → Pimpinan Produksi
     if (myRole === 'Sekretaris') {
       return targetRole === 'Pimpinan Produksi';
     }
 
-    // 4. BENDAHARA → menilai Pimpinan Produksi
+    // 4. BENDAHARA → Pimpinan Produksi
     if (myRole === 'Bendahara') {
       return targetRole === 'Pimpinan Produksi';
     }
@@ -442,6 +494,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         canCreateDivisionAttendance,
         canCreateGeneralSchedule,
         canCreateInternalSchedule,
+        canCreateTask,
+        canCreateDeadline,
+        canCreateBroadcast,
         canAssessTarget,
       }}
     >
