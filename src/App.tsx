@@ -10,7 +10,6 @@ import { Sidebar } from './components/common/Sidebar';
 import { LoginModal } from './components/auth/LoginModal';
 import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 
-// Modules
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
 import { MyGradeModule } from './components/modules/MyGradeModule';
@@ -62,7 +61,6 @@ const MainLayout: React.FC = () => {
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
         <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
         <h2 className="text-lg font-black tracking-tight text-amber-400">Memuat SP-PPT...</h2>
-        <p className="text-xs text-slate-400 mt-1">Sistem Penilaian Produksi Teater SMPN 10 Samarinda</p>
       </div>
     );
   }
@@ -77,7 +75,8 @@ const MainLayout: React.FC = () => {
           <Sidebar currentModule={currentModule} onNavigate={setCurrentModule}
             isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
           <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-            {currentModule === 'pengaturan' ? <SettingsModule /> : <AdminModule />}
+            {currentModule === 'pengaturan' ? <SettingsModule /> :
+             currentModule === 'backup' ? <BackupModule /> : <AdminModule />}
           </main>
         </div>
       </div>
@@ -129,18 +128,16 @@ const MainLayout: React.FC = () => {
 
       <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
         <button onClick={() => setCurrentModule('struktur')}
-          className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
-          title="Buka Kerabat Kerja">
+          className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105">
           <Users className="w-5 h-5" />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-300 text-xs font-bold text-white px-0 group-hover:px-2">
+          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all text-xs font-bold text-white px-0 group-hover:px-2">
             Kerabat Kerja
           </span>
         </button>
         <button onClick={() => setCurrentModule('aduan')}
-          className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition group hover:scale-105"
-          title="Aduan Cepat & Bantuan">
+          className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition group hover:scale-105">
           <MessageSquare className="w-5 h-5" />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-300 text-xs font-bold px-0 group-hover:px-2">
+          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all text-xs font-bold px-0 group-hover:px-2">
             Aduan Cepat
           </span>
         </button>
