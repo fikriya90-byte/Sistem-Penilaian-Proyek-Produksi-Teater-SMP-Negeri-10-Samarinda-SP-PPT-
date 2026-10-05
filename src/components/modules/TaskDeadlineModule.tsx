@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   CheckCircle, PlusCircle, Search, Trash2, X, Save, Wand2,
   AlertTriangle, Square, CheckSquare, Send, UserCheck, RotateCcw,
-  TrendingUp,
+  TrendingUp, Users,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS, STAGES } from '../../core/constants';
@@ -34,6 +34,27 @@ const CAN_SEND_TASKS = [
   'Pimpinan Produksi', 'Sutradara', 'Asisten Sutradara', 'Sekretaris',
 ];
 
+// ============================================
+// DAFTAR PERAN & DIVISI (untuk filter yang ketat)
+// ============================================
+const PERAN_LIST = [
+  'Pimpinan Produksi',
+  'Sekretaris',
+  'Bendahara',
+  'Sutradara',
+  'Asisten Sutradara',
+  'Pemain',
+];
+
+const DIVISI_LIST = [
+  'Perlengkapan',
+  'Publikasi & Dokumentasi',
+  'Tata Panggung',
+  'Tata Rias',
+  'Tata Busana',
+  'Tata Musik & Suara',
+];
+
 export const TaskDeadlineModule: React.FC = () => {
   const { user, activeClass, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -47,11 +68,13 @@ export const TaskDeadlineModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Modal kirim tugas
   const [isSendOpen, setIsSendOpen] = useState(false);
   const [sendStage, setSendStage] = useState<ProductionStage>('PELAKSANAAN');
   const [sendRole, setSendRole] = useState<string>('Pimpinan Produksi');
   const [selectedTplIds, setSelectedTplIds] = useState<string[]>([]);
 
+  // Modal guru batalkan centang
   const [cancelTarget, setCancelTarget] = useState<{ taskId: string; studentId: string; studentName: string; taskTitle: string } | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
@@ -68,7 +91,6 @@ export const TaskDeadlineModule: React.FC = () => {
     const unsub = subscribeTasksByClass(activeClass.id, setTasks);
     fetchUsersByClass(activeClass.id).then(setClassStudents);
 
-    // Subscribe taskCompletions
     let unsub2 = () => {};
     (async () => {
       const { onSnapshot, query, where, collection: col } = await import('firebase/firestore');
@@ -89,8 +111,8 @@ export const TaskDeadlineModule: React.FC = () => {
   const toggleCompletion = async (task: TaskItem) => {
     if (!user || !activeClass) return;
     const isMyTask = task.assigneeId === user.uid ||
-      task.targetRole === user.role ||
-      task.targetDivision === user.divisionName ||
+      (task as any).targetRole === user.role ||
+      (task as any).targetDivision === user.divisionName ||
       task.assigneeName === 'Semua Siswa' ||
       task.assigneeName === 'Semua Anggota Divisi';
 
@@ -154,18 +176,28 @@ export const TaskDeadlineModule: React.FC = () => {
         });
       } catch {}
       showToast('Centang berhasil dibatalkan', 'success');
-      setCancelTarget(null);
-      setCancelReason('');
+      setCancelTarget(null); setCancelReason('');
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Error'), 'error');
     } finally { setSubmitting(false); }
   };
 
-  const getTemplatesForRole = (stage: ProductionStage, targetRole: string) => {
+  // ============================================
+  // FILTER TEMPLATE — KETAT sesuai PERAN atau DIVISI
+  // ============================================
+  const getTemplatesForRole = (stage: ProductionStage, target: string) => {
     const all = TASK_TEMPLATES[stage];
+
+    // Kalau target adalah DIVISI
+    if (DIVISI_LIST.includes(target)) {
+      return all.filter(tpl =>
+        tpl.targetType === 'DIVISI' && tpl.targetDivision === target
+      );
+    }
+
+    // Kalau target adalah PERAN
     return all.filter(tpl =>
-      tpl.targetRole === targetRole ||
-      (tpl.targetType === 'DIVISI' && tpl.targetDivision) ||
+      (tpl.targetType === 'PERAN' && tpl.targetRole === target) ||
       tpl.targetType === 'SEMUA'
     );
   };
@@ -184,6 +216,8 @@ export const TaskDeadlineModule: React.FC = () => {
     setSubmitting(true);
     let success = 0;
 
+    const isDivisi = DIVISI_LIST.includes(sendRole);
+
     for (const id of selectedTplIds) {
       const tpl = currentSendTemplates.find(t => t.id === id);
       if (!tpl) continue;
@@ -191,16 +225,17 @@ export const TaskDeadlineModule: React.FC = () => {
         const due = new Date();
         due.setDate(due.getDate() + tpl.daysFromNow);
         due.setHours(23, 59, 0, 0);
+
         const newRef = doc(collection(db, 'tasks'));
         await setDoc(newRef, {
           id: newRef.id,
           classId: activeClass.id,
           productionId: 'prod',
           stageId: sendStage,
-          divisionName: tpl.targetDivision || (tpl.targetRole ? 'Pengurus Inti' : 'Umum'),
-          targetRole: tpl.targetRole || sendRole,
-          targetDivision: tpl.targetDivision,
-          assigneeName: tpl.targetRole ? `Peran ${tpl.targetRole}` : tpl.targetDivision ? `Divisi ${tpl.targetDivision}` : 'Semua Siswa',
+          divisionName: isDivisi ? sendRole : 'Pengurus Inti',
+          targetRole: isDivisi ? undefined : sendRole,
+          targetDivision: isDivisi ? sendRole : undefined,
+          assigneeName: isDivisi ? `Divisi ${sendRole}` : `Peran ${sendRole}`,
           title: tpl.title,
           description: tpl.description,
           priority: tpl.priority,
@@ -215,11 +250,14 @@ export const TaskDeadlineModule: React.FC = () => {
       } catch (err) { console.warn('Gagal:', tpl.title, err); }
     }
 
+    // Notif ke siswa target
     try {
-      const recipients = classStudents.filter(s =>
-        s.role === sendRole && s.role !== 'Guru Pengampu' && s.role !== 'Guru Pembina' &&
-        s.role !== 'Admin' && s.role !== 'Super Admin'
-      );
+      const recipients = classStudents.filter(s => {
+        if (s.role === 'Guru Pengampu' || s.role === 'Guru Pembina') return false;
+        if (s.role === 'Admin' || s.role === 'Super Admin') return false;
+        if (isDivisi) return s.divisionName === sendRole;
+        return s.role === sendRole;
+      });
       const { writeBatch } = await import('firebase/firestore');
       const batch = writeBatch(db);
       recipients.forEach(r => {
@@ -229,7 +267,7 @@ export const TaskDeadlineModule: React.FC = () => {
           userId: r.uid,
           classId: activeClass.id,
           title: `${success} Tugas Baru Dikirim`,
-          message: `${user.displayName} mengirim ${success} tugas untuk peran ${sendRole}.`,
+          message: `${user.displayName} mengirim ${success} tugas untuk ${isDivisi ? 'divisi' : 'peran'} ${sendRole}.`,
           category: 'Tugas', read: false, link: 'tugas',
           createdAt: new Date().toISOString(),
         });
@@ -240,11 +278,11 @@ export const TaskDeadlineModule: React.FC = () => {
     await recordAuditLog({
       userId: user.uid, userName: user.displayName, role: user.role,
       action: 'CREATE', targetType: 'TaskBatch', targetId: 'batch',
-      details: `Kirim ${success} tugas ke peran ${sendRole} (${sendStage})`,
+      details: `Kirim ${success} tugas ke ${isDivisi ? 'divisi' : 'peran'} ${sendRole} (${sendStage})`,
     });
 
     setSubmitting(false);
-    showToast(`✅ ${success} tugas berhasil dikirim ke peran ${sendRole}!`, 'success');
+    showToast(`✅ ${success} tugas berhasil dikirim ke ${isDivisi ? 'divisi' : 'peran'} ${sendRole}!`, 'success');
     setIsSendOpen(false);
     setSelectedTplIds([]);
   };
@@ -269,8 +307,8 @@ export const TaskDeadlineModule: React.FC = () => {
   const myTasks = tasks.filter(t => {
     if (!user) return false;
     return t.assigneeId === user.uid ||
-      t.targetRole === user.role ||
-      t.targetDivision === user.divisionName ||
+      (t as any).targetRole === user.role ||
+      (t as any).targetDivision === user.divisionName ||
       t.assigneeName === 'Semua Siswa' ||
       t.assigneeName === 'Semua Anggota Divisi';
   });
@@ -291,6 +329,7 @@ export const TaskDeadlineModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-900 via-slate-900 to-slate-800 text-white shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -308,12 +347,13 @@ export const TaskDeadlineModule: React.FC = () => {
           {canSendTasks && (
             <button onClick={() => { setIsSendOpen(true); setSendStage('PELAKSANAAN'); setSelectedTplIds([]); }}
               className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
-              <Send className="w-4 h-4" /> Kirim Tugas ke Peran
+              <Send className="w-4 h-4" /> Kirim Tugas
             </button>
           )}
         </div>
       </div>
 
+      {/* PROGRESS SISWA */}
       {!isTeacher && myTasks.length > 0 && (
         <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-500 to-emerald-700 text-white shadow-lg">
           <div className="flex items-center justify-between mb-3">
@@ -330,6 +370,7 @@ export const TaskDeadlineModule: React.FC = () => {
         </div>
       )}
 
+      {/* TABS */}
       <div className="flex items-center gap-2 flex-wrap">
         {!isTeacher && (
           <button onClick={() => setActiveTab('my-tasks')}
@@ -359,6 +400,7 @@ export const TaskDeadlineModule: React.FC = () => {
         )}
       </div>
 
+      {/* TASK LIST */}
       {filteredTasks.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
           <CheckCircle className="w-12 h-12 mx-auto text-slate-300 mb-3" />
@@ -374,13 +416,14 @@ export const TaskDeadlineModule: React.FC = () => {
             const isCancelled = completion?.cancelledByTeacher;
             const cd = getCountdown(task.dueDate);
             const prio = getPriorityConfig(task.priority);
+            const tRole = (task as any).targetRole;
+            const tDiv = (task as any).targetDivision;
+            const label = tRole ? `👤 ${tRole}` : tDiv ? `👥 ${tDiv}` : task.divisionName || 'Umum';
 
             return (
               <div key={task.id} className={`p-5 rounded-3xl border shadow-sm space-y-3 transition ${isCompleted ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200'}`}>
                 <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
-                    {task.targetRole || task.targetDivision || task.divisionName || 'Umum'}
-                  </span>
+                  <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">{label}</span>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${prio.color}`}>{prio.label}</span>
                 </div>
 
@@ -414,7 +457,11 @@ export const TaskDeadlineModule: React.FC = () => {
 
                 {isTeacher && activeTab === 'all-tasks' && (
                   <button onClick={() => {
-                    const targetStudent = classStudents.find(s => s.uid === task.assigneeId || s.role === task.targetRole);
+                    const targetStudent = classStudents.find(s =>
+                      s.uid === task.assigneeId ||
+                      s.role === (task as any).targetRole ||
+                      s.divisionName === (task as any).targetDivision
+                    );
                     if (!targetStudent) { showToast('Tidak ada siswa target ditemukan', 'warning'); return; }
                     setCancelTarget({ taskId: task.id, studentId: targetStudent.uid, studentName: targetStudent.displayName, taskTitle: task.title });
                   }}
@@ -435,17 +482,19 @@ export const TaskDeadlineModule: React.FC = () => {
         </div>
       )}
 
+      {/* MODAL KIRIM TUGAS */}
       {isSendOpen && canSendTasks && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-3xl bg-white rounded-3xl max-h-[95vh] overflow-y-auto my-auto">
             <div className="p-6 border-b border-slate-100 sticky top-0 bg-white z-10">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-base font-extrabold flex items-center gap-2">
-                  <Send className="w-5 h-5 text-amber-500" /> Kirim Tugas ke Peran
+                  <Send className="w-5 h-5 text-amber-500" /> Kirim Tugas
                 </h3>
                 <button onClick={() => setIsSendOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-5 h-5" /></button>
               </div>
 
+              {/* Pilih Tahap */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
                 {STAGES.map(s => (
                   <button key={s.id} onClick={() => { setSendStage(s.id); setSelectedTplIds([]); }}
@@ -455,21 +504,22 @@ export const TaskDeadlineModule: React.FC = () => {
                 ))}
               </div>
 
+              {/* Pilih Target: Peran atau Divisi */}
               <select value={sendRole} onChange={(e) => { setSendRole(e.target.value); setSelectedTplIds([]); }}
                 className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white">
-                <option value="Pimpinan Produksi">Pimpinan Produksi</option>
-                <option value="Sekretaris">Sekretaris</option>
-                <option value="Bendahara">Bendahara</option>
-                <option value="Sutradara">Sutradara</option>
-                <option value="Asisten Sutradara">Asisten Sutradara</option>
-                <option value="Pemain">Pemain</option>
+                <optgroup label="👤 PERAN">
+                  {PERAN_LIST.map(r => <option key={r} value={r}>{r}</option>)}
+                </optgroup>
+                <optgroup label="👥 DIVISI">
+                  {DIVISI_LIST.map(d => <option key={d} value={d}>Divisi {d}</option>)}
+                </optgroup>
               </select>
             </div>
 
             <div className="p-6 space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-xs text-slate-500">
-                  <strong>{currentSendTemplates.length} template</strong> untuk {sendRole} — {sendStage}
+                  <strong>{currentSendTemplates.length} template</strong> untuk {DIVISI_LIST.includes(sendRole) ? 'divisi' : 'peran'} <strong>{sendRole}</strong> — {sendStage}
                 </p>
                 <div className="flex items-center gap-2">
                   <button onClick={selectAllForRole} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
@@ -480,13 +530,18 @@ export const TaskDeadlineModule: React.FC = () => {
 
               {currentSendTemplates.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200">
-                  <p className="text-xs text-slate-500">Tidak ada template untuk {sendRole} di tahap {sendStage}.</p>
+                  <p className="text-xs text-slate-500">
+                    Tidak ada template untuk <strong>{sendRole}</strong> di tahap {sendStage}. Coba pilih tahap lain.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
                   {currentSendTemplates.map(tpl => {
                     const prio = getPriorityConfig(tpl.priority);
                     const isSelected = selectedTplIds.includes(tpl.id);
+                    const tRole = tpl.targetRole;
+                    const tDiv = tpl.targetDivision;
+                    const label = tRole ? `👤 ${tRole}` : tDiv ? `👥 ${tDiv}` : '🌐 Semua';
                     return (
                       <button key={tpl.id} onClick={() => toggleTplSelect(tpl.id)}
                         className={`w-full p-3 rounded-2xl border-2 text-left transition flex items-start gap-2 ${isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/50'}`}>
@@ -494,8 +549,9 @@ export const TaskDeadlineModule: React.FC = () => {
                           {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>{prio.label}</span>
+                            <span className="text-[9px] text-slate-600 font-bold bg-slate-100 px-1.5 py-0.5 rounded-md">{label}</span>
                             <span className="text-[9px] text-slate-500 ml-auto">+{tpl.daysFromNow} hari</span>
                           </div>
                           <p className="text-xs font-extrabold text-slate-900">{tpl.title}</p>
@@ -524,6 +580,7 @@ export const TaskDeadlineModule: React.FC = () => {
         </div>
       )}
 
+      {/* MODAL BATALKAN CENTANG */}
       {cancelTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-lg bg-white rounded-3xl p-6">
@@ -533,12 +590,10 @@ export const TaskDeadlineModule: React.FC = () => {
               </h3>
               <button onClick={() => setCancelTarget(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-5 h-5" /></button>
             </div>
-
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 mb-3 text-xs">
               <p><strong>Siswa:</strong> {cancelTarget.studentName}</p>
               <p><strong>Tugas:</strong> {cancelTarget.taskTitle}</p>
             </div>
-
             <div className="space-y-3">
               <textarea rows={3} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
                 placeholder="Alasan pembatalan (contoh: Bukti belum fix)"
