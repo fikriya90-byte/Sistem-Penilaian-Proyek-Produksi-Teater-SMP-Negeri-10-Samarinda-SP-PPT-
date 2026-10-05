@@ -1,21 +1,8 @@
 import React from 'react';
 import {
-  Award,
-  BookOpen,
-  Calendar,
-  CheckSquare,
-  ClipboardList,
-  FileText,
-  GraduationCap,
-  HelpCircle,
-  Home,
-  MessageSquare,
-  Radio,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  Users,
-  X,
+  Award, BookOpen, Calendar, CheckSquare, ClipboardList, FileText,
+  GraduationCap, HelpCircle, Home, MessageSquare, Radio, Settings,
+  ShieldCheck, Sparkles, Users, X,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -38,7 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
 
   const teacherNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
-    { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen, badge: 'Manajemen' },
+    { id: 'kelola-kelas', label: 'Kelola Kelas & Siswa', icon: BookOpen, badge: 'Manajemen' },
     { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: 'Multi-Penilai' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
