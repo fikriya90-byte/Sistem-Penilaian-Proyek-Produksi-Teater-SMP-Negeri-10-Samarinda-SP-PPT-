@@ -39,6 +39,10 @@ import { BackupModule } from './components/modules/BackupModule';
 import { InformationModule } from './components/modules/InformationModule';
 import { NotificationPage } from './components/modules/NotificationPage';
 import { ActivityLogModule } from './components/modules/ActivityLogModule';
+import { MasterTimelineModule } from './components/modules/MasterTimelineModule';
+import { ContentScheduleModule } from './components/modules/ContentScheduleModule';
+import { DivisionScheduleModule } from './components/modules/DivisionScheduleModule';
+import { DirectorTimelineModule } from './components/modules/DirectorTimelineModule';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
@@ -74,6 +78,10 @@ const MainLayout: React.FC = () => {
              currentModule === 'informasi' ? <InformationModule /> :
              currentModule === 'notifikasi' ? <NotificationPage /> :
              currentModule === 'aktivitas' ? <ActivityLogModule /> :
+             currentModule === 'master-timeline' ? <MasterTimelineModule /> :
+             currentModule === 'content-schedule' ? <ContentScheduleModule /> :
+             currentModule === 'division-schedule' ? <DivisionScheduleModule /> :
+             currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
              <AdminModule />}
           </main>
         </div>
@@ -112,6 +120,10 @@ const MainLayout: React.FC = () => {
       case 'informasi': return <InformationModule />;
       case 'notifikasi': return <NotificationPage />;
       case 'aktivitas': return <ActivityLogModule />;
+      case 'master-timeline': return <MasterTimelineModule />;
+      case 'content-schedule': return <ContentScheduleModule />;
+      case 'division-schedule': return <DivisionScheduleModule />;
+      case 'director-timeline': return <DirectorTimelineModule />;
       default: return <DashboardModule onNavigate={setCurrentModule} />;
     }
   };
