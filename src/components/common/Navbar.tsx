@@ -8,6 +8,8 @@ import { APP_CONFIG } from '../../core/constants';
 import { subscribeNotifications, markNotificationAsRead } from '../../services/firestoreService';
 import { SystemNotification } from '../../core/types';
 import { useToast } from './Toast';
+import { useTheme } from '../../core/themeContext';
+import { Sun, Moon, Monitor } from 'lucide-react';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -148,7 +150,16 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
             >
               {themeIcon}
             </button>
-
+            {/* Theme Toggle */}
+            <button
+              onClick={toggleTheme}
+              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              title={`Tema: ${theme} — klik untuk ganti`}
+            >
+              {theme === 'light' ? <Sun className="w-5 h-5" /> :
+               theme === 'dark' ? <Moon className="w-5 h-5" /> :
+               <Monitor className="w-5 h-5" />}
+            </button>
             {/* Notification */}
             <div className="relative">
               <button
