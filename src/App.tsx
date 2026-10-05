@@ -36,10 +36,7 @@ import { FaceChartModule } from './components/modules/FaceChartModule';
 import { CostumeModule } from './components/modules/CostumeModule';
 import { BackupModule } from './components/modules/BackupModule';
 
-// Wrapper transparan di SEMUA mode — body yang beri warna + motif
-const APP_WRAPPER_CLASS =
-  'min-h-screen flex flex-col antialiased pb-16 lg:pb-0 bg-transparent ' +
-  'selection:bg-amber-500/20 selection:text-amber-900 dark:selection:text-amber-200';
+const APP_WRAPPER_CLASS = 'min-h-screen flex flex-col antialiased pb-16 lg:pb-0 bg-transparent';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
@@ -62,41 +59,24 @@ const MainLayout: React.FC = () => {
 
   if (!user) return <LoginModal />;
 
-  // ============ ADMIN ============
+  // ADMIN
   if (isAdminRole) {
     return (
       <div className={APP_WRAPPER_CLASS}>
-        <Navbar
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          onNavigate={setCurrentModule}
-        />
+        <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
         <div className="flex-1 flex max-w-7xl w-full mx-auto">
-          <Sidebar
-            currentModule={currentModule}
-            onNavigate={setCurrentModule}
-            isOpen={isSidebarOpen}
-            onClose={() => setIsSidebarOpen(false)}
-          />
+          <Sidebar currentModule={currentModule} onNavigate={setCurrentModule} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
           <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-            {currentModule === 'pengaturan' ? (
-              <SettingsModule />
-            ) : currentModule === 'backup' ? (
-              <BackupModule />
-            ) : (
-              <AdminModule />
-            )}
+            {currentModule === 'pengaturan' ? <SettingsModule /> : currentModule === 'backup' ? <BackupModule /> : <AdminModule />}
           </main>
         </div>
       </div>
     );
   }
 
-  // ============ GURU TANPA KELAS ============
-  if (isGuruPengampu && !activeClass) {
-    return <TeacherClassPicker />;
-  }
+  // GURU TANPA KELAS
+  if (isGuruPengampu && !activeClass) return <TeacherClassPicker />;
 
-  // ============ RENDER MODUL ============
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -129,61 +109,37 @@ const MainLayout: React.FC = () => {
 
   return (
     <div className={APP_WRAPPER_CLASS}>
-      <Navbar
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        onNavigate={setCurrentModule}
-      />
-
+      <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        <Sidebar
-          currentModule={currentModule}
-          onNavigate={setCurrentModule}
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-        />
+        <Sidebar currentModule={currentModule} onNavigate={setCurrentModule} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
           {renderCurrentModule()}
         </main>
       </div>
 
-      {/* FAB */}
       <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
-        <button
-          onClick={() => setCurrentModule('struktur')}
-          className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
-          title="Kerabat Kerja"
-        >
+        <button onClick={() => setCurrentModule('struktur')} className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition hover:scale-105" title="Kerabat Kerja">
           <Users className="w-5 h-5" />
         </button>
-        <button
-          onClick={() => setCurrentModule('aduan')}
-          className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition group hover:scale-105"
-          title="Aduan Cepat"
-        >
+        <button onClick={() => setCurrentModule('aduan')} className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition hover:scale-105" title="Aduan Cepat">
           <MessageSquare className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Bottom Nav */}
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
-        <button onClick={() => setCurrentModule('dashboard')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+        <button onClick={() => setCurrentModule('dashboard')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span>
         </button>
-        <button onClick={() => setCurrentModule('nilai-saya')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai-saya' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+        <button onClick={() => setCurrentModule('nilai-saya')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai-saya' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <Award className="w-5 h-5" /><span className="text-[10px] mt-0.5">Nilai</span>
         </button>
-        <button onClick={() => setCurrentModule('kas')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+        <button onClick={() => setCurrentModule('kas')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span>
         </button>
-        <button onClick={() => setCurrentModule('tugas')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+        <button onClick={() => setCurrentModule('tugas')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <CheckSquare className="w-5 h-5" /><span className="text-[10px] mt-0.5">Tugas</span>
         </button>
-        <button onClick={() => setCurrentModule('deadline')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'deadline' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+        <button onClick={() => setCurrentModule('deadline')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'deadline' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <Star className="w-5 h-5" /><span className="text-[10px] mt-0.5">Deadline</span>
         </button>
       </div>
