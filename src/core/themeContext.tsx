@@ -7,12 +7,12 @@ interface ThemeContextType {
   effectiveTheme: 'light' | 'dark';
   setTheme: (t: ThemeMode) => void;
   toggleTheme: () => void;
+  resetToAuto: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
-const STORAGE_KEY = 'spppt-theme';
+const STORAGE_KEY = 'spppt-theme-v2'; // ← versi baru biar tidak bentrok dengan cache lama
 
-// Helper: safe localStorage
 function safeGet(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
 }
@@ -20,7 +20,6 @@ function safeSet(key: string, val: string) {
   try { localStorage.setItem(key, val); } catch { /* ignore */ }
 }
 
-// Helper: device prefers dark?
 function systemPrefersDark(): boolean {
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -29,21 +28,22 @@ function systemPrefersDark(): boolean {
   }
 }
 
-// Helper: apply class ke <html>
 function applyHtmlClass(isDark: boolean) {
   try {
     const root = document.documentElement;
     if (isDark) {
       root.classList.add('dark');
+      root.classList.remove('light');
       root.style.colorScheme = 'dark';
     } else {
       root.classList.remove('dark');
+      root.classList.add('light');
       root.style.colorScheme = 'light';
     }
   } catch { /* ignore */ }
 }
 
-// Ambil mode awal — DEFAULT = 'auto'
+// DEFAULT = 'auto' (ikut device)
 function getInitialTheme(): ThemeMode {
   const saved = safeGet(STORAGE_KEY);
   if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
@@ -54,18 +54,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [theme, setThemeState] = useState<ThemeMode>(getInitialTheme);
   const [systemDark, setSystemDark] = useState<boolean>(systemPrefersDark);
 
-  // Listen perubahan setting OS
+  // Listen perubahan device
   useEffect(() => {
     try {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      const handler = (e: MediaQueryListEvent) => {
-        setSystemDark(e.matches);
-      };
+      const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+
       if (mq.addEventListener) {
         mq.addEventListener('change', handler);
         return () => mq.removeEventListener('change', handler);
       } else if ((mq as any).addListener) {
-        // Fallback browser lama
         (mq as any).addListener(handler);
         return () => (mq as any).removeListener(handler);
       }
@@ -75,7 +73,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const effectiveTheme: 'light' | 'dark' =
     theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme;
 
-  // Apply class ke html setiap kali effectiveTheme berubah
+  // Apply class ke html SETIAP kali theme efektif berubah
   useEffect(() => {
     applyHtmlClass(effectiveTheme === 'dark');
   }, [effectiveTheme]);
@@ -95,8 +93,13 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
   }, []);
 
+  const resetToAuto = useCallback(() => {
+    setThemeState('auto');
+    safeSet(STORAGE_KEY, 'auto');
+  }, []);
+
   return (
-    <ThemeContext.Provider value={{ theme, effectiveTheme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, effectiveTheme, setTheme, toggleTheme, resetToAuto }}>
       {children}
     </ThemeContext.Provider>
   );
