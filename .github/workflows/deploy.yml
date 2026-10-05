@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: 'pages'
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -23,26 +23,35 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          # ⛔ CATATAN: opsi `cache: 'npm'` SENGAJA TIDAK DIPAKAI
-          # karena repo ini tidak menyimpan package-lock.json.
-          # Jika nanti kamu commit package-lock.json, baru aktifkan:
-          # cache: 'npm'
+
+      - name: Verify Environment
+        run: |
+          node -v
+          npm -v
 
       - name: Install Dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
 
-      - name: Verify Build Environment
-        run: |
-          node -v
-          npm -v
-          echo "Vite + React build starting..."
+      - name: Type Check (optional)
+        run: npm run lint
+        continue-on-error: true
 
       - name: Build Web Application
         run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+
+      - name: Show Build Output
+        run: ls -la dist/
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
