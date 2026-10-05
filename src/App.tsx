@@ -36,6 +36,11 @@ import { FaceChartModule } from './components/modules/FaceChartModule';
 import { CostumeModule } from './components/modules/CostumeModule';
 import { BackupModule } from './components/modules/BackupModule';
 
+// Wrapper transparan di SEMUA mode — body yang beri warna + motif
+const APP_WRAPPER_CLASS =
+  'min-h-screen flex flex-col antialiased pb-16 lg:pb-0 bg-transparent ' +
+  'selection:bg-amber-500/20 selection:text-amber-900 dark:selection:text-amber-200';
+
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
   const [currentModule, setCurrentModule] = useState('dashboard');
@@ -60,7 +65,7 @@ const MainLayout: React.FC = () => {
   // ============ ADMIN ============
   if (isAdminRole) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
+      <div className={APP_WRAPPER_CLASS}>
         <Navbar
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onNavigate={setCurrentModule}
@@ -123,7 +128,7 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
+    <div className={APP_WRAPPER_CLASS}>
       <Navbar
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         onNavigate={setCurrentModule}
