@@ -156,6 +156,14 @@ export const TaskDeadlineModule: React.FC = () => {
       showToast('Gagal membuat tugas: ' + err.message, 'error');
     }
   };
+      setIsCreateModalOpen(false);
+      setNewTitle('');
+      setNewDesc('');
+      setNewDueDate('');
+    } catch (err: any) {
+      showToast('Gagal membuat tugas: ' + err.message, 'error');
+    }
+  };
 
   const handleSubmitProof = async () => {
     if (!selectedTaskForProof || !user) return;
