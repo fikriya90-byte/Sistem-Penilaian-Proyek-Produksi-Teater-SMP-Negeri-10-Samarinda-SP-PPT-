@@ -170,6 +170,18 @@ export const AttendanceModule: React.FC = () => {
       });
 
       showToast(`Kehadiran Anda (${myStatus}) berhasil dicatat!`, 'success');
+
+      // Notifikasi guru
+      try {
+        const { notifyTeachers } = await import('../../services/firestoreService');
+        await notifyTeachers(activeClass!.id, {
+          title: 'Presensi Siswa Baru',
+          message: `${user.displayName} mengisi presensi "${activeSession.title}" dengan status: ${myStatus}`,
+          category: 'Reminder',
+          link: 'absensi',
+          senderName: user.displayName,
+        });
+      } catch (_) { /* non-fatal */ }
     } catch (err: any) {
       showToast('Gagal mengirim presensi: ' + err.message, 'error');
     } finally {
