@@ -1,4 +1,4 @@
-simport React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
   AlertTriangle, Check, BookOpen, Flag, Palette, Star, ChevronRight,
