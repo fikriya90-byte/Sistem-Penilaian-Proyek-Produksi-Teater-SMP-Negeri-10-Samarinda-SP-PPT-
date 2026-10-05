@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Award, CheckSquare, ClipboardList, Home, MessageSquare, Users, Star, Wallet,
-  Megaphone,
+  Megaphone, Bell,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './core/authContext';
 import { ThemeProvider } from './core/themeContext';
@@ -37,6 +37,8 @@ import { FaceChartModule } from './components/modules/FaceChartModule';
 import { CostumeModule } from './components/modules/CostumeModule';
 import { BackupModule } from './components/modules/BackupModule';
 import { InformationModule } from './components/modules/InformationModule';
+import { NotificationPage } from './components/modules/NotificationPage';
+import { ActivityLogModule } from './components/modules/ActivityLogModule';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
@@ -70,6 +72,8 @@ const MainLayout: React.FC = () => {
             {currentModule === 'pengaturan' ? <SettingsModule /> :
              currentModule === 'backup' ? <BackupModule /> :
              currentModule === 'informasi' ? <InformationModule /> :
+             currentModule === 'notifikasi' ? <NotificationPage /> :
+             currentModule === 'aktivitas' ? <ActivityLogModule /> :
              <AdminModule />}
           </main>
         </div>
@@ -106,6 +110,8 @@ const MainLayout: React.FC = () => {
       case 'kelola-tahapan': return <StageManagerModule />;
       case 'deadline': return <DeadlineModule />;
       case 'informasi': return <InformationModule />;
+      case 'notifikasi': return <NotificationPage />;
+      case 'aktivitas': return <ActivityLogModule />;
       default: return <DashboardModule onNavigate={setCurrentModule} />;
     }
   };
@@ -130,9 +136,6 @@ const MainLayout: React.FC = () => {
           title="Papan Pengumuman"
         >
           <Megaphone className="w-5 h-5" />
-          <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-300 text-xs font-bold px-0 group-hover:px-2">
-            Pengumuman
-          </span>
         </button>
         <button
           onClick={() => setCurrentModule('struktur')}
@@ -160,9 +163,9 @@ const MainLayout: React.FC = () => {
           className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
           <Megaphone className="w-5 h-5" /><span className="text-[10px] mt-0.5">Info</span>
         </button>
-        <button onClick={() => setCurrentModule('nilai-saya')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai-saya' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-          <Award className="w-5 h-5" /><span className="text-[10px] mt-0.5">Nilai</span>
+        <button onClick={() => setCurrentModule('notifikasi')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+          <Bell className="w-5 h-5" /><span className="text-[10px] mt-0.5">Notif</span>
         </button>
         <button onClick={() => setCurrentModule('kas')}
           className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
