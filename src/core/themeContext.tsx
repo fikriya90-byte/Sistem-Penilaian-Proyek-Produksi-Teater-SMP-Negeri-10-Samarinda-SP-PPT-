@@ -16,8 +16,8 @@ function getInitialTheme(): ThemeMode {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
-  } catch (_) { /* ignore */ }
-  return 'light';
+  } catch (_) {}
+  return 'auto'; // DEFAULT AUTO → ikut device
 }
 
 function getSystemDark(): boolean {
@@ -28,11 +28,24 @@ function getSystemDark(): boolean {
   }
 }
 
+function applyTheme(mode: 'light' | 'dark') {
+  try {
+    const root = document.documentElement;
+    root.setAttribute('data-theme', mode);
+    root.style.colorScheme = mode;
+    if (mode === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  } catch (_) {}
+}
+
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<ThemeMode>(getInitialTheme);
   const [systemDark, setSystemDark] = useState<boolean>(getSystemDark);
 
-  // Listen perubahan sistem
+  // Watch device setting
   useEffect(() => {
     try {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -40,38 +53,32 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (mq.addEventListener) {
         mq.addEventListener('change', handler);
         return () => mq.removeEventListener('change', handler);
+      } else if (mq.addListener) {
+        mq.addListener(handler);
+        return () => mq.removeListener(handler);
       }
-    } catch (_) { /* ignore */ }
+    } catch (_) {}
   }, []);
 
   const effectiveTheme: 'light' | 'dark' =
     theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme;
 
-  // Apply class ke html
+  // Apply ke <html> setiap kali berubah
   useEffect(() => {
-    try {
-      const root = document.documentElement;
-      if (effectiveTheme === 'dark') {
-        root.classList.add('dark');
-        root.style.colorScheme = 'dark';
-      } else {
-        root.classList.remove('dark');
-        root.style.colorScheme = 'light';
-      }
-    } catch (_) { /* ignore */ }
+    applyTheme(effectiveTheme);
   }, [effectiveTheme]);
 
   const setTheme = useCallback((t: ThemeMode) => {
     setThemeState(t);
-    try { localStorage.setItem(STORAGE_KEY, t); } catch (_) { /* ignore */ }
+    try { localStorage.setItem(STORAGE_KEY, t); } catch (_) {}
   }, []);
 
   const toggleTheme = useCallback(() => {
-    const order: ThemeMode[] = ['light', 'dark', 'auto'];
     setThemeState(prev => {
+      const order: ThemeMode[] = ['light', 'dark', 'auto'];
       const idx = order.indexOf(prev);
       const next = order[(idx + 1) % order.length];
-      try { localStorage.setItem(STORAGE_KEY, next); } catch (_) { /* ignore */ }
+      try { localStorage.setItem(STORAGE_KEY, next); } catch (_) {}
       return next;
     });
   }, []);
