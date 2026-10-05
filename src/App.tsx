@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Award, CheckSquare, ClipboardList, Home, MessageSquare, Sparkles, Users, Star,
+  Award, CheckSquare, ClipboardList, Home, MessageSquare, Sparkles, Users, Star, Wallet,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './core/authContext';
 import { ToastProvider } from './components/common/Toast';
@@ -27,6 +27,9 @@ import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
 import { StageManagerModule } from './components/modules/StageManagerModule';
 import { DeadlineModule } from './components/modules/DeadlineModule';
+import { ModerationModule } from './components/modules/ModerationModule';
+import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
+import { KasModule } from './components/modules/KasModule';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
@@ -36,6 +39,20 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     setCurrentModule('dashboard');
   }, [activeClass?.id]);
+
+  // Auto-run reminders setiap kali aktif kelas berubah
+  useEffect(() => {
+    if (!activeClass) return;
+    import('./utils/reminder').then(({ runAllReminders }) => {
+      runAllReminders(activeClass.id).catch(() => { /* non-fatal */ });
+    });
+    const interval = setInterval(() => {
+      import('./utils/reminder').then(({ runAllReminders }) => {
+        runAllReminders(activeClass.id).catch(() => { /* non-fatal */ });
+      });
+    }, 15 * 60 * 1000); // setiap 15 menit
+    return () => clearInterval(interval);
+  }, [activeClass]);
 
   if (loading) {
     return (
@@ -77,6 +94,9 @@ const MainLayout: React.FC = () => {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
       case 'nilai-saya': return <MyGradeModule />;
       case 'nilai': return <AssessmentModule />;
+      case 'moderasi': return <ModerationModule />;
+      case 'statistik-absensi': return <AttendanceStatsModule />;
+      case 'kas': return <KasModule />;
       case 'jadwal': return <ScheduleModule />;
       case 'absensi': return <AttendanceModule />;
       case 'tugas': return <TaskDeadlineModule />;
@@ -96,10 +116,7 @@ const MainLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col antialiased selection:bg-amber-500/20 selection:text-amber-900 pb-16 lg:pb-0">
-      <Navbar
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        onNavigate={setCurrentModule}
-      />
+      <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
 
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
         <Sidebar
@@ -142,9 +159,9 @@ const MainLayout: React.FC = () => {
           className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai-saya' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <Award className="w-5 h-5" /><span className="text-[10px] mt-0.5">Nilai</span>
         </button>
-        <button onClick={() => setCurrentModule('absensi')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'absensi' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
-          <ClipboardList className="w-5 h-5" /><span className="text-[10px] mt-0.5">Presensi</span>
+        <button onClick={() => setCurrentModule('kas')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+          <Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span>
         </button>
         <button onClick={() => setCurrentModule('tugas')}
           className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
