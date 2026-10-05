@@ -29,7 +29,6 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isOpen, onClose }) => {
   const { user, isGuruPengampu, isAdminRole } = useAuth();
 
-  // Menu Administrator
   const adminNavItems = [
     { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck, badge: 'Kelola' },
     { id: 'admin-guru', label: 'Manajemen Guru', icon: Users, badge: 'Akun' },
@@ -37,7 +36,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings, badge: '' },
   ];
 
-  // Menu Guru Pengampu
   const teacherNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
     { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen, badge: 'Manajemen' },
@@ -54,7 +52,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings, badge: '' },
   ];
 
-  // Menu Siswa / Anggota
   const studentNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
     { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: '' },
@@ -72,8 +69,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
   let navItems = studentNavItems;
   if (isAdminRole) navItems = adminNavItems;
   else if (isGuruPengampu) navItems = teacherNavItems;
-
-  const accentColor = isAdminRole ? 'blue' : 'amber';
 
   return (
     <>
@@ -157,7 +152,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
                   }}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${
                     isActive
-                      ? accentColor === 'blue'
+                      ? isAdminRole
                         ? 'bg-blue-600 text-white font-bold shadow-sm'
                         : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100/80'
@@ -167,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
                     <Icon
                       className={`w-4 h-4 ${
                         isActive
-                          ? accentColor === 'blue'
+                          ? isAdminRole
                             ? 'text-white'
                             : 'text-slate-950'
                           : 'text-slate-500'
@@ -180,7 +175,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
                     <span
                       className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
                         isActive
-                          ? accentColor === 'blue'
+                          ? isAdminRole
                             ? 'bg-white text-blue-700'
                             : 'bg-slate-950 text-amber-300'
                           : 'bg-slate-100 text-slate-600 border border-slate-200'
