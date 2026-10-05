@@ -1,157 +1,190 @@
 @import "tailwindcss";
 
 /* =========================================================
-   TAILWIND V4 DARK MODE VARIANT
+   LIGHT MODE (DEFAULT)
    ========================================================= */
-@custom-variant dark (&:where(.dark, .dark *));
-
-/* =========================================================
-   ROOT & BODY
-   ========================================================= */
-:root { color-scheme: light; }
-html.dark { color-scheme: dark; }
-
-html, body, #root { min-height: 100vh; }
-
-html, body {
-  transition: background-color 0.3s ease, color 0.3s ease;
+:root, html[data-theme="light"] {
+  color-scheme: light;
+  --bg-main: #f8fafc;
+  --bg-overlay: rgba(248, 250, 252, 0.85);
+  --text-main: #0f172a;
 }
 
 /* =========================================================
-   BODY BACKGROUND — MOTIF TEATER + OVERLAY
+   DARK MODE — via [data-theme] atau class .dark
    ========================================================= */
+html[data-theme="dark"], html.dark {
+  color-scheme: dark;
+  --bg-main: #0a0f1e;
+  --bg-overlay: rgba(10, 15, 30, 0.82);
+  --text-main: #f1f5f9;
+}
+
+/* =========================================================
+   BODY — MOTIF TEATER + OVERLAY
+   ========================================================= */
+html, body, #root { min-height: 100vh; }
+
 body {
-  background-color: #f8fafc;
+  background-color: var(--bg-main);
   background-image: url("https://iili.io/nJ1Rcj1.png");
   background-size: cover;
   background-position: center center;
   background-repeat: no-repeat;
   background-attachment: fixed;
+  transition: background-color 0.3s ease, color 0.3s ease;
   position: relative;
 }
 
-/* Overlay tipis di atas motif — LIGHT mode (terang, tulisan tetap gelap) */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(248, 250, 252, 0.88) 0%,
-    rgba(241, 245, 249, 0.90) 50%,
-    rgba(248, 250, 252, 0.88) 100%
-  );
+  background: var(--bg-overlay);
   pointer-events: none;
   z-index: 0;
+  transition: background-color 0.3s ease;
 }
 
-/* Overlay tipis di atas motif — DARK mode (gelap, tulisan tetap terang) */
-html.dark body {
-  background-color: #0a0f1e;
-}
-
-html.dark body::before {
-  background: linear-gradient(
-    180deg,
-    rgba(10, 15, 30, 0.88) 0%,
-    rgba(15, 23, 42, 0.90) 50%,
-    rgba(10, 15, 30, 0.88) 100%
-  );
-}
-
-/* Konten di atas overlay */
 #root {
   position: relative;
   z-index: 1;
 }
 
 /* =========================================================
-   DARK MODE OVERRIDES
+   DARK MODE — OVERRIDE SEMUA ELEMEN
+   Selector pakai html.dark agar berlaku ke semua komponen
    ========================================================= */
 
-/* --- Wrapper utama tetap transparan --- */
-.dark .bg-slate-50,
-.dark .bg-slate-950,
-.dark .dark\:bg-slate-950 {
+/* --- Wrapper & background transparan --- */
+html.dark .bg-slate-50,
+html.dark .bg-slate-950,
+html.dark .dark\:bg-slate-950,
+html.dark .dark\:bg-slate-50,
+html.dark .bg-transparent {
   background-color: transparent !important;
 }
 
-/* --- Card & panel: LIGHT → putih semi transparan --- */
-.bg-white { background-color: rgba(255, 255, 255, 0.92) !important; }
-.bg-white\/95 { background-color: rgba(255, 255, 255, 0.95) !important; }
-.bg-white\/90 { background-color: rgba(255, 255, 255, 0.90) !important; }
-.bg-white\/80 { background-color: rgba(255, 255, 255, 0.80) !important; }
-.bg-white\/60 { background-color: rgba(255, 255, 255, 0.60) !important; }
+/* --- Card putih → dark semi transparan --- */
+html.dark .bg-white {
+  background-color: rgba(15, 23, 42, 0.88) !important;
+}
+html.dark .bg-white\/95 {
+  background-color: rgba(15, 23, 42, 0.95) !important;
+}
+html.dark .bg-white\/90 {
+  background-color: rgba(15, 23, 42, 0.90) !important;
+}
+html.dark .bg-white\/80 {
+  background-color: rgba(15, 23, 42, 0.80) !important;
+}
+html.dark .bg-white\/60 {
+  background-color: rgba(15, 23, 42, 0.60) !important;
+}
 
-/* --- Card & panel: DARK → slate semi transparan --- */
-.dark .bg-white { background-color: rgba(15, 23, 42, 0.85) !important; }
-.dark .bg-white\/95 { background-color: rgba(15, 23, 42, 0.95) !important; }
-.dark .bg-white\/90 { background-color: rgba(15, 23, 42, 0.90) !important; }
-.dark .bg-white\/80 { background-color: rgba(15, 23, 42, 0.80) !important; }
-.dark .bg-white\/60 { background-color: rgba(15, 23, 42, 0.60) !important; }
-
-/* --- Surface muted --- */
-.dark .bg-slate-100,
-.dark .bg-slate-100\/80 {
+/* --- Muted surfaces --- */
+html.dark .bg-slate-100,
+html.dark .bg-slate-100\/80 {
   background-color: rgba(30, 41, 59, 0.75) !important;
 }
-.dark .bg-slate-200 {
+html.dark .bg-slate-200 {
   background-color: rgba(51, 65, 85, 0.75) !important;
 }
 
-/* --- Text: LIGHT --- */
-.text-slate-900 { color: #0f172a; }
-.text-slate-800 { color: #1e293b; }
-.text-slate-700 { color: #334155; }
-.text-slate-600 { color: #475569; }
-.text-slate-500 { color: #64748b; }
+/* --- TEXT COLORS --- */
+html.dark .text-slate-900,
+html.dark .text-slate-950,
+html.dark .text-black {
+  color: #f8fafc !important;
+}
+html.dark .text-slate-800 {
+  color: #f1f5f9 !important;
+}
+html.dark .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+html.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+html.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+html.dark .text-slate-400 {
+  color: #64748b !important;
+}
 
-/* --- Text: DARK --- */
-.dark .text-slate-900 { color: #f1f5f9 !important; }
-.dark .text-slate-800 { color: #e2e8f0 !important; }
-.dark .text-slate-700 { color: #cbd5e1 !important; }
-.dark .text-slate-600 { color: #94a3b8 !important; }
-.dark .text-slate-500 { color: #94a3b8 !important; }
-.dark .text-slate-400 { color: #64748b !important; }
+/* --- BORDERS --- */
+html.dark .border-slate-100 {
+  border-color: #1e293b !important;
+}
+html.dark .border-slate-200 {
+  border-color: #334155 !important;
+}
+html.dark .border-slate-200\/80 {
+  border-color: rgba(51, 65, 85, 0.8) !important;
+}
+html.dark .border-slate-300 {
+  border-color: #475569 !important;
+}
 
-/* --- Borders --- */
-.dark .border-slate-100 { border-color: #1e293b !important; }
-.dark .border-slate-200 { border-color: #334155 !important; }
-.dark .border-slate-200\/80 { border-color: rgba(51, 65, 85, 0.8) !important; }
-.dark .border-slate-300 { border-color: #475569 !important; }
+/* --- DIVIDE --- */
+html.dark .divide-slate-100 > * + * {
+  border-color: #1e293b !important;
+}
+html.dark .divide-slate-200 > * + * {
+  border-color: #334155 !important;
+}
 
-/* --- Divide --- */
-.dark .divide-slate-100 > * + * { border-color: #1e293b !important; }
-.dark .divide-slate-200 > * + * { border-color: #334155 !important; }
-
-/* --- Inputs --- */
-.dark input,
-.dark select,
-.dark textarea {
-  background-color: rgba(30, 41, 59, 0.85) !important;
+/* --- INPUT & FORM --- */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: rgba(30, 41, 59, 0.9) !important;
   color: #f1f5f9 !important;
   border-color: #334155 !important;
 }
-.dark input::placeholder,
-.dark textarea::placeholder { color: #64748b !important; }
-.dark input:focus,
-.dark select:focus,
-.dark textarea:focus { border-color: #f59e0b !important; }
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  border-color: #f59e0b !important;
+}
 
-/* --- Hover --- */
-.dark .hover\:bg-slate-50:hover { background-color: rgba(30, 41, 59, 0.6) !important; }
-.dark .hover\:bg-slate-100:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
-.dark .hover\:bg-slate-100\/80:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
-.dark .hover\:bg-white:hover { background-color: rgba(51, 65, 85, 0.9) !important; }
-.dark .hover\:text-slate-900:hover { color: #f1f5f9 !important; }
-.dark .hover\:text-slate-950:hover { color: #ffffff !important; }
-.dark .hover\:bg-slate-50\/80:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
+/* --- HOVER --- */
+html.dark .hover\:bg-slate-50:hover {
+  background-color: rgba(30, 41, 59, 0.6) !important;
+}
+html.dark .hover\:bg-slate-100:hover {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
+html.dark .hover\:bg-slate-100\/80:hover {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
+html.dark .hover\:bg-white:hover {
+  background-color: rgba(51, 65, 85, 0.9) !important;
+}
+html.dark .hover\:text-slate-900:hover {
+  color: #f1f5f9 !important;
+}
+html.dark .hover\:text-slate-950:hover {
+  color: #ffffff !important;
+}
+html.dark .hover\:bg-slate-50\/80:hover {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
 
-/* --- Modal backdrop --- */
-.dark .bg-slate-950\/70 { background-color: rgba(0, 0, 0, 0.88) !important; }
+/* --- MODAL BACKDROP --- */
+html.dark .bg-slate-950\/70 {
+  background-color: rgba(0, 0, 0, 0.88) !important;
+}
 
-/* --- Ring --- */
-.dark .ring-amber-400\/20 { --tw-ring-color: rgba(245, 158, 11, 0.35) !important; }
+/* --- TABLE hover --- */
+html.dark tr:hover {
+  background-color: rgba(30, 41, 59, 0.5) !important;
+}
 
 /* =========================================================
    PRINT
