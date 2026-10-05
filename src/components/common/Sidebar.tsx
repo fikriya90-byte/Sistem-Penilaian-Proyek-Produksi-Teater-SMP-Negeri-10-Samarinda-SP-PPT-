@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Award, BookOpen, Calendar, CheckSquare, ClipboardList, FileText,
   GraduationCap, HelpCircle, Home, MessageSquare, Radio, Settings,
-  ShieldCheck, Sparkles, Users, X,
+  ShieldCheck, Sparkles, Users, X, Timer, Star,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -26,6 +26,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
   const teacherNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
     { id: 'kelola-kelas', label: 'Kelola Kelas & Siswa', icon: BookOpen, badge: 'Manajemen' },
+    { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar, badge: 'Tahapan' },
+    { id: 'deadline', label: 'Kirim Deadline', icon: Timer, badge: 'Baru' },
     { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: 'Multi-Penilai' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
@@ -41,8 +43,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
 
   const studentNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
-    { id: 'kelola-tahapan', label: 'Kelola Tahapan & Deadline', icon: Calendar, badge: 'Tahapan' },
-    { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: '' },
+    { id: 'nilai-saya', label: 'Nilai Saya', icon: Award, badge: 'Rapor' },
+    { id: 'nilai', label: 'Beri Nilai', icon: Star, badge: '' },
+    { id: 'deadline', label: 'Deadline Saya', icon: Timer, badge: '' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
     { id: 'tugas', label: 'Checklist & Deadline', icon: CheckSquare, badge: '' },
