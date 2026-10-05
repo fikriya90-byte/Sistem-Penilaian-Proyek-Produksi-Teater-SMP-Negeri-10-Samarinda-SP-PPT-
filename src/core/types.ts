@@ -1,5 +1,5 @@
 export type UserRole =
-  | 'Guru Pembina'
+  | 'Guru Pengampu'
   | 'Pimpinan Produksi'
   | 'Sekretaris'
   | 'Bendahara'
