@@ -245,6 +245,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         /* non-fatal */
       }
 
+      // Import helper di atas file
+      const { getDivisionFromRole } = await import('./constants');
+      const division = isTeacherReg ? null : getDivisionFromRole(data.role || 'Pemain');
+
       const newProfile: UserProfile = {
         uid: res.user.uid,
         email: data.email.trim(),
@@ -253,6 +257,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         classId: isTeacherReg ? '' : validClass.id,
         className: isTeacherReg ? '' : validClass.name,
         phone: data.phone.trim(),
+        divisionId: division?.id,
+        divisionName: division?.name,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
