@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Award, CheckSquare, ClipboardList, Home, MessageSquare, Sparkles, Users,
+  Award, CheckSquare, ClipboardList, Home, MessageSquare, Sparkles, Users, Star,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './core/authContext';
 import { ToastProvider } from './components/common/Toast';
@@ -12,6 +12,7 @@ import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 // Modules
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
+import { MyGradeModule } from './components/modules/MyGradeModule';
 import { AttendanceModule } from './components/modules/AttendanceModule';
 import { ScheduleModule } from './components/modules/ScheduleModule';
 import { TaskDeadlineModule } from './components/modules/TaskDeadlineModule';
@@ -25,6 +26,7 @@ import { SettingsModule } from './components/modules/SettingsModule';
 import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
 import { StageManagerModule } from './components/modules/StageManagerModule';
+import { DeadlineModule } from './components/modules/DeadlineModule';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
@@ -47,7 +49,6 @@ const MainLayout: React.FC = () => {
 
   if (!user) return <LoginModal />;
 
-  // ============ ADMIN ============
   if (isAdminRole) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col antialiased pb-16 lg:pb-0">
@@ -67,15 +68,14 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ============ GURU TANPA KELAS AKTIF → ClassPicker ============
   if (isGuruPengampu && !activeClass) {
     return <TeacherClassPicker />;
   }
 
-  // ============ GURU DENGAN KELAS / SISWA ============
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
+      case 'nilai-saya': return <MyGradeModule />;
       case 'nilai': return <AssessmentModule />;
       case 'jadwal': return <ScheduleModule />;
       case 'absensi': return <AttendanceModule />;
@@ -88,7 +88,8 @@ const MainLayout: React.FC = () => {
       case 'panduan': return <GuideModule />;
       case 'pengaturan': return <SettingsModule />;
       case 'kelola-kelas': return <ManageClassModule />;
-      case 'kelola-kelas': return <ManageClassModule />;
+      case 'kelola-tahapan': return <StageManagerModule />;
+      case 'deadline': return <DeadlineModule />;
       default: return <DashboardModule onNavigate={setCurrentModule} />;
     }
   };
@@ -113,7 +114,7 @@ const MainLayout: React.FC = () => {
         </main>
       </div>
 
-      <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5">
+      <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
         <button onClick={() => setCurrentModule('struktur')}
           className="p-3 sm:p-3.5 rounded-full bg-slate-900 hover:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
           title="Buka Kerabat Kerja">
@@ -132,13 +133,13 @@ const MainLayout: React.FC = () => {
         </button>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg">
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
         <button onClick={() => setCurrentModule('dashboard')}
           className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span>
         </button>
-        <button onClick={() => setCurrentModule('nilai')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+        <button onClick={() => setCurrentModule('nilai-saya')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai-saya' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <Award className="w-5 h-5" /><span className="text-[10px] mt-0.5">Nilai</span>
         </button>
         <button onClick={() => setCurrentModule('absensi')}
@@ -149,9 +150,9 @@ const MainLayout: React.FC = () => {
           className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
           <CheckSquare className="w-5 h-5" /><span className="text-[10px] mt-0.5">Tugas</span>
         </button>
-        <button onClick={() => setCurrentModule('studio')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'studio' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
-          <Sparkles className="w-5 h-5" /><span className="text-[10px] mt-0.5">Studio</span>
+        <button onClick={() => setCurrentModule('deadline')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'deadline' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+          <Star className="w-5 h-5" /><span className="text-[10px] mt-0.5">Deadline</span>
         </button>
       </div>
     </div>
