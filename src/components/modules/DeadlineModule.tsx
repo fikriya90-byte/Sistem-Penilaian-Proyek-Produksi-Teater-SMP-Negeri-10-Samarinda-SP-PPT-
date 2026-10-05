@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
-  AlertTriangle, MessageSquare, Check, Ban,
+  AlertTriangle, Check,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -13,6 +13,9 @@ import {
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 
+// =====================================================
+// SAFE PRIORITY CONFIG — fallback default
+// =====================================================
 const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
   LOW: { label: 'Rendah', color: 'bg-slate-100 text-slate-700 border-slate-300' },
   MEDIUM: { label: 'Sedang', color: 'bg-blue-100 text-blue-800 border-blue-300' },
@@ -20,12 +23,19 @@ const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
   CRITICAL: { label: 'Kritis', color: 'bg-rose-100 text-rose-800 border-rose-300' },
 };
 
+const DEFAULT_PRIORITY = { label: 'Sedang', color: 'bg-blue-100 text-blue-800 border-blue-300' };
+
+function getPriorityConfig(priority?: string) {
+  if (!priority) return DEFAULT_PRIORITY;
+  return PRIORITY_CONFIG[priority] || DEFAULT_PRIORITY;
+}
+
 const CAN_CREATE_DEADLINE_ROLES = [
   'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin',
   'Pimpinan Produksi', 'Sekretaris', 'Sutradara', 'Asisten Sutradara',
 ];
 
-const isKoordinator = (role: string) => role.startsWith('Koordinator ');
+const isKoordinator = (role?: string) => !!role && role.startsWith('Koordinator ');
 
 export const DeadlineModule: React.FC = () => {
   const { user, activeClass, isGuruPengampu } = useAuth();
@@ -41,6 +51,7 @@ export const DeadlineModule: React.FC = () => {
   const [filterScope, setFilterScope] = useState<'ALL' | 'MINE'>('ALL');
   const [now, setNow] = useState(new Date());
 
+  // Form create
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newDue, setNewDue] = useState('');
@@ -50,17 +61,22 @@ export const DeadlineModule: React.FC = () => {
   const [newRole, setNewRole] = useState<UserRole>('Pemain');
   const [submitting, setSubmitting] = useState(false);
 
+  // Form submit
   const [proofUrl, setProofUrl] = useState('');
   const [proofNote, setProofNote] = useState('');
   const [progress, setProgress] = useState(50);
   const [askExtension, setAskExtension] = useState(false);
   const [extensionReason, setExtensionReason] = useState('');
 
+  // Form feedback
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [approveExt, setApproveExt] = useState(false);
 
-  const canCreate = user && (CAN_CREATE_DEADLINE_ROLES.includes(user.role) || isKoordinator(user.role));
+  const canCreate = !!user && (
+    CAN_CREATE_DEADLINE_ROLES.includes(user.role) ||
+    isKoordinator(user.role)
+  );
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
@@ -71,8 +87,8 @@ export const DeadlineModule: React.FC = () => {
     if (!activeClass) return;
     const q = query(collection(db, 'deadlines'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, snap => {
-      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineItem));
-      items.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+      const items: DeadlineItem[] = snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineItem));
+      items.sort((a, b) => new Date(a.dueDate || 0).getTime() - new Date(b.dueDate || 0).getTime());
       setDeadlines(items);
     });
     return () => unsub();
@@ -96,16 +112,32 @@ export const DeadlineModule: React.FC = () => {
     return () => unsub();
   }, [activeClass, user]);
 
-  const getCountdown = (dueDate: string) => {
+  const getCountdown = (dueDate?: string) => {
+    if (!dueDate) {
+      return { text: 'Tanpa deadline', color: 'text-slate-700 bg-slate-50 border-slate-200' };
+    }
     const diff = new Date(dueDate).getTime() - now.getTime();
+    if (isNaN(diff)) {
+      return { text: 'Format tanggal salah', color: 'text-slate-700 bg-slate-50 border-slate-200' };
+    }
     if (diff <= 0) {
       const lateDays = Math.floor(Math.abs(diff) / (1000 * 60 * 60 * 24));
-      return { text: `Terlambat ${lateDays} hari`, color: 'text-rose-700 bg-rose-100 border-rose-300' };
+      return {
+        text: `Terlambat ${lateDays} hari`,
+        color: 'text-rose-700 bg-rose-100 border-rose-300',
+      };
     }
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(hours / 24);
-    if (hours < 24) return { text: `${hours} jam lagi`, color: 'text-rose-700 bg-rose-50 border-rose-200 animate-pulse font-bold' };
-    if (hours <= 72) return { text: `${days} hari lagi`, color: 'text-amber-700 bg-amber-50 border-amber-200' };
+    if (hours < 24) {
+      return {
+        text: `${hours} jam lagi`,
+        color: 'text-rose-700 bg-rose-50 border-rose-200 animate-pulse font-bold',
+      };
+    }
+    if (hours <= 72) {
+      return { text: `${days} hari lagi`, color: 'text-amber-700 bg-amber-50 border-amber-200' };
+    }
     return { text: `${days} hari lagi`, color: 'text-slate-700 bg-slate-50 border-slate-200' };
   };
 
@@ -136,6 +168,7 @@ export const DeadlineModule: React.FC = () => {
       };
       await setDoc(newRef, newDeadline);
 
+      // Notifikasi
       try {
         const allUsers = await fetchUsersByClass(activeClass.id);
         const recipients = allUsers.filter(u => {
@@ -156,7 +189,7 @@ export const DeadlineModule: React.FC = () => {
             userId: r.uid,
             classId: activeClass.id,
             title: 'Deadline Baru!',
-            message: `${user.displayName} mengirim deadline: "${newTitle.trim()}"`,
+            message: `${user.displayName} mengirim: "${newTitle.trim()}"`,
             category: 'Reminder',
             read: false,
             link: 'deadline',
@@ -164,7 +197,19 @@ export const DeadlineModule: React.FC = () => {
           });
         });
         await batch.commit();
-      } catch { /* non-fatal */ }
+      } catch (err) {
+        console.warn('Notif gagal (non-fatal):', err);
+      }
+
+      await recordAuditLog({
+        userId: user.uid,
+        userName: user.displayName,
+        role: user.role,
+        action: 'CREATE',
+        targetType: 'Deadline',
+        targetId: newRef.id,
+        details: `Buat deadline: ${newTitle}`,
+      });
 
       showToast('Deadline berhasil dikirim!', 'success');
       setIsCreateOpen(false);
@@ -183,7 +228,8 @@ export const DeadlineModule: React.FC = () => {
     setSubmitting(true);
     try {
       const subId = `${selectedDeadline.id}_${user.uid}`;
-      const isLate = new Date(selectedDeadline.dueDate).getTime() < Date.now();
+      const dueMs = new Date(selectedDeadline.dueDate || 0).getTime();
+      const isLate = !isNaN(dueMs) && dueMs < Date.now();
       await setDoc(doc(db, 'deadlineSubmissions', subId), {
         id: subId,
         deadlineId: selectedDeadline.id,
@@ -250,10 +296,14 @@ export const DeadlineModule: React.FC = () => {
 
   const handleOpenReview = async (d: DeadlineItem) => {
     setSelectedDeadline(d);
-    const q = query(collection(db, 'deadlineSubmissions'), where('deadlineId', '==', d.id));
-    const snap = await getDocs(q);
-    setSubmissions(snap.docs.map(x => ({ ...x.data(), id: x.id } as DeadlineSubmission)));
-    setIsReviewOpen(true);
+    try {
+      const q = query(collection(db, 'deadlineSubmissions'), where('deadlineId', '==', d.id));
+      const snap = await getDocs(q);
+      setSubmissions(snap.docs.map(x => ({ ...x.data(), id: x.id } as DeadlineSubmission)));
+      setIsReviewOpen(true);
+    } catch (err: any) {
+      showToast('Gagal load submisi: ' + err.message, 'error');
+    }
   };
 
   const handleSaveFeedback = async (sub: DeadlineSubmission) => {
@@ -266,14 +316,13 @@ export const DeadlineModule: React.FC = () => {
         updatedAt: new Date().toISOString(),
       });
 
-      // Notif ke siswa
       const notifRef = doc(collection(db, 'notifications'));
       await setDoc(notifRef, {
         id: notifRef.id,
         userId: sub.studentId,
         classId: sub.classId,
         title: 'Feedback Deadline',
-        message: `${user.displayName} memberi feedback untuk "${selectedDeadline?.title}"`,
+        message: `${user.displayName} memberi feedback`,
         category: 'Feedback',
         read: false,
         link: 'deadline',
@@ -285,7 +334,6 @@ export const DeadlineModule: React.FC = () => {
       setFeedbackRating(5);
       setApproveExt(false);
 
-      // Reload submissions
       if (selectedDeadline) {
         const q = query(collection(db, 'deadlineSubmissions'), where('deadlineId', '==', selectedDeadline.id));
         const snap = await getDocs(q);
@@ -309,6 +357,7 @@ export const DeadlineModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-900 via-slate-900 to-slate-800 text-white shadow-xl border border-rose-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -327,8 +376,10 @@ export const DeadlineModule: React.FC = () => {
           </div>
 
           {canCreate && (
-            <button onClick={() => setIsCreateOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition">
+            <button
+              onClick={() => setIsCreateOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition"
+            >
               <PlusCircle className="w-4 h-4" />
               <span>Kirim Deadline Baru</span>
             </button>
@@ -336,21 +387,27 @@ export const DeadlineModule: React.FC = () => {
         </div>
       </div>
 
+      {/* Filter */}
       <div className="flex items-center gap-2 flex-wrap">
-        <button onClick={() => setFilterScope('ALL')}
+        <button
+          onClick={() => setFilterScope('ALL')}
           className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
             filterScope === 'ALL' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border border-slate-200'
-          }`}>
+          }`}
+        >
           Semua ({deadlines.length})
         </button>
-        <button onClick={() => setFilterScope('MINE')}
+        <button
+          onClick={() => setFilterScope('MINE')}
           className={`px-3.5 py-2 rounded-xl text-xs font-bold transition ${
             filterScope === 'MINE' ? 'bg-amber-500 text-slate-950' : 'bg-white text-slate-600 border border-slate-200'
-          }`}>
+          }`}
+        >
           Untuk Saya
         </button>
       </div>
 
+      {/* List */}
       {visibleDeadlines.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
           <Timer className="w-12 h-12 mx-auto text-slate-300 mb-3" />
@@ -364,12 +421,14 @@ export const DeadlineModule: React.FC = () => {
           {visibleDeadlines.map(d => {
             const cd = getCountdown(d.dueDate);
             const mySub = mySubmissions[d.id];
-            const priority = PRIORITY_CONFIG[d.priority];
+            const priority = getPriorityConfig(d.priority);
 
             return (
               <div key={d.id} className="p-5 rounded-3xl bg-white border border-slate-200 hover:border-rose-300 transition shadow-sm space-y-3">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${priority.color}`}>{priority.label}</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${priority.color}`}>
+                    {priority.label}
+                  </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
                     Target: {d.targetScope === 'DIVISI' ? d.targetDivision : d.targetScope === 'PERAN' ? d.targetRole : 'Semua'}
                   </span>
@@ -382,8 +441,8 @@ export const DeadlineModule: React.FC = () => {
                 </div>
 
                 <p className="text-[11px] text-slate-400">
-                  Dibuat oleh <strong>{d.creatorName}</strong> • Deadline:{' '}
-                  {new Date(d.dueDate).toLocaleString('id-ID')}
+                  Dibuat oleh <strong>{d.creatorName || 'Tim'}</strong>
+                  {d.dueDate ? ` • Deadline: ${new Date(d.dueDate).toLocaleString('id-ID')}` : ''}
                 </p>
 
                 {!canCreate && (
@@ -401,30 +460,32 @@ export const DeadlineModule: React.FC = () => {
                         {mySub.feedback && (
                           <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900">
                             <strong>Feedback:</strong> {mySub.feedback}
-                            {mySub.rating && <span className="ml-2">⭐ {mySub.rating}/5</span>}
                           </div>
                         )}
-                        <button onClick={() => {
-                          setSelectedDeadline(d);
-                          setProofUrl(mySub.proofUrl || '');
-                          setProofNote(mySub.proofNote || '');
-                          setProgress(mySub.progress || 50);
-                          setIsSubmitOpen(true);
-                        }}
-                          className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs">
-                          <Upload className="w-3.5 h-3.5 inline mr-1" />
-                          {mySub.status === 'SELESAI' ? 'Perbarui Bukti' : 'Submit Bukti'}
+                        <button
+                          onClick={() => {
+                            setSelectedDeadline(d);
+                            setProofUrl(mySub.proofUrl || '');
+                            setProofNote(mySub.proofNote || '');
+                            setProgress(mySub.progress || 50);
+                            setIsSubmitOpen(true);
+                          }}
+                          className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs"
+                        >
+                          <Upload className="w-3.5 h-3.5 inline mr-1" /> Submit Bukti
                         </button>
                       </div>
                     ) : (
-                      <button onClick={() => {
-                        setSelectedDeadline(d);
-                        setProofUrl('');
-                        setProofNote('');
-                        setProgress(50);
-                        setIsSubmitOpen(true);
-                      }}
-                        className="w-full py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs">
+                      <button
+                        onClick={() => {
+                          setSelectedDeadline(d);
+                          setProofUrl('');
+                          setProofNote('');
+                          setProgress(50);
+                          setIsSubmitOpen(true);
+                        }}
+                        className="w-full py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs"
+                      >
                         <Upload className="w-3.5 h-3.5 inline mr-1" /> Submit Bukti Sekarang
                       </button>
                     )}
@@ -432,8 +493,10 @@ export const DeadlineModule: React.FC = () => {
                 )}
 
                 {canCreate && (
-                  <button onClick={() => handleOpenReview(d)}
-                    className="w-full py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold text-xs flex items-center justify-center gap-1">
+                  <button
+                    onClick={() => handleOpenReview(d)}
+                    className="w-full py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-bold text-xs flex items-center justify-center gap-1"
+                  >
                     <Users className="w-3.5 h-3.5" /> Lihat & Review Submisi
                   </button>
                 )}
@@ -458,7 +521,7 @@ export const DeadlineModule: React.FC = () => {
 
             <form onSubmit={handleCreate} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Judul <span className="text-rose-500">*</span></label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Judul *</label>
                 <input type="text" required value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Contoh: Kumpulkan sketsa properti"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
@@ -471,7 +534,7 @@ export const DeadlineModule: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Deadline <span className="text-rose-500">*</span></label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Deadline *</label>
                 <input type="datetime-local" required value={newDue} onChange={(e) => setNewDue(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
               </div>
@@ -582,7 +645,7 @@ export const DeadlineModule: React.FC = () => {
                 </label>
                 {askExtension && (
                   <textarea rows={2} value={extensionReason} onChange={(e) => setExtensionReason(e.target.value)}
-                    placeholder="Alasan perpanjangan..."
+                    placeholder="Alasan..."
                     className="w-full mt-2 p-2 rounded-xl border border-amber-200 text-xs" />
                 )}
               </div>
@@ -606,13 +669,13 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Review (Guru/Bendahara) */}
+      {/* Modal Review */}
       {isReviewOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-3xl bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-extrabold text-slate-900">
-                Review Submisi: {selectedDeadline.title}
+                Review: {selectedDeadline.title}
               </h3>
               <button onClick={() => setIsReviewOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
                 <X className="w-5 h-5" />
@@ -620,9 +683,7 @@ export const DeadlineModule: React.FC = () => {
             </div>
 
             {submissions.length === 0 ? (
-              <p className="text-xs text-slate-400 italic text-center py-8">
-                Belum ada siswa yang submit.
-              </p>
+              <p className="text-xs text-slate-400 italic text-center py-8">Belum ada siswa yang submit.</p>
             ) : (
               <div className="space-y-3">
                 {submissions.map(sub => (
@@ -643,31 +704,17 @@ export const DeadlineModule: React.FC = () => {
                               {sub.extensionApproved && <Check className="w-3 h-3" />}
                             </span>
                           )}
-                          {sub.rating && <span className="text-[10px]">⭐ {sub.rating}/5</span>}
                         </div>
-                        {sub.proofNote && (
-                          <p className="text-xs text-slate-600 mt-1 italic">"{sub.proofNote}"</p>
-                        )}
+                        {sub.proofNote && <p className="text-xs text-slate-600 mt-1 italic">"{sub.proofNote}"</p>}
                         {sub.proofUrl && (
                           <a href={sub.proofUrl} target="_blank" rel="noreferrer"
                             className="text-[11px] text-blue-600 hover:underline mt-1 inline-block">
                             🔗 Lihat Bukti
                           </a>
                         )}
-                        {sub.extensionReason && (
-                          <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg mt-2">
-                            <strong>Alasan perpanjangan:</strong> {sub.extensionReason}
-                          </p>
-                        )}
-                        {sub.feedback && (
-                          <div className="mt-2 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900">
-                            <strong>Feedback:</strong> {sub.feedback}
-                          </div>
-                        )}
                       </div>
                     </div>
 
-                    {/* Feedback Form */}
                     <div className="mt-3 pt-3 border-t border-slate-200 space-y-2">
                       <textarea rows={2} value={feedbackText} onChange={(e) => setFeedbackText(e.target.value)}
                         placeholder="Beri feedback..."
