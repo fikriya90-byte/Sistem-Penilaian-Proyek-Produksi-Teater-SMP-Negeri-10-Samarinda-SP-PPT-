@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /* =========================================================
-   TAILWIND V4 — DARK MODE CONFIG
+   TAILWIND V4 DARK MODE VARIANT
    ========================================================= */
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -12,17 +12,20 @@
   color-scheme: light;
 }
 
-.dark {
+html.dark {
   color-scheme: dark;
 }
 
-html, body {
+html, body, #root {
   min-height: 100vh;
+}
+
+html, body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* =========================================================
-   BACKGROUND GLOBAL (motif teater)
+   LIGHT MODE BACKGROUND
    ========================================================= */
 body {
   background-color: #f8fafc;
@@ -32,60 +35,112 @@ body {
   background-attachment: fixed;
 }
 
-.dark body {
-  background-color: #0a0f1e;
-  background-image:
-    radial-gradient(circle at 20% 10%, rgba(212, 175, 55, 0.08), transparent 40%),
-    radial-gradient(circle at 80% 90%, rgba(46, 80, 144, 0.10), transparent 40%),
-    url("https://iili.io/nJ1Rcj1.png");
-  background-size: auto, auto, cover;
-  background-attachment: fixed;
+/* =========================================================
+   DARK MODE BACKGROUND — dengan motif teater
+   ========================================================= */
+html.dark body,
+html.dark #root {
+  background-color: #0a0f1e !important;
+  background-image: url("https://iili.io/nJ1Rcj1.png") !important;
+  background-size: cover !important;
+  background-position: center !important;
+  background-attachment: fixed !important;
+  background-repeat: no-repeat !important;
 }
 
 /* =========================================================
-   GLOBAL DARK MODE OVERRIDES
-   Otomatis ubah bg-white & bg-slate-* jadi gelap di mode dark
+   DARK MODE OVERRIDES — Semua elemen
    ========================================================= */
 
-/* --- Background utama --- */
-.dark .bg-white { background-color: #0f172a !important; }
-.dark .bg-slate-50 { background-color: #0a0f1e !important; }
-.dark .bg-slate-100 { background-color: #1e293b !important; }
-.dark .bg-slate-100\/80 { background-color: #1e293b !important; }
-.dark .bg-slate-200 { background-color: #334155 !important; }
+/* --- Wrapper utama → TRANSPARAN biar background image terlihat --- */
+.dark .bg-slate-50,
+.dark .bg-slate-950,
+.dark .dark\:bg-slate-950,
+.dark .dark\:bg-slate-50 {
+  background-color: transparent !important;
+}
 
-/* --- Background header/kartu transparan --- */
-.dark .bg-white\/95 { background-color: rgba(15, 23, 42, 0.95) !important; }
-.dark .bg-white\/90 { background-color: rgba(15, 23, 42, 0.90) !important; }
-.dark .bg-white\/80 { background-color: rgba(15, 23, 42, 0.80) !important; }
-.dark .bg-white\/60 { background-color: rgba(15, 23, 42, 0.60) !important; }
-.dark .bg-white\/5 { background-color: rgba(255, 255, 255, 0.05) !important; }
-.dark .bg-white\/10 { background-color: rgba(255, 255, 255, 0.10) !important; }
-.dark .bg-white\/20 { background-color: rgba(255, 255, 255, 0.20) !important; }
+/* --- Card & panel → semi transparan --- */
+.dark .bg-white {
+  background-color: rgba(15, 23, 42, 0.85) !important;
+}
+.dark .bg-white\/95 {
+  background-color: rgba(15, 23, 42, 0.95) !important;
+}
+.dark .bg-white\/90 {
+  background-color: rgba(15, 23, 42, 0.90) !important;
+}
+.dark .bg-white\/80 {
+  background-color: rgba(15, 23, 42, 0.80) !important;
+}
+.dark .bg-white\/60 {
+  background-color: rgba(15, 23, 42, 0.60) !important;
+}
+.dark .bg-white\/5 {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+.dark .bg-white\/10 {
+  background-color: rgba(255, 255, 255, 0.10) !important;
+}
+
+/* --- Muted surfaces --- */
+.dark .bg-slate-100 {
+  background-color: rgba(30, 41, 59, 0.7) !important;
+}
+.dark .bg-slate-100\/80 {
+  background-color: rgba(30, 41, 59, 0.7) !important;
+}
+.dark .bg-slate-200 {
+  background-color: rgba(51, 65, 85, 0.7) !important;
+}
 
 /* --- Text colors --- */
-.dark .text-slate-900 { color: #f1f5f9 !important; }
-.dark .text-slate-800 { color: #e2e8f0 !important; }
-.dark .text-slate-700 { color: #cbd5e1 !important; }
-.dark .text-slate-600 { color: #94a3b8 !important; }
-.dark .text-slate-500 { color: #64748b !important; }
-.dark .text-slate-400 { color: #475569 !important; }
+.dark .text-slate-900 {
+  color: #f1f5f9 !important;
+}
+.dark .text-slate-800 {
+  color: #e2e8f0 !important;
+}
+.dark .text-slate-700 {
+  color: #cbd5e1 !important;
+}
+.dark .text-slate-600 {
+  color: #94a3b8 !important;
+}
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+.dark .text-slate-400 {
+  color: #64748b !important;
+}
 
-/* --- Border colors --- */
-.dark .border-slate-100 { border-color: #1e293b !important; }
-.dark .border-slate-200 { border-color: #334155 !important; }
-.dark .border-slate-200\/80 { border-color: rgba(51, 65, 85, 0.8) !important; }
-.dark .border-slate-300 { border-color: #475569 !important; }
+/* --- Borders --- */
+.dark .border-slate-100 {
+  border-color: #1e293b !important;
+}
+.dark .border-slate-200 {
+  border-color: #334155 !important;
+}
+.dark .border-slate-200\/80 {
+  border-color: rgba(51, 65, 85, 0.8) !important;
+}
+.dark .border-slate-300 {
+  border-color: #475569 !important;
+}
 
-/* --- Divide colors --- */
-.dark .divide-slate-100 > * + * { border-color: #1e293b !important; }
-.dark .divide-slate-200 > * + * { border-color: #334155 !important; }
+/* --- Dividers --- */
+.dark .divide-slate-100 > * + * {
+  border-color: #1e293b !important;
+}
+.dark .divide-slate-200 > * + * {
+  border-color: #334155 !important;
+}
 
-/* --- Inputs & Selects --- */
+/* --- Input, Select, Textarea --- */
 .dark input,
 .dark select,
 .dark textarea {
-  background-color: #1e293b !important;
+  background-color: rgba(30, 41, 59, 0.85) !important;
   color: #f1f5f9 !important;
   border-color: #334155 !important;
 }
@@ -100,24 +155,39 @@ body {
 }
 
 /* --- Hover states --- */
-.dark .hover\:bg-slate-50:hover { background-color: #1e293b !important; }
-.dark .hover\:bg-slate-100:hover { background-color: #1e293b !important; }
-.dark .hover\:bg-white:hover { background-color: #334155 !important; }
-.dark .hover\:text-slate-900:hover { color: #f1f5f9 !important; }
-.dark .hover\:text-slate-950:hover { color: #ffffff !important; }
-
-/* --- Gradient backgrounds tetap terlihat bagus di dark --- */
-.dark .bg-gradient-to-r.from-slate-100,
-.dark .bg-gradient-to-br.from-slate-100 { background: linear-gradient(135deg, #1e293b, #0f172a) !important; }
-
-/* --- Ring/Shadow --- */
-.dark .ring-amber-400\/20 { --tw-ring-color: rgba(245, 158, 11, 0.3) !important; }
+.dark .hover\:bg-slate-50:hover {
+  background-color: rgba(30, 41, 59, 0.6) !important;
+}
+.dark .hover\:bg-slate-100:hover {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
+.dark .hover\:bg-slate-100\/80:hover {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
+.dark .hover\:bg-white:hover {
+  background-color: rgba(51, 65, 85, 0.9) !important;
+}
+.dark .hover\:text-slate-900:hover {
+  color: #f1f5f9 !important;
+}
+.dark .hover\:text-slate-950:hover {
+  color: #ffffff !important;
+}
 
 /* --- Table row hover --- */
-.dark .hover\:bg-slate-50\/80:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
+.dark .hover\:bg-slate-50\/80:hover {
+  background-color: rgba(30, 41, 59, 0.8) !important;
+}
 
-/* --- Modal backdrop tetap gelap --- */
-.dark .bg-slate-950\/70 { background-color: rgba(0, 0, 0, 0.85) !important; }
+/* --- Modal backdrop --- */
+.dark .bg-slate-950\/70 {
+  background-color: rgba(0, 0, 0, 0.88) !important;
+}
+
+/* --- Ring --- */
+.dark .ring-amber-400\/20 {
+  --tw-ring-color: rgba(245, 158, 11, 0.35) !important;
+}
 
 /* =========================================================
    PRINT STYLES
@@ -128,9 +198,13 @@ body {
     print-color-adjust: exact;
     background: white !important;
   }
-  body * { visibility: hidden; }
+  body * {
+    visibility: hidden;
+  }
   #rapor-container,
-  #rapor-container * { visibility: visible; }
+  #rapor-container * {
+    visibility: visible;
+  }
   #rapor-container {
     position: absolute;
     left: 0;
@@ -138,5 +212,7 @@ body {
     width: 100%;
     padding: 20px;
   }
-  .print\:hidden { display: none !important; }
+  .print\:hidden {
+    display: none !important;
+  }
 }
