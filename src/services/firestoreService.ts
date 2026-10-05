@@ -40,7 +40,6 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     const snap = await getDocs(q);
     const usersList: UserProfile[] = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
 
-    // Also include any students embedded directly in the class document
     try {
       const classSnap = await getDoc(doc(db, 'classes', classId));
       if (classSnap.exists() && Array.isArray(classSnap.data()?.students)) {
@@ -78,7 +77,7 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
               role: role as any,
               classId,
               className: classSnap.data().name || classId,
-              photoURL: st.photoURL || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+              photoURL: st.photoURL || '',
             });
             existingNames.add(sName.toLowerCase());
           }
@@ -168,7 +167,7 @@ export async function updateProductionStage(prodId: string, stage: any): Promise
 }
 
 // ==========================================
-// TASKS & DEADLINES
+// TASKS
 // ==========================================
 
 export function subscribeTasksByClass(
@@ -182,7 +181,6 @@ export function subscribeTasksByClass(
     q,
     snap => {
       const tasks = snap.docs.map(d => ({ ...d.data(), id: d.id } as TaskItem));
-      // Auto compute OVERDUE status for tasks past due that are not approved
       const now = new Date().getTime();
       const updated = tasks.map(t => {
         if (t.status !== 'APPROVED' && new Date(t.dueDate).getTime() < now) {
@@ -264,7 +262,6 @@ export function subscribeAssessments(
 export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): Promise<string> {
   const path = 'assessments';
   try {
-    // Generate deterministic ID per assessor + student + stage to avoid duplicate writes
     const customId = `${assessment.assessorId}_${assessment.studentId}_${assessment.stage}`;
     const targetRef = doc(db, path, customId);
     const existing = await getDoc(targetRef);
@@ -585,6 +582,7 @@ export async function recordAuditLog(
     console.warn('Non-fatal audit log write error:', error);
   }
 }
+
 // ==========================================
 // NOTIFIKASI OTOMATIS UNTUK GURU
 // ==========================================
