@@ -294,3 +294,56 @@ export interface AuditLogItem {
   details: string;
   timestamp: string;
 }
+// ==========================================
+// DEADLINE SYSTEM
+// ==========================================
+export interface DeadlineItem {
+  id: string;
+  classId: string;
+  title: string;
+  description: string;
+  dueDate: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  targetScope: 'SEMUA' | 'DIVISI' | 'PERAN' | 'CUSTOM';
+  targetDivision?: DivisionType;
+  targetRole?: UserRole;
+  targetUserIds?: string[];
+  attachmentUrl?: string;
+  createdBy: string;
+  creatorName: string;
+  creatorRole: UserRole;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface DeadlineSubmission {
+  id: string;
+  deadlineId: string;
+  classId: string;
+  studentId: string;
+  studentName: string;
+  status: 'BELUM' | 'PROSES' | 'SELESAI' | 'TERLAMBAT';
+  progress: number;
+  proofUrl?: string;
+  proofNote?: string;
+  extensionRequested?: boolean;
+  extensionReason?: string;
+  extensionApproved?: boolean;
+  feedback?: string;
+  rating?: number;
+  submittedAt?: string;
+  updatedAt: string;
+}
+
+// ==========================================
+// STAGE CONFIG
+// ==========================================
+export interface StageConfig {
+  stageId: ProductionStage;
+  startDate: string;
+  endDate: string;
+  enabled: boolean;
+  notes: string;
+  updatedAt: string;
+  updatedBy: string;
+}
