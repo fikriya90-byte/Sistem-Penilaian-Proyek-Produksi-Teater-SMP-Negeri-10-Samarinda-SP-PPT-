@@ -18,7 +18,8 @@ interface AuthContextType {
   loading: boolean;
   activeClass: ClassRoom | null;
   classes: ClassRoom[];
-  setActiveClass: (c: ClassRoom) => void;
+  setActiveClass: (c: ClassRoom | null) => void;
+  reloadClasses: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<{ ok: boolean; message?: string; role?: string }>;
   registerUser: (data: {
     classCode: string;
@@ -33,6 +34,8 @@ interface AuthContextType {
   resetDemoDatabase: () => Promise<void>;
 
   isTeacher: boolean;
+  isGuruPengampu: boolean;
+  isAdminRole: boolean;
   isPimprod: boolean;
   isSekretaris: boolean;
   isBendahara: boolean;
@@ -65,9 +68,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await checkAndSeedDatabase();
         const clsList = await fetchClasses();
-        if (isMounted && clsList && clsList.length > 0) {
+        if (isMounted && clsList) {
           setClasses(clsList);
-          setActiveClass(prev => prev || clsList[0]);
+          // JANGAN auto-set activeClass di sini.
+          // Siswa akan di-set via effect terpisah (karena classId-nya fix).
+          // Guru akan lihat ClassPicker dulu sebelum masuk kelas.
         }
       } catch (err) {
         console.warn('Init error (non-fatal):', err);
@@ -103,6 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } else {
         setUser(null);
+        setActiveClass(null);
       }
       if (isMounted) setLoading(false);
     });
@@ -113,14 +119,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Auto-set activeClass:
+  // - SISWA: auto-set ke kelasnya sendiri (classId fix)
+  // - GURU/ADMIN: JANGAN auto-set → tampilkan ClassPicker dulu
   useEffect(() => {
-    if (user?.classId && classes.length > 0) {
+    if (!user) return;
+
+    // Backward compat: terima kedua varian role guru
+    const isTeacherRole =
+      user.role === 'Guru Pengampu' ||
+      user.role === 'Guru Pembina' ||
+      user.role === 'Admin' ||
+      user.role === 'Super Admin';
+
+    if (isTeacherRole) {
+      // Guru/admin harus pilih kelas dulu — jangan auto-set
+      setActiveClass(null);
+      return;
+    }
+
+    // Siswa: auto-set ke kelasnya
+    if (user.classId && classes.length > 0) {
       const match = classes.find(c => c.id === user.classId);
       if (match) setActiveClass(match);
     }
-  }, [user?.classId, classes]);
+  }, [user, classes]);
 
-  const loginWithEmail = async (email: string, pass: string): Promise<{ ok: boolean; message?: string; role?: string }> => {
+  const reloadClasses = async () => {
+    const clsList = await fetchClasses();
+    setClasses(clsList);
+    return;
+  };
+
+  const loginWithEmail = async (
+    email: string,
+    pass: string
+  ): Promise<{ ok: boolean; message?: string; role?: string }> => {
     setLoading(true);
     try {
       const clean = email.trim();
@@ -133,8 +167,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           email: res.user.email || clean,
           displayName: res.user.displayName || clean.split('@')[0],
           role: 'Pemain',
-          classId: classes[0]?.id || '',
-          className: classes[0]?.name || '',
+          classId: '',
+          className: '',
           createdAt: new Date().toISOString(),
         };
         await setDoc(doc(db, 'users', res.user.uid), profile, { merge: true });
@@ -154,7 +188,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err: any) {
       const code = err?.code || '';
       let message = 'Email atau password salah.';
-      if (code === 'auth/user-not-found') message = 'Akun tidak ditemukan. Silakan daftar terlebih dahulu.';
+      if (code === 'auth/user-not-found')
+        message = 'Akun tidak ditemukan. Silakan daftar terlebih dahulu.';
       else if (code === 'auth/wrong-password' || code === 'auth/invalid-credential')
         message = 'Password salah. Cek kembali kata sandi Anda.';
       else if (code === 'auth/invalid-email') message = 'Format email tidak valid.';
@@ -179,7 +214,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     role: UserRole;
     isTeacherRegistration?: boolean;
   }): Promise<{ success: boolean; message: string }> => {
-    const isTeacherReg = !!data.isTeacherRegistration &&
+    const isTeacherReg =
+      !!data.isTeacherRegistration &&
       data.classCode.trim().toUpperCase() === TEACHER_INVITE_CODE.toUpperCase();
 
     let validClass: ClassRoom | undefined;
@@ -196,7 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         success: false,
         message: isTeacherReg
           ? 'Kode Undangan Guru tidak valid.'
-          : 'Kode Kelas tidak valid / belum terdaftar. Tanyakan ke Guru Pembina.',
+          : 'Kode Kelas tidak valid / belum terdaftar. Tanyakan ke Guru Pengampu.',
       };
     }
 
@@ -205,15 +241,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       try {
         await updateProfile(res.user, { displayName: data.displayName.trim() });
-      } catch (_) { /* non-fatal */ }
+      } catch (_) {
+        /* non-fatal */
+      }
 
       const newProfile: UserProfile = {
         uid: res.user.uid,
         email: data.email.trim(),
         displayName: data.displayName.trim(),
-        role: isTeacherReg ? 'Guru Pembina' : (data.role || 'Pemain'),
-        classId: validClass.id,
-        className: validClass.name,
+        role: isTeacherReg ? 'Guru Pengampu' : (data.role || 'Pemain'),
+        classId: isTeacherReg ? '' : validClass.id,
+        className: isTeacherReg ? '' : validClass.name,
         phone: data.phone.trim(),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -221,7 +259,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await setDoc(doc(db, 'users', res.user.uid), newProfile);
 
       setUser(newProfile);
-      setActiveClass(validClass);
+      // Hanya siswa yang langsung di-set ke kelasnya.
+      // Guru akan lihat ClassPicker dulu.
+      if (!isTeacherReg) setActiveClass(validClass);
 
       await recordAuditLog({
         userId: newProfile.uid,
@@ -230,7 +270,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         action: 'CREATE',
         targetType: 'User',
         targetId: newProfile.uid,
-        details: `Registrasi baru di ${validClass.name} sebagai ${newProfile.role}`,
+        details: isTeacherReg
+          ? `Guru baru terdaftar: ${newProfile.displayName}`
+          : `Siswa baru terdaftar di ${validClass.name} sebagai ${newProfile.role}`,
       });
 
       return { success: true, message: 'Registrasi berhasil! Akun Anda siap digunakan.' };
@@ -260,10 +302,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           targetId: user.uid,
           details: 'Logout dari sistem',
         });
-      } catch (_) { /* non-fatal */ }
+      } catch (_) {
+        /* non-fatal */
+      }
     }
-    try { await signOut(auth); } catch (_) { /* ignore */ }
+    try {
+      await signOut(auth);
+    } catch (_) {
+      /* ignore */
+    }
     setUser(null);
+    setActiveClass(null);
   };
 
   const resetDemoDatabase = async () => {
@@ -272,13 +321,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await forceSeedDatabase();
     const clsList = await fetchClasses();
     setClasses(clsList);
-    setActiveClass(clsList[0] || null);
+    setActiveClass(null);
     setUser(null);
     setLoading(false);
   };
 
   const role = user?.role || 'Pemain';
-  const isTeacher = role === 'Guru Pembina' || role === 'Admin' || role === 'Super Admin';
+  // Backward compat: terima kedua varian role guru
+  const isGuruPengampu = role === 'Guru Pengampu' || role === 'Guru Pembina';
+  const isAdminRole = role === 'Admin' || role === 'Super Admin';
+  const isTeacher = isGuruPengampu || isAdminRole;
+
   const isPimprod = role === 'Pimpinan Produksi';
   const isSekretaris = role === 'Sekretaris';
   const isBendahara = role === 'Bendahara';
@@ -328,11 +381,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeClass,
         classes,
         setActiveClass,
+        reloadClasses,
         loginWithEmail,
         registerUser,
         logout,
         resetDemoDatabase,
         isTeacher,
+        isGuruPengampu,
+        isAdminRole,
         isPimprod,
         isSekretaris,
         isBendahara,
