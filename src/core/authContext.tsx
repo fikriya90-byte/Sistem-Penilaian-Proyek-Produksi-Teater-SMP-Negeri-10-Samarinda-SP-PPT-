@@ -9,7 +9,7 @@ import {
 import { auth, db } from './firebase';
 import { checkAndSeedDatabase } from './seedData';
 import { ClassRoom, UserProfile, UserRole } from './types';
-import { fetchClasses, fetchUserProfile, recordAuditLog } from '../services/firestoreService';
+import { fetchClasses, fetchUserProfile, recordAuditLog, notifyTeachers } from '../services/firestoreService';
 import { doc, setDoc } from 'firebase/firestore';
 import { TEACHER_INVITE_CODE } from './constants';
 
@@ -260,6 +260,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           : `Siswa baru di ${validClass.name} sebagai ${newProfile.role}`,
       });
 
+      // === KIRIM NOTIFIKASI KE GURU ===
+      if (!isTeacherReg) {
+        await notifyTeachers(validClass.id, {
+          title: 'Siswa Baru Mendaftar',
+          message: `${newProfile.displayName} baru saja mendaftar di kelas ${validClass.name} sebagai ${newProfile.role}.`,
+          category: 'Sistem',
+          link: 'kelola-kelas',
+          senderName: newProfile.displayName,
+        });
+      }
+
       return { success: true, message: 'Registrasi berhasil! Akun Anda siap digunakan.' };
     } catch (err: any) {
       const code = err?.code || '';
@@ -325,20 +336,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
   // =========================================================
-  // MATRIKS PENILAIAN — SESUAI ROLE FINAL
+  // MATRIKS PENILAIAN
   // =========================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
-    // Tidak bisa menilai diri sendiri
     if (target.uid === user.uid) return false;
 
     const myRole = user.role;
     const targetRole = target.role;
 
-    // ============================================
-    // GURU PENGAMPU & ADMIN
-    // Menilai: Sutradara + Pimpinan Produksi
-    // ============================================
     if (
       myRole === 'Guru Pengampu' ||
       myRole === 'Guru Pembina' ||
@@ -348,10 +354,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return targetRole === 'Sutradara' || targetRole === 'Pimpinan Produksi';
     }
 
-    // ============================================
-    // PIMPINAN PRODUKSI
-    // Menilai: Sekretaris, Bendahara, Koor Perlengkapan, Koor Publikasi
-    // ============================================
     if (myRole === 'Pimpinan Produksi') {
       return (
         targetRole === 'Sekretaris' ||
@@ -361,26 +363,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // ============================================
-    // SEKRETARIS
-    // Menilai: Pimpinan Produksi
-    // ============================================
-    if (myRole === 'Sekretaris') {
-      return targetRole === 'Pimpinan Produksi';
-    }
+    if (myRole === 'Sekretaris') return targetRole === 'Pimpinan Produksi';
+    if (myRole === 'Bendahara') return targetRole === 'Pimpinan Produksi';
 
-    // ============================================
-    // BENDAHARA
-    // Menilai: Pimpinan Produksi
-    // ============================================
-    if (myRole === 'Bendahara') {
-      return targetRole === 'Pimpinan Produksi';
-    }
-
-    // ============================================
-    // SUTRADARA
-    // Menilai: Pimprod, Asisten, 4 Koor Artistik, Pemain
-    // ============================================
     if (myRole === 'Sutradara') {
       return (
         targetRole === 'Pimpinan Produksi' ||
@@ -393,10 +378,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // ============================================
-    // ASISTEN SUTRADARA
-    // Menilai: Sutradara, Pemain, 4 Koor Artistik
-    // ============================================
     if (myRole === 'Asisten Sutradara') {
       return (
         targetRole === 'Sutradara' ||
@@ -408,81 +389,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // ============================================
-    // KOORDINATOR PERLENGKAPAN
-    // Menilai: Anggota Perlengkapan + Pimpinan Produksi
-    // ============================================
     if (myRole === 'Koordinator Perlengkapan') {
       return targetRole === 'Anggota Perlengkapan' || targetRole === 'Pimpinan Produksi';
     }
-
-    // ============================================
-    // KOORDINATOR PUBLIKASI
-    // Menilai: Anggota Publikasi + Pimpinan Produksi
-    // ============================================
     if (myRole === 'Koordinator Publikasi') {
       return targetRole === 'Anggota Publikasi' || targetRole === 'Pimpinan Produksi';
     }
-
-    // ============================================
-    // KOORDINATOR TATA PANGGUNG
-    // Menilai: Anggota Panggung + Sutradara
-    // ============================================
     if (myRole === 'Koordinator Tata Panggung') {
       return targetRole === 'Anggota Tata Panggung' || targetRole === 'Sutradara';
     }
-
-    // ============================================
-    // KOORDINATOR TATA BUSANA
-    // Menilai: Anggota Busana + Sutradara
-    // ============================================
     if (myRole === 'Koordinator Tata Busana') {
       return targetRole === 'Anggota Tata Busana' || targetRole === 'Sutradara';
     }
-
-    // ============================================
-    // KOORDINATOR TATA RIAS
-    // Menilai: Anggota Rias + Sutradara
-    // ============================================
     if (myRole === 'Koordinator Tata Rias') {
       return targetRole === 'Anggota Tata Rias' || targetRole === 'Sutradara';
     }
-
-    // ============================================
-    // KOORDINATOR TATA MUSIK
-    // Menilai: Anggota Musik + Sutradara
-    // ============================================
     if (myRole === 'Koordinator Tata Musik') {
       return targetRole === 'Anggota Tata Musik' || targetRole === 'Sutradara';
     }
 
-    // ============================================
-    // ANGGOTA (semua divisi)
-    // Menilai: Koordinator divisinya sendiri + Rekan satu divisi
-    // ============================================
     if (myRole.startsWith('Anggota ')) {
       const myDivision = user.divisionName || '';
       const targetDivision = target.divisionName || '';
-
-      // Harus satu divisi
       if (!myDivision || targetDivision !== myDivision) return false;
-
-      // Koordinator divisinya atau sesama anggota
       const isMyCoordinator = targetRole.startsWith('Koordinator ');
       const isMyFellowMember = targetRole.startsWith('Anggota ');
-
       return isMyCoordinator || isMyFellowMember;
     }
 
-    // ============================================
-    // PEMAIN
-    // Menilai: Sutradara + Asisten Sutradara
-    // ============================================
     if (myRole === 'Pemain') {
       return targetRole === 'Sutradara' || targetRole === 'Asisten Sutradara';
     }
 
-    // Default: tidak bisa menilai
     return false;
   };
 
