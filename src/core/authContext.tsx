@@ -128,7 +128,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Backward compat: terima kedua varian role guru
     const isTeacherRole =
       user.role === 'Guru Pengampu' ||
-      user.role === 'Guru Pembina' ||
+      user.role === 'Guru Pengampu' ||
       user.role === 'Admin' ||
       user.role === 'Super Admin';
 
@@ -328,7 +328,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const role = user?.role || 'Pemain';
   // Backward compat: terima kedua varian role guru
-  const isGuruPengampu = role === 'Guru Pengampu' || role === 'Guru Pembina';
+  const isGuruPengampu = role === 'Guru Pengampu' || role === 'Guru Pengampu';
   const isAdminRole = role === 'Admin' || role === 'Super Admin';
   const isTeacher = isGuruPengampu || isAdminRole;
 
