@@ -1,25 +1,136 @@
 @import "tailwindcss";
 
-/* ===================================================
-   PRINT STYLES — Untuk Unduh Rapor PDF
-   =================================================== */
+/* =========================================================
+   TAILWIND V4 — DARK MODE CONFIG
+   ========================================================= */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* =========================================================
+   ROOT & BODY
+   ========================================================= */
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+html, body {
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* =========================================================
+   BACKGROUND GLOBAL (motif teater)
+   ========================================================= */
+body {
+  background-color: #f8fafc;
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(212, 175, 55, 0.06), transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(46, 80, 144, 0.06), transparent 40%);
+  background-attachment: fixed;
+}
+
+.dark body {
+  background-color: #0a0f1e;
+  background-image:
+    radial-gradient(circle at 20% 10%, rgba(212, 175, 55, 0.08), transparent 40%),
+    radial-gradient(circle at 80% 90%, rgba(46, 80, 144, 0.10), transparent 40%),
+    url("https://iili.io/nJ1Rcj1.png");
+  background-size: auto, auto, cover;
+  background-attachment: fixed;
+}
+
+/* =========================================================
+   GLOBAL DARK MODE OVERRIDES
+   Otomatis ubah bg-white & bg-slate-* jadi gelap di mode dark
+   ========================================================= */
+
+/* --- Background utama --- */
+.dark .bg-white { background-color: #0f172a !important; }
+.dark .bg-slate-50 { background-color: #0a0f1e !important; }
+.dark .bg-slate-100 { background-color: #1e293b !important; }
+.dark .bg-slate-100\/80 { background-color: #1e293b !important; }
+.dark .bg-slate-200 { background-color: #334155 !important; }
+
+/* --- Background header/kartu transparan --- */
+.dark .bg-white\/95 { background-color: rgba(15, 23, 42, 0.95) !important; }
+.dark .bg-white\/90 { background-color: rgba(15, 23, 42, 0.90) !important; }
+.dark .bg-white\/80 { background-color: rgba(15, 23, 42, 0.80) !important; }
+.dark .bg-white\/60 { background-color: rgba(15, 23, 42, 0.60) !important; }
+.dark .bg-white\/5 { background-color: rgba(255, 255, 255, 0.05) !important; }
+.dark .bg-white\/10 { background-color: rgba(255, 255, 255, 0.10) !important; }
+.dark .bg-white\/20 { background-color: rgba(255, 255, 255, 0.20) !important; }
+
+/* --- Text colors --- */
+.dark .text-slate-900 { color: #f1f5f9 !important; }
+.dark .text-slate-800 { color: #e2e8f0 !important; }
+.dark .text-slate-700 { color: #cbd5e1 !important; }
+.dark .text-slate-600 { color: #94a3b8 !important; }
+.dark .text-slate-500 { color: #64748b !important; }
+.dark .text-slate-400 { color: #475569 !important; }
+
+/* --- Border colors --- */
+.dark .border-slate-100 { border-color: #1e293b !important; }
+.dark .border-slate-200 { border-color: #334155 !important; }
+.dark .border-slate-200\/80 { border-color: rgba(51, 65, 85, 0.8) !important; }
+.dark .border-slate-300 { border-color: #475569 !important; }
+
+/* --- Divide colors --- */
+.dark .divide-slate-100 > * + * { border-color: #1e293b !important; }
+.dark .divide-slate-200 > * + * { border-color: #334155 !important; }
+
+/* --- Inputs & Selects --- */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+  border-color: #334155 !important;
+}
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important;
+}
+.dark input:focus,
+.dark select:focus,
+.dark textarea:focus {
+  border-color: #f59e0b !important;
+}
+
+/* --- Hover states --- */
+.dark .hover\:bg-slate-50:hover { background-color: #1e293b !important; }
+.dark .hover\:bg-slate-100:hover { background-color: #1e293b !important; }
+.dark .hover\:bg-white:hover { background-color: #334155 !important; }
+.dark .hover\:text-slate-900:hover { color: #f1f5f9 !important; }
+.dark .hover\:text-slate-950:hover { color: #ffffff !important; }
+
+/* --- Gradient backgrounds tetap terlihat bagus di dark --- */
+.dark .bg-gradient-to-r.from-slate-100,
+.dark .bg-gradient-to-br.from-slate-100 { background: linear-gradient(135deg, #1e293b, #0f172a) !important; }
+
+/* --- Ring/Shadow --- */
+.dark .ring-amber-400\/20 { --tw-ring-color: rgba(245, 158, 11, 0.3) !important; }
+
+/* --- Table row hover --- */
+.dark .hover\:bg-slate-50\/80:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
+
+/* --- Modal backdrop tetap gelap --- */
+.dark .bg-slate-950\/70 { background-color: rgba(0, 0, 0, 0.85) !important; }
+
+/* =========================================================
+   PRINT STYLES
+   ========================================================= */
 @media print {
   body {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
     background: white !important;
   }
-
-  /* Sembunyikan semua kecuali kontainer rapor */
-  body * {
-    visibility: hidden;
-  }
-
+  body * { visibility: hidden; }
   #rapor-container,
-  #rapor-container * {
-    visibility: visible;
-  }
-
+  #rapor-container * { visibility: visible; }
   #rapor-container {
     position: absolute;
     left: 0;
@@ -27,9 +138,5 @@
     width: 100%;
     padding: 20px;
   }
-
-  /* Sembunyikan elemen yang bertanda print:hidden */
-  .print\:hidden {
-    display: none !important;
-  }
+  .print\:hidden { display: none !important; }
 }
