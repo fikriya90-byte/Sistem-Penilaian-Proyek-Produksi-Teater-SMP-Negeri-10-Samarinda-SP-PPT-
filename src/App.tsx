@@ -18,7 +18,6 @@ import { AttendanceModule } from './components/modules/AttendanceModule';
 import { ScheduleModule } from './components/modules/ScheduleModule';
 import { TaskDeadlineModule } from './components/modules/TaskDeadlineModule';
 import { TaskProgressModule } from './components/modules/TaskProgressModule';
-import { TaskProgressModule } from './components/modules/TaskProgressModule';
 import { StructureModule } from './components/modules/StructureModule';
 import { StudioModule } from './components/modules/StudioModule';
 import { BroadcastModule } from './components/modules/BroadcastModule';
@@ -138,7 +137,7 @@ const MainLayout: React.FC = () => {
         <Sidebar currentModule={currentModule} onNavigate={setCurrentModule}
           isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-          {renderCurrentModule(case 'progress-tugas': return <TaskProgressModule />;)}
+          {renderCurrentModule()}
         </main>
       </div>
 
