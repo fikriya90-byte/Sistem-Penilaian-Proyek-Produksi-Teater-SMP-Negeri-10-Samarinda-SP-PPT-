@@ -77,7 +77,18 @@ export const ComplaintModule: React.FC = () => {
         details: `Mengirim aduan "${title}" (${category})`,
       });
 
-      showToast('Aduan Anda berhasil disampaikan kepada Guru Pembina.', 'success');
+      showToast('Aduan Anda berhasil disampaikan kepada Guru Pengampu.', 'success');
+
+      // Notifikasi guru
+      try {
+        const { notifyTeachers } = await import('../../services/firestoreService');
+        await notifyTeachers(activeClass!.id, {
+          title: 'Aduan Baru dari Siswa',
+          message: `${isAnonymous ? 'Siswa (Anonim)' : user.displayName} mengirim aduan: "${title.trim()}"`,
+          category: 'Urgent',
+          link: 'aduan',
+        });
+      } catch (_) { /* non-fatal */ }
       setIsModalOpen(false);
       setTitle('');
       setDescription('');
