@@ -267,7 +267,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Gagal registrasi: ' + (err?.message || 'Unknown error') };
     }
   };
-
+  const reloadClasses = async () => {
+    const clsList = await fetchClasses();
+    setClasses(clsList);
+  };
   const logout = async () => {
     if (user) {
       try {
