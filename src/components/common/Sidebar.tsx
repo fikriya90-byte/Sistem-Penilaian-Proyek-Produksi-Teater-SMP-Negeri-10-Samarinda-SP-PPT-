@@ -1,8 +1,21 @@
 import React from 'react';
 import {
-  Award, Calendar, CheckSquare, ClipboardList, FileText,
-  HelpCircle, Home, MessageSquare, Radio, Settings,
-  Sparkles, Users, X, ShieldCheck, GraduationCap, BookOpen,
+  Award,
+  BookOpen,
+  Calendar,
+  CheckSquare,
+  ClipboardList,
+  FileText,
+  GraduationCap,
+  HelpCircle,
+  Home,
+  MessageSquare,
+  Radio,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Users,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -14,11 +27,9 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isOpen, onClose }) => {
-  const { user, isTeacher } = useAuth();
+  const { user, isGuruPengampu, isAdminRole } = useAuth();
 
-  const isAdminUser = user?.role === 'Admin' || user?.role === 'Super Admin';
-
-  // Menu khusus Administrator
+  // Menu Administrator
   const adminNavItems = [
     { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck, badge: 'Kelola' },
     { id: 'admin-guru', label: 'Manajemen Guru', icon: Users, badge: 'Akun' },
@@ -26,10 +37,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings, badge: '' },
   ];
 
-  // Menu Guru Pembina
+  // Menu Guru Pengampu
   const teacherNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
-    { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen, badge: 'Manajemen' }
+    { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen, badge: 'Manajemen' },
     { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: 'Multi-Penilai' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
@@ -58,7 +69,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings, badge: '' },
   ];
 
-  const navItems = isAdminUser ? adminNavItems : isTeacher ? teacherNavItems : studentNavItems;
+  let navItems = studentNavItems;
+  if (isAdminRole) navItems = adminNavItems;
+  else if (isGuruPengampu) navItems = teacherNavItems;
+
+  const accentColor = isAdminRole ? 'blue' : 'amber';
 
   return (
     <>
@@ -82,11 +97,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
             </button>
           </div>
 
-          <div className={`p-4 m-3 rounded-2xl text-white shadow-md ${
-            isAdminUser
-              ? 'bg-gradient-to-br from-blue-900 to-blue-800'
-              : 'bg-gradient-to-br from-slate-900 to-slate-800'
-          }`}>
+          <div
+            className={`p-4 m-3 rounded-2xl text-white shadow-md ${
+              isAdminRole
+                ? 'bg-gradient-to-br from-blue-900 to-blue-800'
+                : 'bg-gradient-to-br from-slate-900 to-slate-800'
+            }`}
+          >
             <div className="flex items-center gap-3">
               {user?.photoURL ? (
                 <img
@@ -100,22 +117,26 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
                 </div>
               )}
               <div className="overflow-hidden">
-                <p className="text-xs font-bold truncate text-white">{user?.displayName || 'Pengguna'}</p>
-                <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 mt-0.5 rounded-full border ${
-                  isAdminUser
-                    ? 'bg-blue-400/20 text-blue-200 border-blue-400/30'
-                    : 'bg-amber-400/20 text-amber-300 border-amber-400/30'
-                }`}>
+                <p className="text-xs font-bold truncate text-white">
+                  {user?.displayName || 'Pengguna'}
+                </p>
+                <span
+                  className={`inline-block text-[10px] font-semibold px-2 py-0.5 mt-0.5 rounded-full border ${
+                    isAdminRole
+                      ? 'bg-blue-400/20 text-blue-200 border-blue-400/30'
+                      : 'bg-amber-400/20 text-amber-300 border-amber-400/30'
+                  }`}
+                >
                   {user?.role || 'Siswa'}
                 </span>
               </div>
             </div>
-            {!isAdminUser && user?.divisionName && (
+            {!isAdminRole && user?.divisionName && (
               <p className="text-[10px] text-slate-400 mt-2 truncate font-medium">
                 Divisi: <span className="text-slate-200">{user.divisionName}</span>
               </p>
             )}
-            {isAdminUser && (
+            {isAdminRole && (
               <p className="text-[10px] text-blue-200 mt-2 font-medium">
                 Panel Administrator Sistem
               </p>
@@ -130,27 +151,41 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
               return (
                 <button
                   key={item.id}
-                  onClick={() => { onNavigate(item.id); onClose(); }}
+                  onClick={() => {
+                    onNavigate(item.id);
+                    onClose();
+                  }}
                   className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${
                     isActive
-                      ? isAdminUser
+                      ? accentColor === 'blue'
                         ? 'bg-blue-600 text-white font-bold shadow-sm'
                         : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                       : 'text-slate-600 hover:text-slate-950 hover:bg-slate-100/80'
                   }`}
                 >
                   <div className="flex items-center gap-3">
-                    <Icon className={`w-4 h-4 ${isActive ? (isAdminUser ? 'text-white' : 'text-slate-950') : 'text-slate-500'}`} />
+                    <Icon
+                      className={`w-4 h-4 ${
+                        isActive
+                          ? accentColor === 'blue'
+                            ? 'text-white'
+                            : 'text-slate-950'
+                          : 'text-slate-500'
+                      }`}
+                    />
                     <span>{item.label}</span>
                   </div>
+
                   {item.badge && (
-                    <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
-                      isActive
-                        ? isAdminUser
-                          ? 'bg-white text-blue-700'
-                          : 'bg-slate-950 text-amber-300'
-                        : 'bg-slate-100 text-slate-600 border border-slate-200'
-                    }`}>
+                    <span
+                      className={`text-[9px] px-1.5 py-0.5 rounded-md font-bold ${
+                        isActive
+                          ? accentColor === 'blue'
+                            ? 'bg-white text-blue-700'
+                            : 'bg-slate-950 text-amber-300'
+                          : 'bg-slate-100 text-slate-600 border border-slate-200'
+                      }`}
+                    >
                       {item.badge}
                     </span>
                   )}
