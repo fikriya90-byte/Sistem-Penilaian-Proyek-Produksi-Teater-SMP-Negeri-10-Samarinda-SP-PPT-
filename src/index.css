@@ -180,3 +180,38 @@ html.dark .ring-amber-400\/20 { --tw-ring-color: rgba(245, 158, 11, 0.35) !impor
   #rapor-container { position: absolute; left: 0; top: 0; width: 100%; padding: 20px; }
   .print\:hidden { display: none !important; }
 }
+/* =========================================================
+   DARK MODE — TABLE & TEXT KHUSUS
+   ========================================================= */
+html.dark table thead,
+html.dark table th {
+  color: #cbd5e1 !important;
+}
+html.dark table td {
+  color: #e2e8f0 !important;
+}
+html.dark table td .text-slate-500,
+html.dark table td .text-slate-400,
+html.dark table td .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+/* Itali/label kecil */
+html.dark .italic { color: inherit !important; }
+html.dark .text-\[10px\],
+html.dark .text-\[11px\] { color: #cbd5e1; }
+
+/* Placeholder */
+html.dark ::placeholder { color: #64748b !important; }
+
+/* Select option */
+html.dark option {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+
+/* Scrollbar */
+html.dark ::-webkit-scrollbar { width: 10px; height: 10px; }
+html.dark ::-webkit-scrollbar-track { background: #0f172a; }
+html.dark ::-webkit-scrollbar-thumb { background: #334155; border-radius: 8px; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
