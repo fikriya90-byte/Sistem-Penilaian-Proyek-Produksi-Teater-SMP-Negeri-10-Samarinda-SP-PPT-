@@ -17,6 +17,8 @@ import { MyGradeModule } from './components/modules/MyGradeModule';
 import { AttendanceModule } from './components/modules/AttendanceModule';
 import { ScheduleModule } from './components/modules/ScheduleModule';
 import { TaskDeadlineModule } from './components/modules/TaskDeadlineModule';
+import { TaskProgressModule } from './components/modules/TaskProgressModule';
+import { TaskProgressModule } from './components/modules/TaskProgressModule';
 import { StructureModule } from './components/modules/StructureModule';
 import { StudioModule } from './components/modules/StudioModule';
 import { BroadcastModule } from './components/modules/BroadcastModule';
@@ -81,6 +83,7 @@ const MainLayout: React.FC = () => {
              currentModule === 'content-schedule' ? <ContentScheduleModule /> :
              currentModule === 'division-schedule' ? <DivisionScheduleModule /> :
              currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
+             currentModule === 'progress-tugas' ? <TaskProgressModule /> :
              <AdminModule />}
           </main>
         </div>
@@ -106,6 +109,7 @@ const MainLayout: React.FC = () => {
       case 'jadwal': return <ScheduleModule />;
       case 'absensi': return <AttendanceModule />;
       case 'tugas': return <TaskDeadlineModule />;
+      case 'progress-tugas': return <TaskProgressModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
       case 'broadcast': return <BroadcastModule />;
@@ -134,7 +138,7 @@ const MainLayout: React.FC = () => {
         <Sidebar currentModule={currentModule} onNavigate={setCurrentModule}
           isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-          {renderCurrentModule()}
+          {renderCurrentModule(case 'progress-tugas': return <TaskProgressModule />;)}
         </main>
       </div>
 
