@@ -13,7 +13,7 @@ import {
   Star,
   Trash2,
   Upload,
-  UserCheck
+  UserCheck,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS, STAGES } from '../../core/constants';
@@ -24,7 +24,7 @@ import {
   fetchUsersByClass,
   recordAuditLog,
   subscribeTasksByClass,
-  updateTask
+  updateTask,
 } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 
@@ -36,18 +36,15 @@ export const TaskDeadlineModule: React.FC = () => {
   const [classStudents, setClassStudents] = useState<UserProfile[]>([]);
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  // Filter states
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterPriority, setFilterPriority] = useState<string>('ALL');
   const [filterDivision, setFilterDivision] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modal states
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTaskForProof, setSelectedTaskForProof] = useState<TaskItem | null>(null);
   const [selectedTaskForReview, setSelectedTaskForReview] = useState<TaskItem | null>(null);
 
-  // New task form fields
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newStage, setNewStage] = useState<ProductionStage>('PELAKSANAAN');
@@ -56,11 +53,9 @@ export const TaskDeadlineModule: React.FC = () => {
   const [newPriority, setNewPriority] = useState<TaskPriority>('MEDIUM');
   const [newDueDate, setNewDueDate] = useState('');
 
-  // Proof submission fields
   const [proofUrl, setProofUrl] = useState('');
   const [proofNote, setProofNote] = useState('');
 
-  // Review fields
   const [reviewStatus, setReviewStatus] = useState<TaskStatus>('APPROVED');
   const [reviewFeedback, setReviewFeedback] = useState('');
   const [reviewRating, setReviewRating] = useState(5);
@@ -81,7 +76,6 @@ export const TaskDeadlineModule: React.FC = () => {
 
   const canCreateTasks = isTeacher || isPimprod || isSutradara || isKoordinator;
 
-  // Real-time countdown helper
   const getDeadlineStatus = (dueDateIso: string, status: TaskStatus) => {
     if (status === 'APPROVED') {
       return { text: 'Selesai & Disetujui', color: 'text-emerald-600 bg-emerald-50 border-emerald-300' };
@@ -156,24 +150,19 @@ export const TaskDeadlineModule: React.FC = () => {
       showToast('Gagal membuat tugas: ' + err.message, 'error');
     }
   };
-      setIsCreateModalOpen(false);
-      setNewTitle('');
-      setNewDesc('');
-      setNewDueDate('');
-    } catch (err: any) {
-      showToast('Gagal membuat tugas: ' + err.message, 'error');
-    }
-  };
 
-      const handleSubmitProof = async () => {
-    if (!selectedTaskForProof || !user) return;
+  const handleSubmitProof = async () => {
+    if (!selectedTaskForProof || !user || !activeClass) return;
     if (!proofUrl.trim() && !proofNote.trim()) {
       showToast('Harap sertakan link bukti hasil kerja atau catatan penjelasan.', 'warning');
       return;
     }
 
+    const taskTitle = selectedTaskForProof.title;
+    const taskId = selectedTaskForProof.id;
+
     try {
-      await updateTask(selectedTaskForProof.id, {
+      await updateTask(taskId, {
         status: 'SUBMITTED',
         progress: 90,
         proofUrl: proofUrl.trim(),
@@ -186,24 +175,21 @@ export const TaskDeadlineModule: React.FC = () => {
         role: user.role,
         action: 'SUBMIT',
         targetType: 'Task',
-        targetId: selectedTaskForProof.id,
-        details: `Mengirimkan bukti tugas "${selectedTaskForProof.title}"`,
+        targetId: taskId,
+        details: `Mengirimkan bukti tugas "${taskTitle}"`,
       });
 
-      // Kirim notifikasi ke guru (non-blocking)
-      if (activeClass) {
-        try {
-          const { notifyTeachers } = await import('../../services/firestoreService');
-          await notifyTeachers(activeClass.id, {
-            title: 'Bukti Tugas Baru Dikirim',
-            message: `${user.displayName} mengirim bukti untuk: "${selectedTaskForProof.title}"`,
-            category: 'Tugas',
-            link: 'tugas',
-            senderName: user.displayName,
-          });
-        } catch {
-          /* non-fatal */
-        }
+      try {
+        const { notifyTeachers } = await import('../../services/firestoreService');
+        await notifyTeachers(activeClass.id, {
+          title: 'Bukti Tugas Baru Dikirim',
+          message: `${user.displayName} mengirim bukti untuk: "${taskTitle}"`,
+          category: 'Tugas',
+          link: 'tugas',
+          senderName: user.displayName,
+        });
+      } catch {
+        /* non-fatal */
       }
 
       showToast('Bukti pekerjaan berhasil dikirim untuk diverifikasi!', 'success');
@@ -254,7 +240,6 @@ export const TaskDeadlineModule: React.FC = () => {
     }
   };
 
-  // Filter tasks
   const filteredTasks = tasks.filter(t => {
     if (filterStatus !== 'ALL' && t.status !== filterStatus) return false;
     if (filterPriority !== 'ALL' && t.priority !== filterPriority) return false;
@@ -272,8 +257,6 @@ export const TaskDeadlineModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      
-      {/* Top Header Card */}
       <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -302,7 +285,6 @@ export const TaskDeadlineModule: React.FC = () => {
         )}
       </div>
 
-      {/* Filter & Search Bar */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
@@ -315,7 +297,6 @@ export const TaskDeadlineModule: React.FC = () => {
           />
         </div>
 
-        {/* Division Filter */}
         <select
           value={filterDivision}
           onChange={(e) => setFilterDivision(e.target.value)}
@@ -323,13 +304,10 @@ export const TaskDeadlineModule: React.FC = () => {
         >
           <option value="ALL">Semua Divisi</option>
           {DIVISIONS.map(d => (
-            <option key={d.id} value={d.id}>
-              {d.id}
-            </option>
+            <option key={d.id} value={d.id}>{d.id}</option>
           ))}
         </select>
 
-        {/* Status Filter */}
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
@@ -344,7 +322,6 @@ export const TaskDeadlineModule: React.FC = () => {
           <option value="OVERDUE">Terlambat (OVERDUE)</option>
         </select>
 
-        {/* Priority Filter */}
         <select
           value={filterPriority}
           onChange={(e) => setFilterPriority(e.target.value)}
@@ -358,7 +335,6 @@ export const TaskDeadlineModule: React.FC = () => {
         </select>
       </div>
 
-      {/* Tasks Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredTasks.length === 0 ? (
           <div className="col-span-full p-12 text-center bg-white rounded-3xl border border-slate-200 text-slate-400 text-xs">
@@ -381,7 +357,6 @@ export const TaskDeadlineModule: React.FC = () => {
                 className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-md transition"
               >
                 <div>
-                  {/* Top Badges */}
                   <div className="flex items-center justify-between text-[11px] mb-2">
                     <span className="font-extrabold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md">
                       {task.divisionName}
@@ -413,7 +388,6 @@ export const TaskDeadlineModule: React.FC = () => {
                       </span>
                     </div>
 
-                    {/* Live Countdown Badge */}
                     <div className="pt-1">
                       <span className={`block text-center text-xs py-1 px-2.5 rounded-xl border ${countdown.color}`}>
                         {countdown.text}
@@ -421,7 +395,6 @@ export const TaskDeadlineModule: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Submission note or feedback if available */}
                   {task.proofNote && (
                     <div className="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-600">
                       <span className="font-bold text-slate-800 block mb-0.5">Catatan Pengiriman:</span>
@@ -447,9 +420,7 @@ export const TaskDeadlineModule: React.FC = () => {
                   )}
                 </div>
 
-                {/* Card Actions */}
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                  {/* Student submit proof button */}
                   {task.status !== 'APPROVED' && (
                     <button
                       onClick={() => setSelectedTaskForProof(task)}
@@ -460,7 +431,6 @@ export const TaskDeadlineModule: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Review button for Teacher/Coordinator */}
                   {canReview && (
                     <button
                       onClick={() => {
@@ -474,7 +444,6 @@ export const TaskDeadlineModule: React.FC = () => {
                     </button>
                   )}
 
-                  {/* Teacher delete */}
                   {isTeacher && (
                     <button
                       onClick={() => handleDeleteTask(task.id, task.title)}
@@ -491,7 +460,7 @@ export const TaskDeadlineModule: React.FC = () => {
         )}
       </div>
 
-      {/* Modal: Create Task */}
+      {/* Modal Create Task */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs">
           <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 my-auto">
@@ -618,7 +587,7 @@ export const TaskDeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Submit Proof */}
+      {/* Modal Submit Proof */}
       {selectedTaskForProof && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs">
           <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 my-auto">
@@ -680,7 +649,7 @@ export const TaskDeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Review & Approval */}
+      {/* Modal Review */}
       {selectedTaskForReview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs">
           <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 my-auto">
@@ -702,7 +671,7 @@ export const TaskDeadlineModule: React.FC = () => {
                       reviewStatus === 'APPROVED' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-700'
                     }`}
                   >
-                    Disetujui (Approved)
+                    Disetujui
                   </button>
                   <button
                     type="button"
@@ -756,7 +725,6 @@ export const TaskDeadlineModule: React.FC = () => {
           </div>
         </div>
       )}
-
     </div>
   );
 };
