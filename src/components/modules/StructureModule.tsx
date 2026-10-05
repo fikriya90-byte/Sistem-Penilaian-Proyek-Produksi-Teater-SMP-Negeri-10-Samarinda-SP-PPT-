@@ -1,33 +1,97 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ExternalLink,
-  MessageCircle,
-  Phone,
-  Search,
-  Share2,
-  Sparkles,
-  User,
-  Users
+  ExternalLink, MessageCircle, Phone, Search, Share2, Sparkles,
+  Users, Camera, Upload, X, Crown, Shield, Palette, Music,
+  Scissors, Package, BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS } from '../../core/constants';
 import { DivisionType, UserProfile } from '../../core/types';
-import { fetchUsersByClass } from '../../services/firestoreService';
+import { fetchUsersByClass, updateUserProfile, recordAuditLog } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
+import { PhotoUploadModal } from '../common/PhotoUploadModal';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../../core/firebase';
 
 export const StructureModule: React.FC = () => {
-  const { user, activeClass } = useAuth();
+  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole, reloadClasses } = useAuth();
   const { showToast } = useToast();
 
   const [members, setMembers] = useState<UserProfile[]>([]);
   const [selectedDivision, setSelectedDivision] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMember, setSelectedMember] = useState<UserProfile | null>(null);
+  const [photoModalMember, setPhotoModalMember] = useState<UserProfile | null>(null);
+  const [kerabatLogo, setKerabatLogo] = useState<string>('');
+  const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
+  const [loadingLogo, setLoadingLogo] = useState(false);
 
+  const canEditPhotos = isTeacher || isGuruPengampu || isAdminRole ||
+    user?.role === 'Pimpinan Produksi' || user?.role === 'Sutradara' || user?.role.startsWith('Koordinator ');
+
+  // Load members + logo
   useEffect(() => {
     if (!activeClass) return;
-    fetchUsersByClass(activeClass.id).then(u => setMembers(u));
+    fetchUsersByClass(activeClass.id).then(setMembers);
+    loadKerabatLogo();
   }, [activeClass]);
+
+  const loadKerabatLogo = async () => {
+    if (!activeClass) return;
+    setLoadingLogo(true);
+    try {
+      const snap = await getDoc(doc(db, 'classes', activeClass.id));
+      if (snap.exists()) {
+        const data = snap.data();
+        setKerabatLogo(data.kerabatLogo || '');
+      }
+    } catch (err) {
+      console.warn('Gagal load logo:', err);
+    } finally {
+      setLoadingLogo(false);
+    }
+  };
+
+  const handleSaveMemberPhoto = async (photoUrl: string) => {
+    if (!photoModalMember || !user) return;
+    await updateUserProfile(photoModalMember.uid, { photoURL: photoUrl });
+    await recordAuditLog({
+      userId: user.uid,
+      userName: user.displayName,
+      role: user.role,
+      action: 'UPDATE',
+      targetType: 'MemberPhoto',
+      targetId: photoModalMember.uid,
+      details: `Ganti foto ${photoModalMember.displayName}`,
+    });
+    setMembers(prev => prev.map(m => m.uid === photoModalMember.uid ? { ...m, photoURL: photoUrl } : m));
+    setPhotoModalMember(null);
+  };
+
+  const handleSaveKerabatLogo = async (photoUrl: string) => {
+    if (!activeClass || !user) return;
+    try {
+      await setDoc(doc(db, 'classes', activeClass.id), {
+        kerabatLogo: photoUrl,
+      }, { merge: true });
+
+      await recordAuditLog({
+        userId: user.uid,
+        userName: user.displayName,
+        role: user.role,
+        action: 'UPDATE',
+        targetType: 'KerabatLogo',
+        targetId: activeClass.id,
+        details: 'Memperbarui logo kerabat kerja',
+      });
+
+      setKerabatLogo(photoUrl);
+      setIsLogoModalOpen(false);
+      showToast('Logo kerabat kerja diperbarui!', 'success');
+    } catch (err: any) {
+      showToast('Gagal simpan logo: ' + err.message, 'error');
+    }
+  };
 
   const filteredMembers = members.filter(m => {
     if (selectedDivision !== 'ALL') {
@@ -63,58 +127,99 @@ export const StructureModule: React.FC = () => {
     if (navigator.share) {
       navigator.share({
         title: `Kerabat Kerja Teater ${activeClass?.name}`,
-        text: `Daftar susunan kerabat kerja produksi teater SP-PPT SMPN 10 Samarinda kelas ${activeClass?.name}`,
+        text: `Susunan kerabat kerja produksi teater SP-PPT ${activeClass?.name}`,
         url: window.location.href,
       }).catch(() => {});
     } else {
       navigator.clipboard.writeText(window.location.href);
-      showToast('Tautan bagan kerabat kerja disalin ke clipboard!', 'info');
+      showToast('Tautan bagan kerabat disalin!', 'info');
     }
+  };
+
+  const getRoleBadgeColor = (role: string) => {
+    if (role === 'Pimpinan Produksi' || role === 'Sutradara') return 'bg-amber-100 text-amber-800 border-amber-300';
+    if (role.startsWith('Koordinator ')) return 'bg-blue-100 text-blue-800 border-blue-300';
+    if (role.startsWith('Anggota ')) return 'bg-slate-100 text-slate-700 border-slate-300';
+    if (role === 'Pemain') return 'bg-rose-100 text-rose-800 border-rose-300';
+    return 'bg-slate-100 text-slate-700 border-slate-300';
   };
 
   return (
     <div className="space-y-6">
-      
-      {/* Top Header Card */}
-      <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-purple-500/10 text-purple-600">
-              <Users className="w-6 h-6" />
-            </span>
+      {/* Header dengan Logo */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            {/* Logo Kerabat */}
+            <div className="relative">
+              <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg border-4 border-white dark:border-slate-800">
+                {kerabatLogo ? (
+                  <img
+                    src={kerabatLogo}
+                    alt="Logo Kerabat"
+                    className="w-full h-full rounded-3xl object-cover"
+                  />
+                ) : (
+                  <Sparkles className="w-8 h-8 text-white" />
+                )}
+              </div>
+              {canEditPhotos && (
+                <button
+                  onClick={() => setIsLogoModalOpen(true)}
+                  className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600 transition"
+                  title="Ganti logo kerabat"
+                >
+                  <Camera className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
             <div>
-              <h2 className="text-xl font-extrabold text-slate-900">
-                Struktur Kerabat Kerja & Direktori Kontak
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/30">
+                Kerabat Kerja
+              </span>
+              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white mt-1">
+                {activeClass?.kerabatKerja || `Struktur ${activeClass?.name}`}
               </h2>
-              <p className="text-xs text-slate-500 font-medium">
-                Susunan kepanitiaan produksi {activeClass?.name} ({members.length} anggota terdaftar)
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                {members.length} anggota terdaftar
               </p>
             </div>
           </div>
-        </div>
 
-        <button
-          onClick={handleShareStructure}
-          className="px-4 py-2.5 rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-xs font-bold flex items-center gap-2 transition"
-        >
-          <Share2 className="w-4 h-4" />
-          <span>Bagikan Kerabat</span>
-        </button>
+          <div className="flex items-center gap-2">
+            {canEditPhotos && !kerabatLogo && (
+              <button
+                onClick={() => setIsLogoModalOpen(true)}
+                className="px-3 py-2 rounded-xl bg-amber-100 dark:bg-amber-500/20 hover:bg-amber-200 dark:hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1.5 border border-amber-300 dark:border-amber-500/40"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Upload Logo
+              </button>
+            )}
+            <button
+              onClick={handleShareStructure}
+              className="px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 hover:bg-slate-800 dark:hover:bg-slate-700"
+            >
+              <Share2 className="w-4 h-4" />
+              Bagikan
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Filter Tabs by Division */}
+      {/* Filter Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         <button
           onClick={() => setSelectedDivision('ALL')}
           className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
             selectedDivision === 'ALL'
-              ? 'bg-amber-500 text-slate-950 shadow-xs'
-              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              ? 'bg-amber-500 text-slate-950 shadow-sm'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
           }`}
         >
-          Semua Divisi ({members.length})
+          Semua ({members.length})
         </button>
-
         {DIVISIONS.map(d => {
           const count = members.filter(m => {
             if (d.id === 'Pengurus Inti') {
@@ -129,8 +234,8 @@ export const StructureModule: React.FC = () => {
               onClick={() => setSelectedDivision(d.id)}
               className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
                 selectedDivision === d.id
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
               }`}
             >
               {d.id} ({count})
@@ -139,19 +244,19 @@ export const StructureModule: React.FC = () => {
         })}
       </div>
 
-      {/* Search Input */}
+      {/* Search */}
       <div className="relative max-w-md">
         <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
         <input
           type="text"
-          placeholder="Cari nama anggota atau nomor kontak..."
+          placeholder="Cari nama atau peran..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white"
+          className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white"
         />
       </div>
 
-      {/* Members Grid by Division */}
+      {/* Members Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredMembers.map(member => {
           const isMe = member.uid === user?.uid;
@@ -160,80 +265,88 @@ export const StructureModule: React.FC = () => {
           return (
             <div
               key={member.uid}
-              className={`p-5 rounded-3xl bg-white border transition relative flex flex-col justify-between ${
+              className={`p-5 rounded-3xl bg-white dark:bg-slate-900 border transition relative flex flex-col justify-between ${
                 isMe
                   ? 'border-amber-400 shadow-md ring-2 ring-amber-400/20'
-                  : 'border-slate-200/80 shadow-xs hover:border-slate-300'
+                  : 'border-slate-200/80 dark:border-slate-700 shadow-sm'
               }`}
             >
               <div>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="relative">
                     {member.photoURL ? (
                       <img
                         src={member.photoURL}
                         alt={member.displayName}
-                        className="w-12 h-12 rounded-full object-cover border border-slate-200"
+                        className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 dark:border-slate-700"
                       />
                     ) : (
-                      <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-sm border border-slate-200">
-                        {member.displayName.charAt(0)}
+                      <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-lg border border-slate-200 dark:border-slate-700">
+                        {member.displayName.charAt(0).toUpperCase()}
                       </div>
                     )}
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <h4 className="text-xs font-black text-slate-900 line-clamp-1">
-                          {member.displayName}
-                        </h4>
-                        {isMe && (
-                          <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950">
-                            Anda
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] font-bold text-amber-700 mt-0.5">{member.role}</p>
-                      <p className="text-[10px] text-slate-400">{member.divisionName || 'Pemeran'}</p>
+                    {(canEditPhotos || isMe) && (
+                      <button
+                        onClick={() => setPhotoModalMember(member)}
+                        className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600 transition"
+                        title="Ganti foto"
+                      >
+                        <Camera className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h4 className="text-xs font-black text-slate-900 dark:text-white line-clamp-1">
+                        {member.displayName}
+                      </h4>
+                      {isMe && (
+                        <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950">
+                          Anda
+                        </span>
+                      )}
                     </div>
+                    <span className={`inline-block text-[10px] font-bold px-2 py-0.5 mt-1 rounded-md border ${getRoleBadgeColor(member.role)}`}>
+                      {member.role}
+                    </span>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {member.divisionName || 'Pemeran'}
+                    </p>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
-                  {member.phone ? (
-                    <p className="flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-slate-400" />
-                      <span className="font-mono text-slate-700">{member.phone}</span>
-                    </p>
-                  ) : (
-                    <p className="text-slate-400 italic">Nomor kontak belum dicantumkan</p>
-                  )}
-                </div>
+                {member.phone && (
+                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="font-mono">{member.phone}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Direct WhatsApp Chat Action */}
               <div className="mt-4 pt-2 flex items-center gap-2">
                 {member.phone ? (
                   <a
                     href={waLink}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 transition"
+                    className="flex-1 py-2 px-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-xs font-bold flex items-center justify-center gap-1.5"
                   >
-                    <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Chat WhatsApp</span>
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    Chat WA
                   </a>
                 ) : (
                   <button
                     disabled
-                    className="flex-1 py-2 px-3 rounded-xl bg-slate-100 text-slate-400 text-xs font-bold cursor-not-allowed"
+                    className="flex-1 py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-bold cursor-not-allowed"
                   >
-                    Kontak Tidak Tersedia
+                    No WA -
                   </button>
                 )}
-
                 <button
                   onClick={() => setSelectedMember(member)}
-                  className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition"
-                  title="Lihat Detail Anggota"
+                  className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                  title="Detail"
                 >
                   <ExternalLink className="w-4 h-4" />
                 </button>
@@ -245,45 +358,54 @@ export const StructureModule: React.FC = () => {
 
       {/* Member Detail Modal */}
       {selectedMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs">
-          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 my-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
             <div className="text-center">
-              {selectedMember.photoURL ? (
-                <img
-                  src={selectedMember.photoURL}
-                  alt={selectedMember.displayName}
-                  className="w-20 h-20 rounded-full object-cover mx-auto border-2 border-amber-400 shadow-md"
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-full bg-slate-100 text-slate-800 font-bold text-xl flex items-center justify-center mx-auto border border-slate-200">
-                  {selectedMember.displayName.charAt(0)}
-                </div>
-              )}
-              <h3 className="text-base font-extrabold text-slate-900 mt-3">{selectedMember.displayName}</h3>
-              <p className="text-xs font-bold text-amber-700">{selectedMember.role}</p>
-              <p className="text-xs text-slate-500">{selectedMember.divisionName || 'Pemeran'} • {selectedMember.className}</p>
+              <div className="relative inline-block">
+                {selectedMember.photoURL ? (
+                  <img
+                    src={selectedMember.photoURL}
+                    alt={selectedMember.displayName}
+                    className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-md"
+                  />
+                ) : (
+                  <div className="w-24 h-24 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold text-2xl flex items-center justify-center border-4 border-amber-400">
+                    {selectedMember.displayName.charAt(0)}
+                  </div>
+                )}
+                {(canEditPhotos || selectedMember.uid === user?.uid) && (
+                  <button
+                    onClick={() => setPhotoModalMember(selectedMember)}
+                    className="absolute bottom-0 right-0 p-2 rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-3">{selectedMember.displayName}</h3>
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-400">{selectedMember.role}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{selectedMember.divisionName || 'Pemeran'} • {selectedMember.className}</p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 space-y-2 text-xs">
+            <div className="mt-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 space-y-2 text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-400 font-medium">NIS:</span>
-                <span className="font-bold text-slate-800 font-mono">{selectedMember.nis || '-'}</span>
+                <span className="text-slate-500 dark:text-slate-400">NIS:</span>
+                <span className="font-bold text-slate-800 dark:text-white font-mono">{selectedMember.nis || '-'}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 font-medium">Email:</span>
-                <span className="font-bold text-slate-800">{selectedMember.email}</span>
+                <span className="text-slate-500 dark:text-slate-400">Email:</span>
+                <span className="font-bold text-slate-800 dark:text-white text-right truncate max-w-[180px]">{selectedMember.email}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400 font-medium">No. WhatsApp:</span>
-                <span className="font-bold text-slate-800 font-mono">{selectedMember.phone || '-'}</span>
+                <span className="text-slate-500 dark:text-slate-400">No. WA:</span>
+                <span className="font-bold text-slate-800 dark:text-white font-mono">{selectedMember.phone || '-'}</span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-2">
+            <div className="flex items-center gap-2 mt-4">
               <button
-                type="button"
                 onClick={() => setSelectedMember(null)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Tutup
               </button>
@@ -292,9 +414,9 @@ export const StructureModule: React.FC = () => {
                   href={getWhatsAppLink(selectedMember.phone, selectedMember.displayName)}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm"
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5"
                 >
-                  <MessageCircle className="w-4 h-4" /> Buka WhatsApp
+                  <MessageCircle className="w-4 h-4" /> WhatsApp
                 </a>
               )}
             </div>
@@ -302,6 +424,25 @@ export const StructureModule: React.FC = () => {
         </div>
       )}
 
+      {/* Photo Modal — Anggota */}
+      {photoModalMember && (
+        <PhotoUploadModal
+          currentPhotoUrl={photoModalMember.photoURL}
+          userName={photoModalMember.displayName}
+          onSave={handleSaveMemberPhoto}
+          onClose={() => setPhotoModalMember(null)}
+        />
+      )}
+
+      {/* Photo Modal — Logo Kerabat */}
+      {isLogoModalOpen && (
+        <PhotoUploadModal
+          currentPhotoUrl={kerabatLogo}
+          userName={activeClass?.name || 'Kerabat'}
+          onSave={handleSaveKerabatLogo}
+          onClose={() => setIsLogoModalOpen(false)}
+        />
+      )}
     </div>
   );
 };
