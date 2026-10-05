@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Award, CheckSquare, ClipboardList, Home, MessageSquare, Sparkles, Users, Star, Wallet,
+  Award, CheckSquare, ClipboardList, Home, MessageSquare, Users, Star, Wallet,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './core/authContext';
+import { ThemeProvider } from './core/themeContext';
 import { ToastProvider } from './components/common/Toast';
 import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
@@ -30,27 +31,29 @@ import { DeadlineModule } from './components/modules/DeadlineModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
 import { KasModule } from './components/modules/KasModule';
+import { PropertyModule } from './components/modules/PropertyModule';
+import { MusicCueModule } from './components/modules/MusicCueModule';
+import { FaceChartModule } from './components/modules/FaceChartModule';
+import { CostumeModule } from './components/modules/CostumeModule';
+import { BackupModule } from './components/modules/BackupModule';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
   const [currentModule, setCurrentModule] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  useEffect(() => {
-    setCurrentModule('dashboard');
-  }, [activeClass?.id]);
+  useEffect(() => { setCurrentModule('dashboard'); }, [activeClass?.id]);
 
-  // Auto-run reminders setiap kali aktif kelas berubah
   useEffect(() => {
     if (!activeClass) return;
     import('./utils/reminder').then(({ runAllReminders }) => {
-      runAllReminders(activeClass.id).catch(() => { /* non-fatal */ });
+      runAllReminders(activeClass.id).catch(() => {});
     });
     const interval = setInterval(() => {
       import('./utils/reminder').then(({ runAllReminders }) => {
-        runAllReminders(activeClass.id).catch(() => { /* non-fatal */ });
+        runAllReminders(activeClass.id).catch(() => {});
       });
-    }, 15 * 60 * 1000); // setiap 15 menit
+    }, 15 * 60 * 1000);
     return () => clearInterval(interval);
   }, [activeClass]);
 
@@ -68,15 +71,11 @@ const MainLayout: React.FC = () => {
 
   if (isAdminRole) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col antialiased pb-16 lg:pb-0">
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col antialiased pb-16 lg:pb-0">
         <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
         <div className="flex-1 flex max-w-7xl w-full mx-auto">
-          <Sidebar
-            currentModule={currentModule}
-            onNavigate={setCurrentModule}
-            isOpen={isSidebarOpen}
-            onClose={() => setIsSidebarOpen(false)}
-          />
+          <Sidebar currentModule={currentModule} onNavigate={setCurrentModule}
+            isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
           <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
             {currentModule === 'pengaturan' ? <SettingsModule /> : <AdminModule />}
           </main>
@@ -85,9 +84,7 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  if (isGuruPengampu && !activeClass) {
-    return <TeacherClassPicker />;
-  }
+  if (isGuruPengampu && !activeClass) return <TeacherClassPicker />;
 
   const renderCurrentModule = () => {
     switch (currentModule) {
@@ -97,6 +94,11 @@ const MainLayout: React.FC = () => {
       case 'moderasi': return <ModerationModule />;
       case 'statistik-absensi': return <AttendanceStatsModule />;
       case 'kas': return <KasModule />;
+      case 'properti': return <PropertyModule />;
+      case 'musik': return <MusicCueModule />;
+      case 'rias': return <FaceChartModule />;
+      case 'busana': return <CostumeModule />;
+      case 'backup': return <BackupModule />;
       case 'jadwal': return <ScheduleModule />;
       case 'absensi': return <AttendanceModule />;
       case 'tugas': return <TaskDeadlineModule />;
@@ -115,17 +117,11 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col antialiased selection:bg-amber-500/20 selection:text-amber-900 pb-16 lg:pb-0">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col antialiased pb-16 lg:pb-0">
       <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
-
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        <Sidebar
-          currentModule={currentModule}
-          onNavigate={setCurrentModule}
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-        />
-
+        <Sidebar currentModule={currentModule} onNavigate={setCurrentModule}
+          isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
           {renderCurrentModule()}
         </main>
@@ -133,7 +129,7 @@ const MainLayout: React.FC = () => {
 
       <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
         <button onClick={() => setCurrentModule('struktur')}
-          className="p-3 sm:p-3.5 rounded-full bg-slate-900 hover:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
+          className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 hover:bg-slate-800 dark:hover:bg-slate-700 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
           title="Buka Kerabat Kerja">
           <Users className="w-5 h-5" />
           <span className="max-w-0 overflow-hidden whitespace-nowrap group-hover:max-w-xs transition-all duration-300 text-xs font-bold text-white px-0 group-hover:px-2">
@@ -150,25 +146,25 @@ const MainLayout: React.FC = () => {
         </button>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
         <button onClick={() => setCurrentModule('dashboard')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
           <Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span>
         </button>
         <button onClick={() => setCurrentModule('nilai-saya')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai-saya' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'nilai-saya' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
           <Award className="w-5 h-5" /><span className="text-[10px] mt-0.5">Nilai</span>
         </button>
         <button onClick={() => setCurrentModule('kas')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
           <Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span>
         </button>
         <button onClick={() => setCurrentModule('tugas')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
           <CheckSquare className="w-5 h-5" /><span className="text-[10px] mt-0.5">Tugas</span>
         </button>
         <button onClick={() => setCurrentModule('deadline')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'deadline' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'deadline' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
           <Star className="w-5 h-5" /><span className="text-[10px] mt-0.5">Deadline</span>
         </button>
       </div>
@@ -178,10 +174,12 @@ const MainLayout: React.FC = () => {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <MainLayout />
-      </AuthProvider>
-    </ToastProvider>
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <MainLayout />
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }
