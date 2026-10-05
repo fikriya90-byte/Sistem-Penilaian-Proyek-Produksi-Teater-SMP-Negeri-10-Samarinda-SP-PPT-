@@ -9,6 +9,48 @@ import { useToast } from '../common/Toast';
 
 type LoginTab = 'siswa' | 'guru' | 'admin';
 
+// ============ DAFTAR ROLE UNTUK REGISTRASI SISWA ============
+const STUDENT_ROLE_GROUPS: { label: string; roles: { value: UserRole; label: string }[] }[] = [
+  {
+    label: 'Pengurus Inti',
+    roles: [
+      { value: 'Pimpinan Produksi', label: 'Pimpinan Produksi' },
+      { value: 'Sekretaris', label: 'Sekretaris' },
+      { value: 'Bendahara', label: 'Bendahara' },
+    ],
+  },
+  {
+    label: 'Pemeran & Penyutradaraan',
+    roles: [
+      { value: 'Sutradara', label: 'Sutradara' },
+      { value: 'Asisten Sutradara', label: 'Asisten Sutradara' },
+      { value: 'Pemain', label: 'Pemain (Aktor / Aktris)' },
+    ],
+  },
+  {
+    label: 'Koordinator Divisi',
+    roles: [
+      { value: 'Koordinator Perlengkapan', label: 'Koordinator Perlengkapan' },
+      { value: 'Koordinator Publikasi', label: 'Koordinator Publikasi & Dokumentasi' },
+      { value: 'Koordinator Tata Panggung', label: 'Koordinator Tata Panggung' },
+      { value: 'Koordinator Tata Rias', label: 'Koordinator Tata Rias' },
+      { value: 'Koordinator Tata Busana', label: 'Koordinator Tata Busana' },
+      { value: 'Koordinator Tata Musik', label: 'Koordinator Tata Musik & Suara' },
+    ],
+  },
+  {
+    label: 'Anggota Divisi',
+    roles: [
+      { value: 'Anggota Perlengkapan', label: 'Anggota Perlengkapan' },
+      { value: 'Anggota Publikasi', label: 'Anggota Publikasi & Dokumentasi' },
+      { value: 'Anggota Tata Panggung', label: 'Anggota Tata Panggung' },
+      { value: 'Anggota Tata Rias', label: 'Anggota Tata Rias' },
+      { value: 'Anggota Tata Busana', label: 'Anggota Tata Busana' },
+      { value: 'Anggota Tata Musik', label: 'Anggota Tata Musik & Suara' },
+    ],
+  },
+];
+
 export const LoginModal: React.FC = () => {
   const { loginWithEmail, registerUser } = useAuth();
   const { showToast } = useToast();
@@ -30,7 +72,6 @@ export const LoginModal: React.FC = () => {
   const [regRole, setRegRole] = useState<UserRole>('Pemain');
   const [submitting, setSubmitting] = useState(false);
 
-  // Error banner state
   const [roleMismatch, setRoleMismatch] = useState<{
     loggedInAs: string;
     expectedTab: LoginTab;
@@ -53,7 +94,6 @@ export const LoginModal: React.FC = () => {
     setSubmitting(true);
     setRoleMismatch(null);
 
-    // Login dulu — dapatkan profile dari auth context
     const res = await loginWithEmail(email, password);
     setSubmitting(false);
 
@@ -62,26 +102,21 @@ export const LoginModal: React.FC = () => {
       return;
     }
 
-    // Login berhasil. Cek role user untuk validasi tab.
-    // Kita perlu tahu profile — panggil fetchUserProfile? Atau cek dari context.
-    // Karena loginWithEmail sudah set user, kita validasi di App.tsx level.
-    // Tapi kita bisa cek sederhana: tampilkan pesan kalau tab mismatch.
-
-    // Ambil role dari result kalau ada, atau abaikan validasi dan biarkan App yang menentukan.
     const role = res.role || '';
-    const isTeacherRole = role === 'Guru Pembina';
+    // Backward compat: terima dua varian role guru
+    const isGuruRole = role === 'Guru Pengampu' || role === 'Guru Pembina';
     const isAdminRole = role === 'Admin' || role === 'Super Admin';
-    const isStudentRole = !isTeacherRole && !isAdminRole;
+    const isStudentRole = !isGuruRole && !isAdminRole;
 
     let mismatch = false;
     let expectedRole = '';
 
-    if (activeTab === 'guru' && !isTeacherRole) {
+    if (activeTab === 'guru' && !isGuruRole) {
       mismatch = true;
       expectedRole = isAdminRole ? 'Admin' : 'Siswa';
     } else if (activeTab === 'admin' && !isAdminRole) {
       mismatch = true;
-      expectedRole = isTeacherRole ? 'Guru' : 'Siswa';
+      expectedRole = isGuruRole ? 'Guru' : 'Siswa';
     } else if (activeTab === 'siswa' && !isStudentRole) {
       mismatch = true;
       expectedRole = isAdminRole ? 'Admin' : 'Guru';
@@ -103,22 +138,10 @@ export const LoginModal: React.FC = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!regClassCode.trim()) {
-      showToast('Harap isi Kode Kelas.', 'warning');
-      return;
-    }
-    if (!regName.trim() || !regEmail.trim()) {
-      showToast('Nama dan Email wajib diisi.', 'warning');
-      return;
-    }
-    if (regPassword.length < 6) {
-      showToast('Password minimal 6 karakter.', 'warning');
-      return;
-    }
-    if (regPassword !== regConfirmPassword) {
-      showToast('Konfirmasi password tidak cocok!', 'error');
-      return;
-    }
+    if (!regClassCode.trim()) { showToast('Harap isi Kode Kelas.', 'warning'); return; }
+    if (!regName.trim() || !regEmail.trim()) { showToast('Nama dan Email wajib diisi.', 'warning'); return; }
+    if (regPassword.length < 6) { showToast('Password minimal 6 karakter.', 'warning'); return; }
+    if (regPassword !== regConfirmPassword) { showToast('Konfirmasi password tidak cocok!', 'error'); return; }
 
     setSubmitting(true);
     const result = await registerUser({
@@ -141,12 +164,12 @@ export const LoginModal: React.FC = () => {
   };
 
   const tabConfig = {
-    siswa: { label: '🎭 Siswa', title: 'Email Siswa', activeClass: 'bg-white text-slate-900 shadow-sm' },
-    guru: { label: '👨‍🏫 Guru', title: 'Email Guru', activeClass: 'bg-white text-amber-800 shadow-sm' },
-    admin: { label: '🛡️ Admin', title: 'Email Administrator', activeClass: 'bg-white text-blue-800 shadow-sm' },
+    siswa: { label: 'Siswa', title: 'Email Siswa', activeClass: 'bg-white text-slate-900 shadow-sm' },
+    guru: { label: 'Guru', title: 'Email Guru', activeClass: 'bg-white text-amber-800 shadow-sm' },
+    admin: { label: 'Admin', title: 'Email Administrator', activeClass: 'bg-white text-blue-800 shadow-sm' },
   };
 
-  const mismatchLabel = {
+  const mismatchLabel: Record<LoginTab, string> = {
     guru: 'Guru',
     admin: 'Admin',
     siswa: 'Siswa',
@@ -196,7 +219,6 @@ export const LoginModal: React.FC = () => {
         <div className="p-6 pt-2">
           {!isRegistering ? (
             <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
-              {/* Role mismatch warning banner */}
               {roleMismatch && (
                 <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
@@ -208,19 +230,14 @@ export const LoginModal: React.FC = () => {
                     </p>
                     <button
                       type="button"
-                      onClick={() => {
-                        handleTabChange(roleMismatch.expectedTab);
-                      }}
+                      onClick={() => handleTabChange(roleMismatch.expectedTab)}
                       className="mt-2 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-[11px]"
                     >
                       Ganti ke Tab {mismatchLabel[roleMismatch.expectedTab]}
                     </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setRoleMismatch(null)}
-                    className="p-1 text-rose-400 hover:text-rose-600"
-                  >
+                  <button type="button" onClick={() => setRoleMismatch(null)}
+                    className="p-1 text-rose-400 hover:text-rose-600">
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -243,7 +260,7 @@ export const LoginModal: React.FC = () => {
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-bold text-slate-700">Kata Sandi</label>
                   <button type="button"
-                    onClick={() => showToast('Hubungi Guru Pembina / Admin untuk reset password.', 'info')}
+                    onClick={() => showToast('Hubungi Guru Pengampu / Admin untuk reset password.', 'info')}
                     className="text-[11px] font-semibold text-amber-600 hover:text-amber-700">
                     Lupa Password?
                   </button>
@@ -286,7 +303,7 @@ export const LoginModal: React.FC = () => {
                   <p className="text-xs text-slate-500">
                     Belum memiliki akun?{' '}
                     <button type="button"
-                      onClick={() => { setIsRegistering(true); }}
+                      onClick={() => setIsRegistering(true)}
                       className="font-bold text-amber-600 hover:text-amber-700">
                       Daftar Siswa
                     </button>
@@ -378,20 +395,28 @@ export const LoginModal: React.FC = () => {
                 </div>
               </div>
 
+              {/* ====== DROPDOWN ROLE LENGKAP ====== */}
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-0.5">Pilihan Peran Awal</label>
-                <select value={regRole} onChange={(e) => setRegRole(e.target.value as UserRole)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800">
-                  <option value="Pemain">Pemeran (Aktor/Aktris)</option>
-                  <option value="Anggota Perlengkapan">Anggota Divisi Perlengkapan</option>
-                  <option value="Anggota Publikasi">Anggota Divisi Publikasi & Dok</option>
-                  <option value="Anggota Tata Panggung">Anggota Divisi Tata Panggung</option>
-                  <option value="Anggota Tata Rias">Anggota Divisi Tata Rias</option>
-                  <option value="Anggota Tata Busana">Anggota Divisi Tata Busana</option>
-                  <option value="Anggota Tata Musik">Anggota Divisi Tata Musik</option>
+                <label className="block text-[11px] font-bold text-slate-700 mb-0.5">
+                  Pilih Peran / Jabatan dalam Produksi <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={regRole}
+                  onChange={(e) => setRegRole(e.target.value as UserRole)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white"
+                >
+                  {STUDENT_ROLE_GROUPS.map((group) => (
+                    <optgroup key={group.label} label={group.label}>
+                      {group.roles.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  Guru/koordinator dapat mengubah peran Anda setelah verifikasi.
+                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                  Pilih peran Anda dalam kepanitiaan produksi. Guru/koordinator dapat mengubah peran setelah verifikasi.
                 </p>
               </div>
 
