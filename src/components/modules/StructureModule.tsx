@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   ExternalLink, MessageCircle, Phone, Search, Share2, Sparkles,
-  Users, Camera, Upload, X, Crown, Shield, Palette, Music,
-  Scissors, Package, BookOpen,
+  Users, Camera, Upload,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS } from '../../core/constants';
-import { DivisionType, UserProfile } from '../../core/types';
+import { UserProfile } from '../../core/types';
 import { fetchUsersByClass, updateUserProfile, recordAuditLog } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 import { PhotoUploadModal } from '../common/PhotoUploadModal';
@@ -14,7 +13,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
 export const StructureModule: React.FC = () => {
-  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole, reloadClasses } = useAuth();
+  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
 
   const [members, setMembers] = useState<UserProfile[]>([]);
@@ -24,21 +23,22 @@ export const StructureModule: React.FC = () => {
   const [photoModalMember, setPhotoModalMember] = useState<UserProfile | null>(null);
   const [kerabatLogo, setKerabatLogo] = useState<string>('');
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
-  const [loadingLogo, setLoadingLogo] = useState(false);
 
-  const canEditPhotos = isTeacher || isGuruPengampu || isAdminRole ||
-    user?.role === 'Pimpinan Produksi' || user?.role === 'Sutradara' || user?.role.startsWith('Koordinator ');
+  const canEditPhotos =
+    isTeacher || isGuruPengampu || isAdminRole ||
+    user?.role === 'Pimpinan Produksi' ||
+    user?.role === 'Sutradara' ||
+    (user?.role ? user.role.startsWith('Koordinator ') : false);
 
-  // Load members + logo
   useEffect(() => {
     if (!activeClass) return;
     fetchUsersByClass(activeClass.id).then(setMembers);
     loadKerabatLogo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClass]);
 
   const loadKerabatLogo = async () => {
     if (!activeClass) return;
-    setLoadingLogo(true);
     try {
       const snap = await getDoc(doc(db, 'classes', activeClass.id));
       if (snap.exists()) {
@@ -47,8 +47,6 @@ export const StructureModule: React.FC = () => {
       }
     } catch (err) {
       console.warn('Gagal load logo:', err);
-    } finally {
-      setLoadingLogo(false);
     }
   };
 
@@ -126,13 +124,13 @@ export const StructureModule: React.FC = () => {
   const handleShareStructure = () => {
     if (navigator.share) {
       navigator.share({
-        title: `Kerabat Kerja Teater ${activeClass?.name}`,
-        text: `Susunan kerabat kerja produksi teater SP-PPT ${activeClass?.name}`,
+        title: `Kerabat Kerja ${activeClass?.name}`,
+        text: `Susunan kerabat kerja produksi teater ${activeClass?.name}`,
         url: window.location.href,
       }).catch(() => {});
     } else {
       navigator.clipboard.writeText(window.location.href);
-      showToast('Tautan bagan kerabat disalin!', 'info');
+      showToast('Tautan disalin ke clipboard!', 'info');
     }
   };
 
@@ -150,15 +148,10 @@ export const StructureModule: React.FC = () => {
       <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            {/* Logo Kerabat */}
             <div className="relative">
               <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg border-4 border-white dark:border-slate-800">
                 {kerabatLogo ? (
-                  <img
-                    src={kerabatLogo}
-                    alt="Logo Kerabat"
-                    className="w-full h-full rounded-3xl object-cover"
-                  />
+                  <img src={kerabatLogo} alt="Logo Kerabat" className="w-full h-full rounded-3xl object-cover" />
                 ) : (
                   <Sparkles className="w-8 h-8 text-white" />
                 )}
@@ -179,7 +172,7 @@ export const StructureModule: React.FC = () => {
                 Kerabat Kerja
               </span>
               <h2 className="text-xl font-extrabold text-slate-900 dark:text-white mt-1">
-                {activeClass?.kerabatKerja || `Struktur ${activeClass?.name}`}
+                {activeClass?.kerabatKerja || `Struktur ${activeClass?.name || ''}`}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                 {members.length} anggota terdaftar
@@ -382,9 +375,13 @@ export const StructureModule: React.FC = () => {
                   </button>
                 )}
               </div>
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-3">{selectedMember.displayName}</h3>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-3">
+                {selectedMember.displayName}
+              </h3>
               <p className="text-xs font-bold text-amber-700 dark:text-amber-400">{selectedMember.role}</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">{selectedMember.divisionName || 'Pemeran'} • {selectedMember.className}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {selectedMember.divisionName || 'Pemeran'} • {selectedMember.className}
+              </p>
             </div>
 
             <div className="mt-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 space-y-2 text-xs">
@@ -394,11 +391,15 @@ export const StructureModule: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">Email:</span>
-                <span className="font-bold text-slate-800 dark:text-white text-right truncate max-w-[180px]">{selectedMember.email}</span>
+                <span className="font-bold text-slate-800 dark:text-white text-right truncate max-w-[180px]">
+                  {selectedMember.email}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-slate-500 dark:text-slate-400">No. WA:</span>
-                <span className="font-bold text-slate-800 dark:text-white font-mono">{selectedMember.phone || '-'}</span>
+                <span className="font-bold text-slate-800 dark:text-white font-mono">
+                  {selectedMember.phone || '-'}
+                </span>
               </div>
             </div>
 
