@@ -24,6 +24,7 @@ import { GuideModule } from './components/modules/GuideModule';
 import { SettingsModule } from './components/modules/SettingsModule';
 import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
+import { StageManagerModule } from './components/modules/StageManagerModule';
 
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole } = useAuth();
@@ -86,6 +87,7 @@ const MainLayout: React.FC = () => {
       case 'aduan': return <ComplaintModule />;
       case 'panduan': return <GuideModule />;
       case 'pengaturan': return <SettingsModule />;
+      case 'kelola-kelas': return <ManageClassModule />;
       case 'kelola-kelas': return <ManageClassModule />;
       default: return <DashboardModule onNavigate={setCurrentModule} />;
     }
