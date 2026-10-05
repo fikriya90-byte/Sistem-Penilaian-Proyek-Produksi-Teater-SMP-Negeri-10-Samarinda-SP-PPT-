@@ -61,13 +61,11 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
       'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
     };
 
-    const usersList = rawList.map(u => {
+    return rawList.map(u => {
       const mapped = ROLE_DIV_MAP[u.role];
       if (mapped) return { ...u, divisionId: mapped.id, divisionName: mapped.name };
       return u;
     });
-
-    return usersList;
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
   }
@@ -119,7 +117,7 @@ export async function fetchClasses(): Promise<ClassRoom[]> {
 }
 
 // ==========================================
-// PRODUCTIONS
+// PRODUCTION
 // ==========================================
 
 export async function fetchProductionByClass(classId: string): Promise<ProductionProject | null> {
@@ -216,7 +214,7 @@ export async function deleteTask(taskId: string): Promise<void> {
 }
 
 // ==========================================
-// ASSESSMENTS (+ HISTORY)
+// ASSESSMENTS
 // ==========================================
 
 export function subscribeAssessments(
@@ -246,7 +244,6 @@ export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): 
     const targetRef = doc(db, path, customId);
     const existing = await getDoc(targetRef);
 
-    // === SIMPAN VERSI LAMA KE HISTORY ===
     if (existing.exists()) {
       const oldData = existing.data();
       const histRef = doc(collection(db, 'assessmentHistory'));
@@ -434,7 +431,7 @@ export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>
 }
 
 // ==========================================
-// NOTIFICATIONS & BROADCASTS
+// NOTIFICATIONS
 // ==========================================
 
 export function subscribeNotifications(
@@ -444,7 +441,9 @@ export function subscribeNotifications(
   const path = 'notifications';
   const q = query(collection(db, path), where('userId', '==', userId));
   return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as SystemNotification)));
+    const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as SystemNotification));
+    items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    onUpdate(items);
   });
 }
 
@@ -457,6 +456,28 @@ export async function markNotificationAsRead(notifId: string): Promise<void> {
   }
 }
 
+export async function markAllNotificationsAsRead(userId: string): Promise<number> {
+  try {
+    const q = query(
+      collection(db, 'notifications'),
+      where('userId', '==', userId),
+      where('read', '==', false)
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return 0;
+
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => {
+      batch.update(d.ref, { read: true });
+    });
+    await batch.commit();
+    return snap.size;
+  } catch (error) {
+    console.warn('markAllNotificationsAsRead error:', error);
+    return 0;
+  }
+}
+
 export async function createNotification(notif: Omit<SystemNotification, 'id'>): Promise<void> {
   const path = 'notifications';
   try {
@@ -466,6 +487,130 @@ export async function createNotification(notif: Omit<SystemNotification, 'id'>):
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
+
+// ==========================================
+// NOTIFIKASI OTOMATIS KE GURU — VERSI KUAT
+// Semua aktivitas siswa selalu masuk ke Guru Pengampu
+// ==========================================
+export async function notifyTeachers(
+  classId: string,
+  notif: {
+    title: string;
+    message: string;
+    category: SystemNotification['category'];
+    link?: string;
+    senderName?: string;
+  }
+): Promise<void> {
+  try {
+    // Ambil SEMUA user di class ini, filter guru di lokal
+    // (agar tidak bergantung pada query `in` yang sering gagal)
+    const q = query(collection(db, 'users'), where('classId', '==', classId));
+    const snap = await getDocs(q);
+
+    const guruList = snap.docs.filter(d => {
+      const role = d.data().role;
+      return role === 'Guru Pengampu' || role === 'Guru Pembina' ||
+             role === 'Admin' || role === 'Super Admin';
+    });
+
+    if (guruList.length === 0) {
+      // Fallback: cari semua user dengan role guru di semua kelas
+      const allSnap = await getDocs(collection(db, 'users'));
+      const fallback = allSnap.docs.filter(d => {
+        const role = d.data().role;
+        return role === 'Guru Pengampu' || role === 'Guru Pembina' ||
+               role === 'Admin' || role === 'Super Admin';
+      });
+
+      if (fallback.length === 0) {
+        console.warn('notifyTeachers: tidak ada guru ditemukan');
+        return;
+      }
+
+      const batch = writeBatch(db);
+      const now = new Date().toISOString();
+      fallback.forEach(d => {
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
+          id: notifRef.id,
+          userId: d.id,
+          classId,
+          title: notif.title,
+          message: notif.message,
+          category: notif.category,
+          read: false,
+          link: notif.link || '',
+          createdAt: now,
+        });
+      });
+      await batch.commit();
+      return;
+    }
+
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+
+    guruList.forEach(d => {
+      const notifRef = doc(collection(db, 'notifications'));
+      batch.set(notifRef, {
+        id: notifRef.id,
+        userId: d.id,
+        classId,
+        title: notif.title,
+        message: notif.message,
+        category: notif.category,
+        read: false,
+        link: notif.link || '',
+        createdAt: now,
+      });
+    });
+
+    await batch.commit();
+    console.log(`notifyTeachers: notifikasi terkirim ke ${guruList.length} guru`);
+  } catch (err) {
+    console.warn('Non-fatal notifyTeachers error:', err);
+  }
+}
+
+// Kirim notifikasi ke banyak user sekaligus
+export async function notifyUsers(
+  userIds: string[],
+  notif: {
+    title: string;
+    message: string;
+    category: SystemNotification['category'];
+    link?: string;
+    classId?: string;
+  }
+): Promise<void> {
+  if (userIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    userIds.forEach(uid => {
+      const notifRef = doc(collection(db, 'notifications'));
+      batch.set(notifRef, {
+        id: notifRef.id,
+        userId: uid,
+        classId: notif.classId || '',
+        title: notif.title,
+        message: notif.message,
+        category: notif.category,
+        read: false,
+        link: notif.link || '',
+        createdAt: now,
+      });
+    });
+    await batch.commit();
+  } catch (err) {
+    console.warn('notifyUsers error:', err);
+  }
+}
+
+// ==========================================
+// BROADCASTS
+// ==========================================
 
 export function subscribeBroadcasts(
   classId: string,
@@ -582,50 +727,5 @@ export async function recordAuditLog(
     });
   } catch (error) {
     console.warn('Non-fatal audit log write error:', error);
-  }
-}
-
-// ==========================================
-// NOTIFIKASI OTOMATIS UNTUK GURU
-// ==========================================
-
-export async function notifyTeachers(
-  classId: string,
-  notif: {
-    title: string;
-    message: string;
-    category: SystemNotification['category'];
-    link?: string;
-    senderName?: string;
-  }
-): Promise<void> {
-  try {
-    const q = query(
-      collection(db, 'users'),
-      where('role', 'in', ['Guru Pengampu', 'Guru Pembina'])
-    );
-    const snap = await getDocs(q);
-
-    const batch = writeBatch(db);
-    const now = new Date().toISOString();
-
-    snap.docs.forEach(d => {
-      const notifRef = doc(collection(db, 'notifications'));
-      batch.set(notifRef, {
-        id: notifRef.id,
-        userId: d.id,
-        classId,
-        title: notif.title,
-        message: notif.message,
-        category: notif.category,
-        read: false,
-        link: notif.link || '',
-        createdAt: now,
-      });
-    });
-
-    await batch.commit();
-  } catch (err) {
-    console.warn('Non-fatal notify teachers error:', err);
   }
 }
