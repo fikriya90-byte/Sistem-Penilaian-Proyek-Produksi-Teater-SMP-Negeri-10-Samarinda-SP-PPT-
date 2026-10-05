@@ -1,35 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import {
-  AlertTriangle,
-  Calendar,
-  CheckCircle,
-  Clock,
-  ExternalLink,
-  Filter,
-  Paperclip,
-  PlusCircle,
-  Search,
-  Sparkles,
-  Star,
-  Trash2,
-  Upload,
-  UserCheck,
+  AlertTriangle, Calendar, CheckCircle, Clock, ExternalLink, Filter,
+  Paperclip, PlusCircle, Search, Sparkles, Star, Trash2, Upload, UserCheck,
+  Users, X, Save,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS, STAGES } from '../../core/constants';
-import { DivisionType, ProductionStage, TaskItem, TaskPriority, TaskStatus, UserProfile } from '../../core/types';
 import {
-  createTask,
-  deleteTask,
-  fetchUsersByClass,
-  recordAuditLog,
-  subscribeTasksByClass,
-  updateTask,
+  DivisionType, ProductionStage, TaskItem, TaskPriority, TaskStatus, UserProfile,
+} from '../../core/types';
+import {
+  createTask, deleteTask, fetchUsersByClass, recordAuditLog,
+  subscribeTasksByClass, updateTask, notifyTeachers,
 } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 
 export const TaskDeadlineModule: React.FC = () => {
-  const { user, activeClass, isTeacher, isPimprod, isSutradara, isKoordinator } = useAuth();
+  const { user, activeClass, isTeacher, isPimprod, isSutradara, isKoordinator, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
 
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -74,33 +61,30 @@ export const TaskDeadlineModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  const canCreateTasks = isTeacher || isPimprod || isSutradara || isKoordinator;
+  const canCreateTasks = isTeacher || isGuruPengampu || isAdminRole || isPimprod || isSutradara || isKoordinator;
 
   const getDeadlineStatus = (dueDateIso: string, status: TaskStatus) => {
     if (status === 'APPROVED') {
-      return { text: 'Selesai & Disetujui', color: 'text-emerald-600 bg-emerald-50 border-emerald-300' };
+      return { text: 'Selesai & Disetujui', color: 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40' };
     }
-
     const diff = new Date(dueDateIso).getTime() - currentTime.getTime();
     if (diff <= 0) {
-      return { text: 'TERLAMBAT (OVERDUE)', color: 'text-rose-700 bg-rose-100 border-rose-300 font-black' };
+      return { text: 'TERLAMBAT (OVERDUE)', color: 'text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-500/20 border-rose-300 dark:border-rose-500/40 font-black' };
     }
-
     const hours = Math.floor(diff / (1000 * 60 * 60));
     const days = Math.floor(hours / 24);
     const remHours = hours % 24;
     const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-
     let label = `${days}h ${remHours}j ${mins}m`;
     if (days === 0) label = `${hours}j ${mins}m`;
 
     if (hours < 24) {
-      return { text: `Tersisa: ${label}`, color: 'text-rose-600 bg-rose-50 border-rose-200 font-bold animate-pulse' };
+      return { text: `Tersisa: ${label}`, color: 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 font-bold animate-pulse' };
     }
     if (hours <= 72) {
-      return { text: `Tersisa: ${label}`, color: 'text-amber-700 bg-amber-50 border-amber-200 font-semibold' };
+      return { text: `Tersisa: ${label}`, color: 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 font-semibold' };
     }
-    return { text: `Tersisa: ${label}`, color: 'text-slate-600 bg-slate-50 border-slate-200' };
+    return { text: `Tersisa: ${label}`, color: 'text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700' };
   };
 
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -141,6 +125,38 @@ export const TaskDeadlineModule: React.FC = () => {
         details: `Membuat tugas "${newTitle}" untuk ${newDivision}`,
       });
 
+      // === NOTIFIKASI KE SISWA TARGET ===
+      try {
+        const recipients = classStudents.filter(s => {
+          if (s.role === 'Guru Pengampu' || s.role === 'Guru Pembina') return false;
+          if (s.role === 'Admin' || s.role === 'Super Admin') return false;
+          if (newAssigneeId) return s.uid === newAssigneeId;
+          return s.divisionName === newDivision;
+        });
+
+        const { writeBatch } = await import('firebase/firestore');
+        const { doc, collection } = await import('firebase/firestore');
+        const { db } = await import('../../core/firebase');
+        const batch = writeBatch(db);
+        recipients.forEach(r => {
+          const notifRef = doc(collection(db, 'notifications'));
+          batch.set(notifRef, {
+            id: notifRef.id,
+            userId: r.uid,
+            classId: activeClass.id,
+            title: 'Tugas Baru',
+            message: `${user.displayName}: "${newTitle.trim()}" (${newDivision})`,
+            category: 'Tugas',
+            read: false,
+            link: 'tugas',
+            createdAt: new Date().toISOString(),
+          });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Notif tugas gagal:', err);
+      }
+
       showToast('Tugas dan deadline baru berhasil diterbitkan!', 'success');
       setIsCreateModalOpen(false);
       setNewTitle('');
@@ -179,17 +195,17 @@ export const TaskDeadlineModule: React.FC = () => {
         details: `Mengirimkan bukti tugas "${taskTitle}"`,
       });
 
+      // === NOTIFIKASI KE GURU ===
       try {
-        const { notifyTeachers } = await import('../../services/firestoreService');
         await notifyTeachers(activeClass.id, {
           title: 'Bukti Tugas Baru Dikirim',
-          message: `${user.displayName} mengirim bukti untuk: "${taskTitle}"`,
+          message: `${user.displayName} (${user.role}) mengirim bukti untuk: "${taskTitle}"`,
           category: 'Tugas',
           link: 'tugas',
           senderName: user.displayName,
         });
-      } catch {
-        /* non-fatal */
+      } catch (err) {
+        console.warn('Notif guru gagal:', err);
       }
 
       showToast('Bukti pekerjaan berhasil dikirim untuk diverifikasi!', 'success');
@@ -202,7 +218,7 @@ export const TaskDeadlineModule: React.FC = () => {
   };
 
   const handleReviewTask = async () => {
-    if (!selectedTaskForReview || !user) return;
+    if (!selectedTaskForReview || !user || !activeClass) return;
 
     try {
       await updateTask(selectedTaskForReview.id, {
@@ -221,6 +237,31 @@ export const TaskDeadlineModule: React.FC = () => {
         targetId: selectedTaskForReview.id,
         details: `Verifikasi tugas "${selectedTaskForReview.title}": ${reviewStatus}`,
       });
+
+      // === NOTIFIKASI KE SISWA ===
+      if (selectedTaskForReview.assigneeId) {
+        try {
+          const { writeBatch } = await import('firebase/firestore');
+          const { doc, collection } = await import('firebase/firestore');
+          const { db } = await import('../../core/firebase');
+          const batch = writeBatch(db);
+          const notifRef = doc(collection(db, 'notifications'));
+          batch.set(notifRef, {
+            id: notifRef.id,
+            userId: selectedTaskForReview.assigneeId,
+            classId: activeClass.id,
+            title: reviewStatus === 'APPROVED' ? 'Tugas Disetujui' : reviewStatus === 'REVISION' ? 'Tugas Perlu Revisi' : 'Status Tugas Diubah',
+            message: `${user.displayName} ${reviewStatus === 'APPROVED' ? 'menyetujui' : 'mengubah'} tugas "${selectedTaskForReview.title}"`,
+            category: 'Feedback',
+            read: false,
+            link: 'tugas',
+            createdAt: new Date().toISOString(),
+          });
+          await batch.commit();
+        } catch (err) {
+          console.warn('Notif siswa gagal:', err);
+        }
+      }
 
       showToast(`Tugas berhasil diubah status menjadi ${reviewStatus}!`, 'success');
       setSelectedTaskForReview(null);
@@ -257,17 +298,17 @@ export const TaskDeadlineModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600">
+            <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <CheckCircle className="w-6 h-6" />
             </span>
             <div>
-              <h2 className="text-xl font-extrabold text-slate-900">
+              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
                 Checklist Tugas & Deadline Produksi
               </h2>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                 Pantau tenggat waktu nyata, kirim bukti progres, dan verifikasi hasil kerja
               </p>
             </div>
@@ -277,7 +318,7 @@ export const TaskDeadlineModule: React.FC = () => {
         {canCreateTasks && (
           <button
             onClick={() => setIsCreateModalOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-xs transition"
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-sm transition"
           >
             <PlusCircle className="w-4 h-4" />
             <span>Terbitkan Tugas Baru</span>
@@ -285,7 +326,7 @@ export const TaskDeadlineModule: React.FC = () => {
         )}
       </div>
 
-      <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs flex flex-wrap items-center gap-3">
+      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
           <input
@@ -293,26 +334,18 @@ export const TaskDeadlineModule: React.FC = () => {
             placeholder="Cari nama tugas atau nama siswa..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white"
           />
         </div>
 
-        <select
-          value={filterDivision}
-          onChange={(e) => setFilterDivision(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-slate-50"
-        >
+        <select value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
           <option value="ALL">Semua Divisi</option>
-          {DIVISIONS.map(d => (
-            <option key={d.id} value={d.id}>{d.id}</option>
-          ))}
+          {DIVISIONS.map(d => <option key={d.id} value={d.id}>{d.id}</option>)}
         </select>
 
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-slate-50"
-        >
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
           <option value="ALL">Semua Status</option>
           <option value="NOT_STARTED">Belum Dikerjakan</option>
           <option value="IN_PROGRESS">Sedang Dikerjakan</option>
@@ -322,11 +355,8 @@ export const TaskDeadlineModule: React.FC = () => {
           <option value="OVERDUE">Terlambat (OVERDUE)</option>
         </select>
 
-        <select
-          value={filterPriority}
-          onChange={(e) => setFilterPriority(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-slate-50"
-        >
+        <select value={filterPriority} onChange={(e) => setFilterPriority(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
           <option value="ALL">Semua Prioritas</option>
           <option value="CRITICAL">Kritis</option>
           <option value="HIGH">Tinggi</option>
@@ -337,28 +367,25 @@ export const TaskDeadlineModule: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredTasks.length === 0 ? (
-          <div className="col-span-full p-12 text-center bg-white rounded-3xl border border-slate-200 text-slate-400 text-xs">
+          <div className="col-span-full p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 text-xs">
             Belum ada tugas yang sesuai dengan filter pencarian.
           </div>
         ) : (
           filteredTasks.map(task => {
             const countdown = getDeadlineStatus(task.dueDate, task.status);
-            const isAssignedToMe = task.assigneeId === user?.uid;
-            const canReview = isTeacher || isPimprod || (isKoordinator && task.divisionName === user?.divisionName);
+            const canReview = isTeacher || isGuruPengampu || isAdminRole || isPimprod || (isKoordinator && task.divisionName === user?.divisionName);
 
-            let priorityBadge = 'bg-slate-100 text-slate-700 border-slate-200';
-            if (task.priority === 'CRITICAL') priorityBadge = 'bg-rose-100 text-rose-800 border-rose-300 font-extrabold';
-            if (task.priority === 'HIGH') priorityBadge = 'bg-amber-100 text-amber-800 border-amber-300';
-            if (task.priority === 'MEDIUM') priorityBadge = 'bg-blue-100 text-blue-800 border-blue-300';
+            let priorityBadge = 'bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-600';
+            if (task.priority === 'CRITICAL') priorityBadge = 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40 font-extrabold';
+            if (task.priority === 'HIGH') priorityBadge = 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/40';
+            if (task.priority === 'MEDIUM') priorityBadge = 'bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-500/40';
 
             return (
-              <div
-                key={task.id}
-                className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-md transition"
-              >
+              <div key={task.id}
+                className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm flex flex-col justify-between space-y-4 hover:shadow-md transition">
                 <div>
                   <div className="flex items-center justify-between text-[11px] mb-2">
-                    <span className="font-extrabold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-md">
+                    <span className="font-extrabold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/20 px-2.5 py-0.5 rounded-md">
                       {task.divisionName}
                     </span>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${priorityBadge}`}>
@@ -366,24 +393,24 @@ export const TaskDeadlineModule: React.FC = () => {
                     </span>
                   </div>
 
-                  <h3 className="text-sm font-extrabold text-slate-900 leading-snug">
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug">
                     {task.title}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 leading-relaxed">
                     {task.description}
                   </p>
 
-                  <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600 space-y-1.5">
+                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 space-y-1.5">
                     <p className="text-[11px] flex items-center justify-between">
-                      <span className="text-slate-400">Penanggung Jawab:</span>
-                      <span className="font-bold text-slate-800 truncate max-w-[170px]">
+                      <span className="text-slate-400 dark:text-slate-500">PIC:</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200 truncate max-w-[170px]">
                         {task.assigneeName || 'Divisi'}
                       </span>
                     </p>
 
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400 text-[11px]">Batas Waktu:</span>
-                      <span className="font-mono text-[11px] font-semibold text-slate-700">
+                      <span className="text-slate-400 dark:text-slate-500 text-[11px]">Batas Waktu:</span>
+                      <span className="font-mono text-[11px] font-semibold text-slate-700 dark:text-slate-300">
                         {new Date(task.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                       </span>
                     </div>
@@ -396,16 +423,12 @@ export const TaskDeadlineModule: React.FC = () => {
                   </div>
 
                   {task.proofNote && (
-                    <div className="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-600">
-                      <span className="font-bold text-slate-800 block mb-0.5">Catatan Pengiriman:</span>
+                    <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-300">
+                      <span className="font-bold text-slate-800 dark:text-slate-200 block mb-0.5">Catatan Pengiriman:</span>
                       <p className="line-clamp-2 italic">{task.proofNote}</p>
                       {task.proofUrl && (
-                        <a
-                          href={task.proofUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-blue-600 font-bold hover:underline mt-1"
-                        >
+                        <a href={task.proofUrl} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 font-bold hover:underline mt-1">
                           <ExternalLink className="w-3 h-3" /> Lihat Lampiran Bukti
                         </a>
                       )}
@@ -413,18 +436,18 @@ export const TaskDeadlineModule: React.FC = () => {
                   )}
 
                   {task.feedback && (
-                    <div className="mt-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800">
+                    <div className="mt-2 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-[11px] text-emerald-800 dark:text-emerald-300">
                       <span className="font-bold block mb-0.5">Umpan Balik Penilai:</span>
                       <p className="line-clamp-2">{task.feedback}</p>
                     </div>
                   )}
                 </div>
 
-                <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between gap-2">
                   {task.status !== 'APPROVED' && (
                     <button
                       onClick={() => setSelectedTaskForProof(task)}
-                      className="flex-1 py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                      className="flex-1 py-1.5 px-3 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition"
                     >
                       <Upload className="w-3.5 h-3.5" />
                       <span>{task.status === 'SUBMITTED' ? 'Edit Bukti' : 'Unggah Bukti'}</span>
@@ -437,14 +460,14 @@ export const TaskDeadlineModule: React.FC = () => {
                         setSelectedTaskForReview(task);
                         setReviewStatus(task.status === 'SUBMITTED' ? 'APPROVED' : task.status);
                       }}
-                      className="py-1.5 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs flex items-center gap-1 transition"
+                      className="py-1.5 px-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/40 font-bold text-xs flex items-center gap-1 transition"
                     >
                       <UserCheck className="w-3.5 h-3.5" />
                       <span>Review</span>
                     </button>
                   )}
 
-                  {isTeacher && (
+                  {(isTeacher || isGuruPengampu || isAdminRole) && (
                     <button
                       onClick={() => handleDeleteTask(task.id, task.title)}
                       className="p-1.5 text-slate-400 hover:text-rose-600 transition"
@@ -462,90 +485,66 @@ export const TaskDeadlineModule: React.FC = () => {
 
       {/* Modal Create Task */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 my-auto">
-            <h3 className="text-base font-extrabold text-slate-900">
-              Terbitkan Tugas & Deadline Baru
-            </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 my-auto max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                Terbitkan Tugas & Deadline Baru
+              </h3>
+              <button onClick={() => setIsCreateModalOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
             <form onSubmit={handleCreateTask} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Nama Tugas <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
+                <input type="text" required value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="Contoh: Pembuatan Properti Keris Pusaka"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                />
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Deskripsi Tugas</label>
-                <textarea
-                  rows={2}
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Deskripsi Tugas</label>
+                <textarea rows={2} value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
                   placeholder="Detail instruksi pengerjaan tugas..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800"
-                />
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Tahapan Produksi</label>
-                  <select
-                    value={newStage}
-                    onChange={(e) => setNewStage(e.target.value as ProductionStage)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                  >
-                    {STAGES.map(s => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Tahapan Produksi</label>
+                  <select value={newStage} onChange={(e) => setNewStage(e.target.value as ProductionStage)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
+                    {STAGES.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Divisi Target</label>
-                  <select
-                    value={newDivision}
-                    onChange={(e) => setNewDivision(e.target.value as DivisionType)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                  >
-                    {DIVISIONS.map(d => (
-                      <option key={d.id} value={d.id}>{d.id}</option>
-                    ))}
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Divisi Target</label>
+                  <select value={newDivision} onChange={(e) => setNewDivision(e.target.value as DivisionType)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
+                    {DIVISIONS.map(d => <option key={d.id} value={d.id}>{d.id}</option>)}
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Penerima Tugas</label>
-                  <select
-                    value={newAssigneeId}
-                    onChange={(e) => setNewAssigneeId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                  >
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Penerima Tugas</label>
+                  <select value={newAssigneeId} onChange={(e) => setNewAssigneeId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
                     <option value="">Semua Anggota Divisi</option>
-                    {classStudents.map(s => (
-                      <option key={s.uid} value={s.uid}>
-                        {s.displayName} ({s.role})
-                      </option>
+                    {classStudents.filter(s => s.role !== 'Guru Pengampu' && s.role !== 'Guru Pembina' && s.role !== 'Admin' && s.role !== 'Super Admin').map(s => (
+                      <option key={s.uid} value={s.uid}>{s.displayName} ({s.role})</option>
                     ))}
                   </select>
                 </div>
-
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Tingkat Prioritas</label>
-                  <select
-                    value={newPriority}
-                    onChange={(e) => setNewPriority(e.target.value as TaskPriority)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                  >
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Prioritas</label>
+                  <select value={newPriority} onChange={(e) => setNewPriority(e.target.value as TaskPriority)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
                     <option value="LOW">Rendah (Low)</option>
                     <option value="MEDIUM">Sedang (Medium)</option>
                     <option value="HIGH">Tinggi (High)</option>
@@ -555,31 +554,19 @@ export const TaskDeadlineModule: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Batas Waktu Deadline <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="datetime-local"
-                  required
-                  value={newDueDate}
-                  onChange={(e) => setNewDueDate(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                />
+                <input type="datetime-local" required value={newDueDate} onChange={(e) => setNewDueDate(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs"
-                >
-                  Simpan & Terbitkan
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
+                <button type="button" onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
+                <button type="submit"
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm flex items-center gap-1.5">
+                  <Save className="w-3.5 h-3.5" /> Simpan & Terbitkan
                 </button>
               </div>
             </form>
@@ -589,58 +576,35 @@ export const TaskDeadlineModule: React.FC = () => {
 
       {/* Modal Submit Proof */}
       {selectedTaskForProof && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 my-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 my-auto">
             <div>
-              <span className="text-xs font-bold text-amber-600 uppercase">Kirim Bukti Pekerjaan</span>
-              <h3 className="text-base font-extrabold text-slate-900 mt-0.5">
+              <span className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase">Kirim Bukti Pekerjaan</span>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
                 {selectedTaskForProof.title}
               </h3>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  URL Tautan Berkas / Foto / Video Bukti
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://drive.google.com/... atau https://..."
-                  value={proofUrl}
-                  onChange={(e) => setProofUrl(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                />
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  Tautan foto dokumentasi, video latihan, sketsa desain, atau Google Drive.
-                </p>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">URL Tautan Bukti</label>
+                <input type="url" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)}
+                  placeholder="https://drive.google.com/..."
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Catatan Progres / Penjelasan Hasil Kerja
-                </label>
-                <textarea
-                  rows={3}
-                  value={proofNote}
-                  onChange={(e) => setProofNote(e.target.value)}
-                  placeholder="Jelaskan apa yang telah diselesaikan dan kendala yang dihadapi..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800"
-                />
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Catatan Progres</label>
+                <textarea rows={3} value={proofNote} onChange={(e) => setProofNote(e.target.value)}
+                  placeholder="Jelaskan apa yang telah diselesaikan..."
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setSelectedTaskForProof(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
-                >
-                  Batal
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSubmitProof}
-                  className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-xs"
-                >
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                <button type="button" onClick={() => setSelectedTaskForProof(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
+                <button type="button" onClick={handleSubmitProof}
+                  className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs shadow-sm">
                   Kirim Bukti Tugas
                 </button>
               </div>
@@ -651,73 +615,46 @@ export const TaskDeadlineModule: React.FC = () => {
 
       {/* Modal Review */}
       {selectedTaskForReview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-xs">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4 my-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 my-auto">
             <div>
-              <span className="text-xs font-bold text-blue-600 uppercase">Verifikasi & Penilaian Tugas</span>
-              <h3 className="text-base font-extrabold text-slate-900 mt-0.5">
+              <span className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase">Verifikasi & Penilaian Tugas</span>
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
                 {selectedTaskForReview.title}
               </h3>
             </div>
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Ubah Status Tugas</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Ubah Status Tugas</label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setReviewStatus('APPROVED')}
+                  <button type="button" onClick={() => setReviewStatus('APPROVED')}
                     className={`py-2 rounded-xl text-xs font-bold transition border ${
-                      reviewStatus === 'APPROVED' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    Disetujui
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReviewStatus('REVISION')}
+                      reviewStatus === 'APPROVED' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}>Disetujui</button>
+                  <button type="button" onClick={() => setReviewStatus('REVISION')}
                     className={`py-2 rounded-xl text-xs font-bold transition border ${
-                      reviewStatus === 'REVISION' ? 'bg-amber-600 text-white border-amber-600' : 'bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    Perlu Revisi
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setReviewStatus('IN_PROGRESS')}
+                      reviewStatus === 'REVISION' ? 'bg-amber-600 text-white border-amber-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}>Perlu Revisi</button>
+                  <button type="button" onClick={() => setReviewStatus('IN_PROGRESS')}
                     className={`py-2 rounded-xl text-xs font-bold transition border ${
-                      reviewStatus === 'IN_PROGRESS' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    Proses Ulang
-                  </button>
+                      reviewStatus === 'IN_PROGRESS' ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}>Proses Ulang</button>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Umpan Balik (Feedback)</label>
-                <textarea
-                  rows={3}
-                  value={reviewFeedback}
-                  onChange={(e) => setReviewFeedback(e.target.value)}
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Umpan Balik</label>
+                <textarea rows={3} value={reviewFeedback} onChange={(e) => setReviewFeedback(e.target.value)}
                   placeholder="Catatan hasil verifikasi kepada siswa..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-800"
-                />
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setSelectedTaskForReview(null)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
-                >
-                  Batal
-                </button>
-                <button
-                  type="button"
-                  onClick={handleReviewTask}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs"
-                >
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+                <button type="button" onClick={() => setSelectedTaskForReview(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
+                <button type="button" onClick={handleReviewTask}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm">
                   Simpan Verifikasi
                 </button>
               </div>
