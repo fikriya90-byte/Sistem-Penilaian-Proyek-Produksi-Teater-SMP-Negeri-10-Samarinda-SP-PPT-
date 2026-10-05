@@ -19,47 +19,51 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
   const role = user?.role || '';
 
   const buildMenu = () => {
-    // ADMIN
-    if (isAdminRole) return [
-      { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck },
-      { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-      { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-      { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-      { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-      { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-      { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
-      { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-      { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-      { id: 'backup', label: 'Backup & Restore', icon: Database },
-      { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
-    ];
+    // ============ ADMIN ============
+    if (isAdminRole) {
+      return [
+        { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck },
+        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
+        { id: 'master-timeline', label: 'Master Timeline', icon: Film },
+        { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
+        { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
+        { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'backup', label: 'Backup & Restore', icon: Database },
+        { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
+      ];
+    }
 
-    // GURU
-    if (isGuruPengampu) return [
-      { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-      { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-      { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-      { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
-      { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-      { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-      { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-      { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-      { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-      { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-      { id: 'statistik-absensi', label: 'Statistik Presensi', icon: BarChart3 },
-      { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-      { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-      { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-      { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-      { id: 'broadcast', label: 'Broadcast', icon: Radio },
-      { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
-      { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-      { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
-      { id: 'backup', label: 'Backup & Restore', icon: Database },
-      { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
-    ];
+    // ============ GURU ============
+    if (isGuruPengampu) {
+      return [
+        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
+        { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
+        { id: 'master-timeline', label: 'Master Timeline', icon: Film },
+        { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
+        { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
+        { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+        { id: 'statistik-absensi', label: 'Statistik Presensi', icon: BarChart3 },
+        { id: 'absensi', label: 'Presensi', icon: ClipboardList },
+        { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
+        { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
+        { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
+        { id: 'broadcast', label: 'Broadcast', icon: Radio },
+        { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+        { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
+        { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
+        { id: 'backup', label: 'Backup & Restore', icon: Database },
+        { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
+      ];
+    }
 
-    // KOORDINATOR
+    // ============ KOORDINATOR ============
     if (role.startsWith('Koordinator ')) {
       const base = [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -95,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       return [...base, ...extras, ...tail];
     }
 
-    // ANGGOTA
+    // ============ ANGGOTA ============
     if (role.startsWith('Anggota ')) {
       const specific: Record<string, any[]> = {
         'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
@@ -127,27 +131,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // PEMAIN
-    if (role === 'Pemain') return [
-      { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-      { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-      { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-      { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-      { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-      { id: 'studio', label: 'Naskah & Blocking', icon: Sparkles },
-      { id: 'jadwal', label: 'Jadwal Latihan', icon: Calendar },
-      { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-      { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
-      { id: 'nilai', label: 'Nilai Rekan', icon: Star },
-      { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-      { id: 'kas', label: 'Kas Saya', icon: Wallet },
-      { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-      { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-      { id: 'panduan', label: 'Panduan', icon: HelpCircle },
-      { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-    ];
+    // ============ PEMAIN ============
+    if (role === 'Pemain') {
+      return [
+        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'master-timeline', label: 'Master Timeline', icon: Film },
+        { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
+        { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'studio', label: 'Naskah & Blocking', icon: Sparkles },
+        { id: 'jadwal', label: 'Jadwal Latihan', icon: Calendar },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
+        { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
+        { id: 'nilai', label: 'Nilai Rekan', icon: Star },
+        { id: 'absensi', label: 'Presensi', icon: ClipboardList },
+        { id: 'kas', label: 'Kas Saya', icon: Wallet },
+        { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
+        { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
+        { id: 'panduan', label: 'Panduan', icon: HelpCircle },
+        { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
+      ];
+    }
 
-    // PENGURUS INTI
+    // ============ PENGURUS INTI ============
     if (['Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -173,7 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // DEFAULT
+    // ============ DEFAULT ============
     return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
