@@ -40,7 +40,6 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     const snap = await getDocs(q);
     const rawList = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
 
-    // FIX: Auto-override divisionName berdasarkan role (untuk data lama)
     const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
       'Pimpinan Produksi': { id: 'div-inti', name: 'Pengurus Inti' },
       'Sekretaris': { id: 'div-inti', name: 'Pengurus Inti' },
@@ -64,58 +63,9 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
 
     const usersList = rawList.map(u => {
       const mapped = ROLE_DIV_MAP[u.role];
-      if (mapped) {
-        return { ...u, divisionId: mapped.id, divisionName: mapped.name };
-      }
+      if (mapped) return { ...u, divisionId: mapped.id, divisionName: mapped.name };
       return u;
     });
-
-    try {
-      const classSnap = await getDoc(doc(db, 'classes', classId));
-      if (classSnap.exists() && Array.isArray(classSnap.data()?.students)) {
-        const ROLE_MAP: Record<string, string> = {
-          pimpinan_produksi: 'Pimpinan Produksi',
-          sutradara: 'Sutradara',
-          asisten_sutradara: 'Asisten Sutradara',
-          sekretaris: 'Sekretaris',
-          bendahara: 'Bendahara',
-          koor_perlengkapan: 'Koordinator Perlengkapan',
-          koor_panggung: 'Koordinator Tata Panggung',
-          koor_rias: 'Koordinator Tata Rias',
-          koor_busana: 'Koordinator Tata Busana',
-          koor_musik: 'Koordinator Tata Musik',
-          koor_publikasi: 'Koordinator Publikasi',
-          anggota_perlengkapan: 'Anggota Perlengkapan',
-          anggota_panggung: 'Anggota Tata Panggung',
-          anggota_rias: 'Anggota Tata Rias',
-          anggota_busana: 'Anggota Tata Busana',
-          anggota_musik: 'Anggota Tata Musik',
-          anggota_publikasi: 'Anggota Publikasi',
-          pemain: 'Pemain',
-        };
-
-        const existingNames = new Set(usersList.map(u => (u.displayName || '').toLowerCase()));
-        for (const st of classSnap.data().students) {
-          const sName = st.name || st.displayName;
-          if (sName && !existingNames.has(sName.toLowerCase())) {
-            const role = ROLE_MAP[st.role] || st.role || 'Pemain';
-            usersList.push({
-              uid: st.id || st.uid || `emb_${st.email || Math.random()}`,
-              displayName: sName,
-              email: st.email || '',
-              phone: st.phone || '',
-              role: role as any,
-              classId,
-              className: classSnap.data().name || classId,
-              photoURL: st.photoURL || '',
-            });
-            existingNames.add(sName.toLowerCase());
-          }
-        }
-      }
-    } catch (e) {
-      // non-blocking
-    }
 
     return usersList;
   } catch (error) {
@@ -266,7 +216,7 @@ export async function deleteTask(taskId: string): Promise<void> {
 }
 
 // ==========================================
-// ASSESSMENTS
+// ASSESSMENTS (+ HISTORY)
 // ==========================================
 
 export function subscribeAssessments(
@@ -296,6 +246,19 @@ export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): 
     const targetRef = doc(db, path, customId);
     const existing = await getDoc(targetRef);
 
+    // === SIMPAN VERSI LAMA KE HISTORY ===
+    if (existing.exists()) {
+      const oldData = existing.data();
+      const histRef = doc(collection(db, 'assessmentHistory'));
+      await setDoc(histRef, {
+        ...oldData,
+        id: histRef.id,
+        originalId: customId,
+        supersededAt: new Date().toISOString(),
+        supersededBy: assessment.assessorId,
+      });
+    }
+
     const version = existing.exists() ? ((existing.data()?.version || 1) + 1) : 1;
 
     const fullRecord: AssessmentRecord = {
@@ -311,6 +274,18 @@ export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): 
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
+}
+
+export function subscribeAssessmentHistory(
+  classId: string,
+  onUpdate: (records: any[]) => void
+) {
+  const path = 'assessmentHistory';
+  const q = query(collection(db, path), where('classId', '==', classId));
+  return onSnapshot(q, snap => {
+    const records = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    onUpdate(records);
+  });
 }
 
 // ==========================================
@@ -358,9 +333,7 @@ export async function createAttendanceSession(
 export async function closeAttendanceSession(sessionId: string): Promise<void> {
   const path = `attendanceSessions/${sessionId}`;
   try {
-    await updateDoc(doc(db, 'attendanceSessions', sessionId), {
-      isOpen: false,
-    });
+    await updateDoc(doc(db, 'attendanceSessions', sessionId), { isOpen: false });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
   }
@@ -372,6 +345,17 @@ export function subscribeAttendanceRecords(
 ) {
   const path = 'attendanceRecords';
   const q = query(collection(db, path), where('sessionId', '==', sessionId));
+  return onSnapshot(q, snap => {
+    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord)));
+  });
+}
+
+export function subscribeAllAttendanceRecords(
+  classId: string,
+  onUpdate: (records: AttendanceRecord[]) => void
+) {
+  const path = 'attendanceRecords';
+  const q = query(collection(db, path), where('classId', '==', classId));
   return onSnapshot(q, snap => {
     onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord)));
   });
@@ -407,11 +391,7 @@ export async function createSchedule(event: Omit<ScheduleEvent, 'id'>): Promise<
   const path = 'schedules';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, {
-      ...event,
-      id: newRef.id,
-      createdAt: new Date().toISOString(),
-    });
+    await setDoc(newRef, { ...event, id: newRef.id, createdAt: new Date().toISOString() });
     return newRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
@@ -446,11 +426,7 @@ export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>
   const path = 'documents';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, {
-      ...docData,
-      id: newRef.id,
-      createdAt: new Date().toISOString(),
-    });
+    await setDoc(newRef, { ...docData, id: newRef.id, createdAt: new Date().toISOString() });
     return newRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
@@ -506,18 +482,14 @@ export async function sendBroadcast(msg: Omit<BroadcastMessage, 'id'>): Promise<
   const path = 'broadcasts';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, {
-      ...msg,
-      id: newRef.id,
-      createdAt: new Date().toISOString(),
-    });
+    await setDoc(newRef, { ...msg, id: newRef.id, createdAt: new Date().toISOString() });
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, path);
   }
 }
 
 // ==========================================
-// COMPLAINTS (ADUAN)
+// COMPLAINTS
 // ==========================================
 
 export function subscribeComplaints(
@@ -567,7 +539,7 @@ export async function replyComplaint(
 }
 
 // ==========================================
-// PROMPT BOOK (3x3 STAGE BLOCKING)
+// PROMPT BOOK
 // ==========================================
 
 export function subscribePromptBooks(
