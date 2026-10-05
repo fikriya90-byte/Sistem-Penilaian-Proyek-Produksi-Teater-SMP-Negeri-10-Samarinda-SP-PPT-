@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Award, Calendar, CheckSquare, ClipboardList, FileText,
   HelpCircle, Home, MessageSquare, Radio, Settings,
-  Sparkles, Users, X, ShieldCheck, GraduationCap,
+  Sparkles, Users, X, ShieldCheck, GraduationCap, BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -29,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
   // Menu Guru Pembina
   const teacherNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
+    { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen, badge: 'Manajemen' }
     { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: 'Multi-Penilai' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
