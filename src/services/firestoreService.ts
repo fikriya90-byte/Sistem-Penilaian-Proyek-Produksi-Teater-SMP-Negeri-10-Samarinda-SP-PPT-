@@ -38,7 +38,37 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
   try {
     const q = query(collection(db, path), where('classId', '==', classId));
     const snap = await getDocs(q);
-    const usersList: UserProfile[] = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
+    const rawList = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
+
+    // FIX: Auto-override divisionName berdasarkan role (untuk data lama)
+    const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
+      'Pimpinan Produksi': { id: 'div-inti', name: 'Pengurus Inti' },
+      'Sekretaris': { id: 'div-inti', name: 'Pengurus Inti' },
+      'Bendahara': { id: 'div-inti', name: 'Pengurus Inti' },
+      'Sutradara': { id: 'div-pemain', name: 'Pemeran' },
+      'Asisten Sutradara': { id: 'div-pemain', name: 'Pemeran' },
+      'Pemain': { id: 'div-pemain', name: 'Pemeran' },
+      'Koordinator Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
+      'Anggota Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
+      'Koordinator Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
+      'Anggota Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
+      'Koordinator Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
+      'Anggota Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
+      'Koordinator Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
+      'Anggota Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
+      'Koordinator Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
+      'Anggota Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
+      'Koordinator Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
+      'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
+    };
+
+    const usersList = rawList.map(u => {
+      const mapped = ROLE_DIV_MAP[u.role];
+      if (mapped) {
+        return { ...u, divisionId: mapped.id, divisionName: mapped.name };
+      }
+      return u;
+    });
 
     try {
       const classSnap = await getDoc(doc(db, 'classes', classId));
