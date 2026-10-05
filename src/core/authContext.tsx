@@ -324,77 +324,165 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
-  // ==========================================
-  // MATRIKS PENILAIAN
-  // GURU PENGAMPU & ADMIN → BISA NILAI SEMUA
-  // ==========================================
+  // =========================================================
+  // MATRIKS PENILAIAN — SESUAI ROLE FINAL
+  // =========================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
+    // Tidak bisa menilai diri sendiri
     if (target.uid === user.uid) return false;
 
     const myRole = user.role;
     const targetRole = target.role;
 
-    // GURU PENGAMPU & ADMIN → SEMUA SISWA
-    if (myRole === 'Guru Pengampu' || myRole === 'Guru Pembina' || myRole === 'Admin' || myRole === 'Super Admin') {
-      return true;
+    // ============================================
+    // GURU PENGAMPU & ADMIN
+    // Menilai: Sutradara + Pimpinan Produksi
+    // ============================================
+    if (
+      myRole === 'Guru Pengampu' ||
+      myRole === 'Guru Pembina' ||
+      myRole === 'Admin' ||
+      myRole === 'Super Admin'
+    ) {
+      return targetRole === 'Sutradara' || targetRole === 'Pimpinan Produksi';
     }
 
-    // PIMPINAN PRODUKSI → Sekretaris, Bendahara, semua Koordinator
+    // ============================================
+    // PIMPINAN PRODUKSI
+    // Menilai: Sekretaris, Bendahara, Koor Perlengkapan, Koor Publikasi
+    // ============================================
     if (myRole === 'Pimpinan Produksi') {
       return (
         targetRole === 'Sekretaris' ||
         targetRole === 'Bendahara' ||
-        targetRole.startsWith('Koordinator ')
+        targetRole === 'Koordinator Perlengkapan' ||
+        targetRole === 'Koordinator Publikasi'
       );
     }
 
-    if (myRole === 'Sekretaris') return targetRole === 'Pimpinan Produksi';
-    if (myRole === 'Bendahara') return targetRole === 'Pimpinan Produksi';
+    // ============================================
+    // SEKRETARIS
+    // Menilai: Pimpinan Produksi
+    // ============================================
+    if (myRole === 'Sekretaris') {
+      return targetRole === 'Pimpinan Produksi';
+    }
 
-    // SUTRADARA → Pimprod + Asisten + Koor Artistik + Pemain
+    // ============================================
+    // BENDAHARA
+    // Menilai: Pimpinan Produksi
+    // ============================================
+    if (myRole === 'Bendahara') {
+      return targetRole === 'Pimpinan Produksi';
+    }
+
+    // ============================================
+    // SUTRADARA
+    // Menilai: Pimprod, Asisten, 4 Koor Artistik, Pemain
+    // ============================================
     if (myRole === 'Sutradara') {
       return (
         targetRole === 'Pimpinan Produksi' ||
         targetRole === 'Asisten Sutradara' ||
+        targetRole === 'Koordinator Tata Panggung' ||
         targetRole === 'Koordinator Tata Busana' ||
         targetRole === 'Koordinator Tata Rias' ||
-        targetRole === 'Koordinator Tata Panggung' ||
         targetRole === 'Koordinator Tata Musik' ||
         targetRole === 'Pemain'
       );
     }
 
+    // ============================================
+    // ASISTEN SUTRADARA
+    // Menilai: Sutradara, Pemain, 4 Koor Artistik
+    // ============================================
     if (myRole === 'Asisten Sutradara') {
       return (
         targetRole === 'Sutradara' ||
+        targetRole === 'Pemain' ||
+        targetRole === 'Koordinator Tata Panggung' ||
         targetRole === 'Koordinator Tata Busana' ||
         targetRole === 'Koordinator Tata Rias' ||
-        targetRole === 'Koordinator Tata Panggung' ||
-        targetRole === 'Koordinator Tata Musik' ||
-        targetRole === 'Pemain'
+        targetRole === 'Koordinator Tata Musik'
       );
     }
 
+    // ============================================
+    // KOORDINATOR PERLENGKAPAN
+    // Menilai: Anggota Perlengkapan + Pimpinan Produksi
+    // ============================================
     if (myRole === 'Koordinator Perlengkapan') {
       return targetRole === 'Anggota Perlengkapan' || targetRole === 'Pimpinan Produksi';
     }
+
+    // ============================================
+    // KOORDINATOR PUBLIKASI
+    // Menilai: Anggota Publikasi + Pimpinan Produksi
+    // ============================================
     if (myRole === 'Koordinator Publikasi') {
       return targetRole === 'Anggota Publikasi' || targetRole === 'Pimpinan Produksi';
     }
-    if (myRole === 'Koordinator Tata Busana') {
-      return targetRole === 'Anggota Tata Busana' || targetRole === 'Sutradara';
-    }
-    if (myRole === 'Koordinator Tata Rias') {
-      return targetRole === 'Anggota Tata Rias' || targetRole === 'Sutradara';
-    }
+
+    // ============================================
+    // KOORDINATOR TATA PANGGUNG
+    // Menilai: Anggota Panggung + Sutradara
+    // ============================================
     if (myRole === 'Koordinator Tata Panggung') {
       return targetRole === 'Anggota Tata Panggung' || targetRole === 'Sutradara';
     }
+
+    // ============================================
+    // KOORDINATOR TATA BUSANA
+    // Menilai: Anggota Busana + Sutradara
+    // ============================================
+    if (myRole === 'Koordinator Tata Busana') {
+      return targetRole === 'Anggota Tata Busana' || targetRole === 'Sutradara';
+    }
+
+    // ============================================
+    // KOORDINATOR TATA RIAS
+    // Menilai: Anggota Rias + Sutradara
+    // ============================================
+    if (myRole === 'Koordinator Tata Rias') {
+      return targetRole === 'Anggota Tata Rias' || targetRole === 'Sutradara';
+    }
+
+    // ============================================
+    // KOORDINATOR TATA MUSIK
+    // Menilai: Anggota Musik + Sutradara
+    // ============================================
     if (myRole === 'Koordinator Tata Musik') {
       return targetRole === 'Anggota Tata Musik' || targetRole === 'Sutradara';
     }
 
+    // ============================================
+    // ANGGOTA (semua divisi)
+    // Menilai: Koordinator divisinya sendiri + Rekan satu divisi
+    // ============================================
+    if (myRole.startsWith('Anggota ')) {
+      const myDivision = user.divisionName || '';
+      const targetDivision = target.divisionName || '';
+
+      // Harus satu divisi
+      if (!myDivision || targetDivision !== myDivision) return false;
+
+      // Koordinator divisinya atau sesama anggota
+      const isMyCoordinator = targetRole.startsWith('Koordinator ');
+      const isMyFellowMember = targetRole.startsWith('Anggota ');
+
+      return isMyCoordinator || isMyFellowMember;
+    }
+
+    // ============================================
+    // PEMAIN
+    // Menilai: Sutradara + Asisten Sutradara
+    // ============================================
+    if (myRole === 'Pemain') {
+      return targetRole === 'Sutradara' || targetRole === 'Asisten Sutradara';
+    }
+
+    // Default: tidak bisa menilai
     return false;
   };
 
