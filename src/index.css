@@ -1,11 +1,7 @@
 @import "tailwindcss";
 
-/* =========================================================
-   TAILWIND V4 DARK MODE VARIANT
-   ========================================================= */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ROOT */
 :root { color-scheme: light; }
 html.dark { color-scheme: dark; }
 
@@ -15,7 +11,7 @@ html, body, #root {
 }
 
 /* =========================================================
-   BACKGROUND MOTIF TEATER — OVERLAY LEBIH TIPIS
+   BACKGROUND MOTIF TEATER
    ========================================================= */
 body {
   position: relative;
@@ -27,16 +23,15 @@ body {
   background-attachment: fixed;
 }
 
-/* Overlay LIGHT — dari 85% jadi 65% */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   background: linear-gradient(
     180deg,
-    rgba(248, 250, 252, 0.65) 0%,
-    rgba(241, 245, 249, 0.70) 50%,
-    rgba(248, 250, 252, 0.65) 100%
+    rgba(248, 250, 252, 0.72) 0%,
+    rgba(241, 245, 249, 0.78) 50%,
+    rgba(248, 250, 252, 0.72) 100%
   );
   pointer-events: none;
   z-index: 0;
@@ -46,13 +41,12 @@ html.dark body {
   background-color: #0a0f1e;
 }
 
-/* Overlay DARK — dari 88% jadi 70% */
 html.dark body::before {
   background: linear-gradient(
     180deg,
-    rgba(10, 15, 30, 0.68) 0%,
-    rgba(15, 23, 42, 0.72) 50%,
-    rgba(10, 15, 30, 0.68) 100%
+    rgba(10, 15, 30, 0.72) 0%,
+    rgba(15, 23, 42, 0.78) 50%,
+    rgba(10, 15, 30, 0.72) 100%
   );
 }
 
@@ -62,86 +56,114 @@ html.dark body::before {
 }
 
 /* =========================================================
-   DARK MODE OVERRIDES
+   DARK MODE — BACKGROUND OVERRIDES
    ========================================================= */
 
-/* Root wrapper transparan */
-.dark .bg-transparent { background-color: transparent !important; }
-.dark .bg-slate-50,
-.dark .bg-slate-950,
-.dark .dark\:bg-slate-950 { background-color: transparent !important; }
+/* Wrapper transparan */
+html.dark .bg-transparent { background-color: transparent !important; }
+html.dark .bg-slate-50,
+html.dark .bg-slate-950,
+html.dark .dark\:bg-slate-950 { background-color: transparent !important; }
 
-/* bg-white → semi transparan gelap */
-.dark [class*="bg-white\/"] { background-color: rgba(15, 23, 42, 0.82) !important; }
-.dark .bg-white { background-color: rgba(15, 23, 42, 0.88) !important; }
+/* bg-white → slate gelap semi transparan */
+html.dark [class*="bg-white\/"] { background-color: rgba(15, 23, 42, 0.85) !important; }
+html.dark .bg-white { background-color: rgba(15, 23, 42, 0.92) !important; }
 
-/* bg-slate-50 → semi transparan gelap */
-.dark [class*="bg-slate-50\/"] { background-color: rgba(15, 23, 42, 0.65) !important; }
-.dark .bg-slate-50 { background-color: rgba(15, 23, 42, 0.82) !important; }
+/* bg-slate-50 → slate gelap */
+html.dark [class*="bg-slate-50\/"] { background-color: rgba(15, 23, 42, 0.7) !important; }
+html.dark .bg-slate-50 { background-color: rgba(15, 23, 42, 0.88) !important; }
 
-/* bg-slate-100 → semi transparan */
-.dark [class*="bg-slate-100\/"] { background-color: rgba(30, 41, 59, 0.65) !important; }
-.dark .bg-slate-100 { background-color: rgba(30, 41, 59, 0.82) !important; }
+/* bg-slate-100 → slate */
+html.dark [class*="bg-slate-100\/"] { background-color: rgba(30, 41, 59, 0.7) !important; }
+html.dark .bg-slate-100 { background-color: rgba(30, 41, 59, 0.88) !important; }
 
-/* bg-slate-200 */
-.dark [class*="bg-slate-200\/"] { background-color: rgba(51, 65, 85, 0.65) !important; }
-.dark .bg-slate-200 { background-color: rgba(51, 65, 85, 0.82) !important; }
+/* bg-slate-200 → slate */
+html.dark [class*="bg-slate-200\/"] { background-color: rgba(51, 65, 85, 0.7) !important; }
+html.dark .bg-slate-200 { background-color: rgba(51, 65, 85, 0.88) !important; }
 
 /* bg-slate-800 & 900 */
-.dark .bg-slate-800 { background-color: rgba(30, 41, 59, 0.95) !important; }
-.dark .bg-slate-900 { background-color: rgba(15, 23, 42, 0.95) !important; }
+html.dark .bg-slate-800 { background-color: rgba(30, 41, 59, 0.95) !important; }
+html.dark .bg-slate-900 { background-color: rgba(15, 23, 42, 0.95) !important; }
 
-/* Text DARK MODE — semua jadi terang */
-.dark .text-slate-900,
-.dark .dark\:text-slate-100 { color: #f8fafc !important; }
-.dark .text-slate-800,
-.dark .dark\:text-slate-200 { color: #e2e8f0 !important; }
-.dark .text-slate-700,
-.dark .dark\:text-slate-300 { color: #cbd5e1 !important; }
-.dark .text-slate-600,
-.dark .dark\:text-slate-400 { color: #94a3b8 !important; }
-.dark .text-slate-500 { color: #94a3b8 !important; }
-.dark .text-slate-400 { color: #64748b !important; }
-.dark .text-black { color: #f8fafc !important; }
+/* =========================================================
+   DARK MODE — TEXT CONTRAST (AGRESIF)
+   Semua text abu/gelap → terang
+   ========================================================= */
 
-/* Borders */
-.dark [class*="border-slate-1"],
-.dark [class*="border-slate-2"],
-.dark .border-slate-100 { border-color: #1e293b !important; }
-.dark .border-slate-200 { border-color: #334155 !important; }
-.dark [class*="border-slate-200\/"] { border-color: rgba(51, 65, 85, 0.7) !important; }
-.dark .border-slate-300 { border-color: #475569 !important; }
+html.dark .text-slate-950,
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-slate-700,
+html.dark .text-slate-600,
+html.dark .text-slate-500,
+html.dark .text-black,
+html.dark .text-gray-900,
+html.dark .text-gray-800,
+html.dark .text-gray-700,
+html.dark .text-gray-600 { color: #f8fafc !important; }
 
-/* Divide */
-.dark .divide-slate-100 > * + * { border-color: #1e293b !important; }
-.dark .divide-slate-200 > * + * { border-color: #334155 !important; }
+html.dark .text-slate-400,
+html.dark .text-gray-500,
+html.dark .text-gray-400 { color: #cbd5e1 !important; }
 
-/* Inputs */
-.dark input,
-.dark select,
-.dark textarea {
+html.dark .text-slate-300 { color: #e2e8f0 !important; }
+
+/* Text di dalam badge/tag berwarna — JANGAN override */
+html.dark .bg-amber-100 .text-amber-800,
+html.dark .bg-amber-100 .text-amber-900,
+html.dark .bg-amber-500 .text-amber-900 { color: #78350f !important; }
+html.dark .bg-blue-100 .text-blue-800,
+html.dark .bg-blue-100 .text-blue-900 { color: #1e3a8a !important; }
+html.dark .bg-rose-100 .text-rose-800,
+html.dark .bg-rose-100 .text-rose-900 { color: #7f1d1d !important; }
+html.dark .bg-emerald-100 .text-emerald-800,
+html.dark .bg-emerald-100 .text-emerald-900 { color: #064e3b !important; }
+html.dark .bg-purple-100 .text-purple-800,
+html.dark .bg-purple-100 .text-purple-900 { color: #4c1d95 !important; }
+html.dark .bg-pink-100 .text-pink-800 { color: #831843 !important; }
+html.dark .bg-cyan-100 .text-cyan-800 { color: #164e63 !important; }
+html.dark .bg-indigo-100 .text-indigo-800 { color: #312e81 !important; }
+
+/* Text khusus di tombol berwarna */
+html.dark .bg-amber-500.text-slate-950,
+html.dark .bg-amber-500 .text-slate-950 { color: #0f172a !important; }
+html.dark .bg-rose-600.text-white,
+html.dark .bg-rose-600 .text-white { color: #ffffff !important; }
+
+/* =========================================================
+   DARK MODE — BORDERS, DIVIDE, INPUT, HOVER
+   ========================================================= */
+html.dark [class*="border-slate-1"],
+html.dark [class*="border-slate-2"],
+html.dark .border-slate-100 { border-color: #1e293b !important; }
+html.dark .border-slate-200 { border-color: #334155 !important; }
+html.dark [class*="border-slate-200\/"] { border-color: rgba(51, 65, 85, 0.7) !important; }
+html.dark .border-slate-300 { border-color: #475569 !important; }
+
+html.dark .divide-slate-100 > * + * { border-color: #1e293b !important; }
+html.dark .divide-slate-200 > * + * { border-color: #334155 !important; }
+
+html.dark input,
+html.dark select,
+html.dark textarea {
   background-color: rgba(30, 41, 59, 0.9) !important;
   color: #f1f5f9 !important;
   border-color: #334155 !important;
 }
-.dark input::placeholder,
-.dark textarea::placeholder { color: #64748b !important; }
-.dark input:focus,
-.dark select:focus,
-.dark textarea:focus { border-color: #f59e0b !important; }
+html.dark input::placeholder,
+html.dark textarea::placeholder { color: #64748b !important; }
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus { border-color: #f59e0b !important; }
 
-/* Hover */
-.dark .hover\:bg-slate-50:hover,
-.dark .hover\:bg-slate-100:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
-.dark .hover\:bg-white:hover { background-color: rgba(51, 65, 85, 0.9) !important; }
-.dark .hover\:text-slate-900:hover,
-.dark .hover\:text-slate-950:hover { color: #f8fafc !important; }
+html.dark .hover\:bg-slate-50:hover,
+html.dark .hover\:bg-slate-100:hover { background-color: rgba(30, 41, 59, 0.8) !important; }
+html.dark .hover\:bg-white:hover { background-color: rgba(51, 65, 85, 0.9) !important; }
+html.dark .hover\:text-slate-900:hover,
+html.dark .hover\:text-slate-950:hover { color: #f8fafc !important; }
 
-/* Modal backdrop */
-.dark .bg-slate-950\/70 { background-color: rgba(0, 0, 0, 0.88) !important; }
-
-/* Ring */
-.dark .ring-amber-400\/20 { --tw-ring-color: rgba(245, 158, 11, 0.35) !important; }
+html.dark .bg-slate-950\/70 { background-color: rgba(0, 0, 0, 0.88) !important; }
+html.dark .ring-amber-400\/20 { --tw-ring-color: rgba(245, 158, 11, 0.35) !important; }
 
 /* =========================================================
    PRINT
