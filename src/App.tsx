@@ -27,7 +27,6 @@ import { SettingsModule } from './components/modules/SettingsModule';
 import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
 import { StageManagerModule } from './components/modules/StageManagerModule';
-import { DeadlineModule } from './components/modules/DeadlineModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
 import { KasModule } from './components/modules/KasModule';
@@ -116,7 +115,6 @@ const MainLayout: React.FC = () => {
       case 'pengaturan': return <SettingsModule />;
       case 'kelola-kelas': return <ManageClassModule />;
       case 'kelola-tahapan': return <StageManagerModule />;
-      case 'deadline': return <DeadlineModule />;
       case 'informasi': return <InformationModule />;
       case 'notifikasi': return <NotificationPage />;
       case 'aktivitas': return <ActivityLogModule />;
@@ -183,9 +181,9 @@ const MainLayout: React.FC = () => {
           className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
           <Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span>
         </button>
-        <button onClick={() => setCurrentModule('deadline')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'deadline' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-          <Star className="w-5 h-5" /><span className="text-[10px] mt-0.5">Deadline</span>
+        <button onClick={() => setCurrentModule('tugas')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+          <Star className="w-5 h-5" /><span className="text-[10px] mt-0.5">Tugas</span>
         </button>
       </div>
     </div>
