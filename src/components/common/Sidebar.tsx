@@ -41,6 +41,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
 
   const studentNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Home, badge: '' },
+    { id: 'kelola-tahapan', label: 'Kelola Tahapan & Deadline', icon: Calendar, badge: 'Tahapan' },
     { id: 'nilai', label: 'Nilai & Penilaian', icon: Award, badge: '' },
     { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar, badge: '' },
     { id: 'absensi', label: 'Presensi / Absensi', icon: ClipboardList, badge: '' },
