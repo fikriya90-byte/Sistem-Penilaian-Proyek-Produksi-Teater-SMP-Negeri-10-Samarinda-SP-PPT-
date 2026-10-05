@@ -1,7 +1,15 @@
 import React, { useState } from 'react';
 import {
-  GraduationCap, Plus, LogOut, Users, BookOpen, ChevronRight,
-  X, Sparkles, Hash, ShieldCheck,
+  GraduationCap,
+  Plus,
+  LogOut,
+  Users,
+  BookOpen,
+  ChevronRight,
+  X,
+  Sparkles,
+  Hash,
+  ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { APP_CONFIG } from '../../core/constants';
@@ -23,6 +31,16 @@ export const TeacherClassPicker: React.FC = () => {
   const handleEnterClass = (c: ClassRoom) => {
     setActiveClass(c);
     showToast(`Masuk ke kelas ${c.name}`, 'success');
+  };
+
+  const generateCode = () => {
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    let a = '';
+    for (let i = 0; i < 4; i++) a += chars.charAt(Math.floor(Math.random() * chars.length));
+    let b = '';
+    for (let i = 0; i < 4; i++) b += chars.charAt(Math.floor(Math.random() * chars.length));
+    const prefix = newName.trim().slice(0, 3).toUpperCase() || 'KLS';
+    return `${prefix}-${a}${b}`.slice(0, 12);
   };
 
   const handleCreateClass = async (e: React.FormEvent) => {
@@ -73,16 +91,6 @@ export const TeacherClassPicker: React.FC = () => {
     }
   };
 
-  const generateCode = () => {
-    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    let a = '';
-    for (let i = 0; i < 4; i++) a += chars.charAt(Math.floor(Math.random() * chars.length));
-    let b = '';
-    for (let i = 0; i < 4; i++) b += chars.charAt(Math.floor(Math.random() * chars.length));
-    const prefix = newName.trim().slice(0, 3).toUpperCase() || 'KLS';
-    return `${prefix}-${a}${b}`.slice(0, 12);
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 to-slate-200 flex flex-col">
       <header className="bg-white border-b border-slate-200 shadow-sm">
@@ -91,7 +99,9 @@ export const TeacherClassPicker: React.FC = () => {
             <img src={APP_CONFIG.logoSchool} alt="SMPN 10" className="w-11 h-11 object-contain" />
             <img src={APP_CONFIG.logoMapel} alt="Seni Budaya" className="w-11 h-11 object-contain hidden sm:block" />
             <div>
-              <h1 className="text-base font-black text-slate-900 tracking-tight">SP-PPT SAMARINDA</h1>
+              <h1 className="text-base font-black text-slate-900 tracking-tight">
+                SP-PPT SAMARINDA
+              </h1>
               <p className="text-[11px] text-slate-500">Sistem Penilaian Proyek Produksi Teater</p>
             </div>
           </div>
@@ -104,7 +114,10 @@ export const TeacherClassPicker: React.FC = () => {
               </span>
             </div>
             <button
-              onClick={async () => { await logout(); showToast('Logout berhasil.', 'info'); }}
+              onClick={async () => {
+                await logout();
+                showToast('Logout berhasil.', 'info');
+              }}
               className="p-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition"
               title="Logout"
             >
@@ -171,7 +184,9 @@ export const TeacherClassPicker: React.FC = () => {
                 </div>
 
                 <h3 className="text-lg font-black text-slate-900 tracking-tight">{c.name}</h3>
-                <p className="text-[11px] text-slate-500 font-medium mt-0.5">T.A. {c.academicYear}</p>
+                <p className="text-[11px] text-slate-500 font-medium mt-0.5">
+                  T.A. {c.academicYear}
+                </p>
 
                 {c.kerabatKerja && (
                   <div className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-600">
@@ -211,7 +226,10 @@ export const TeacherClassPicker: React.FC = () => {
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <Plus className="w-5 h-5 text-amber-500" /> Tambah Kelas Baru
               </h3>
-              <button onClick={() => setIsAddOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
+              <button
+                onClick={() => setIsAddOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
