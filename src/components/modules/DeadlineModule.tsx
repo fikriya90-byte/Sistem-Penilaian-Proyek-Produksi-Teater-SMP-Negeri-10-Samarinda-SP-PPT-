@@ -30,7 +30,7 @@ function getPriorityConfig(priority?: string) {
   return PRIORITY_CONFIG[priority || 'MEDIUM'] || PRIORITY_CONFIG.MEDIUM;
 }
 
-const CAN_CREATE_DEADLINE_ROLES = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'];
+const CAN_CREATE_DEADLINE_ROLES = ['Guru Pengampu', 'Admin', 'Super Admin'];
 
 const ROLE_LIST: UserRole[] = [
   'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemain',
@@ -172,14 +172,14 @@ export const DeadlineModule: React.FC = () => {
   const recipientCount = (() => {
     if (targetAll) {
       return users.filter(u =>
-        u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
+        u.role !== 'Guru Pengampu' && 
         u.role !== 'Admin' && u.role !== 'Super Admin'
       ).length;
     }
     const matched = new Set<string>();
     selectedTargets.forEach(t => {
       users.forEach(u => {
-        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+        if (u.role === 'Guru Pengampu' return;
         if (u.role === 'Admin' || u.role === 'Super Admin') return;
         if (t.type === 'PERAN' && u.role === t.name) matched.add(u.uid);
         if (t.type === 'DIVISI' && u.divisionName === t.name) matched.add(u.uid);
@@ -201,7 +201,7 @@ export const DeadlineModule: React.FC = () => {
       // Kumpulkan semua user target (unique)
       const recipientIds = new Set<string>();
       users.forEach(u => {
-        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+        if (u.role === 'Guru Pengampu' return;
         if (u.role === 'Admin' || u.role === 'Super Admin') return;
         if (targetAll) { recipientIds.add(u.uid); return; }
         selectedTargets.forEach(t => {
@@ -312,7 +312,7 @@ export const DeadlineModule: React.FC = () => {
       // Notif ke guru
       try {
         const batch = writeBatch(db);
-        users.filter(u => u.role === 'Guru Pengampu' || u.role === 'Guru Pembina').forEach(g => {
+        users.filter(u => u.role === 'Guru Pengampu').forEach(g => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
             id: notifRef.id,
