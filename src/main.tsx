@@ -3,7 +3,36 @@ import App from './App.tsx';
 import './index.css';
 
 // =========================================================
-// GLOBAL ERROR HANDLER — tampilkan error ke DOM jika React crash
+// 1. CLEANUP: Hapus Service Worker lama + cache sebelum render
+// Ini menyembuhkan user yang "terjebak" di cache versi lama.
+// =========================================================
+async function cleanupOldServiceWorkers() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      if (registrations.length > 0) {
+        console.log(`Membersihkan ${registrations.length} service worker lama...`);
+        for (const reg of registrations) {
+          await reg.unregister();
+        }
+      }
+    }
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      if (cacheNames.length > 0) {
+        console.log(`Menghapus ${cacheNames.length} cache lama...`);
+        for (const name of cacheNames) {
+          await caches.delete(name);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Cleanup SW error (non-fatal):', err);
+  }
+}
+
+// =========================================================
+// 2. GLOBAL ERROR HANDLER — tampilkan error ke DOM jika React crash
 // agar tidak pernah muncul blank page tanpa pesan
 // =========================================================
 function renderFatalError(message: string, detail?: string) {
@@ -28,21 +57,18 @@ function renderFatalError(message: string, detail?: string) {
         </details>` : ''}
         <div style="padding:12px;border-radius:12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);margin-bottom:12px;">
           <p style="font-size:11px;color:#fcd34d;margin:0;line-height:1.5;">
-            <strong>Solusi:</strong> Tekan tombol <strong>Hard Reset</strong> di bawah untuk membersihkan cache.
-            Biasanya ini menyelesaikan masalah setelah update.
+            <strong>Solusi:</strong> Tekan <strong>Hard Reset</strong> di bawah untuk membersihkan cache.
+            Ini menyelesaikan masalah setelah update.
           </p>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           <button id="btn-reload" style="padding:12px;border-radius:12px;background:#334155;color:#fff;border:none;font-weight:700;font-size:12px;cursor:pointer;">
-            🔄 Muat Ulang
+            Muat Ulang
           </button>
           <button id="btn-reset" style="padding:12px;border-radius:12px;background:#e11d48;color:#fff;border:none;font-weight:700;font-size:12px;cursor:pointer;">
-            ⚡ Hard Reset
+            Hard Reset
           </button>
         </div>
-        <p style="font-size:10px;color:#64748b;text-align:center;margin:12px 0 0;">
-          Screenshot halaman ini & kirim ke Guru/Admin jika masih bermasalah.
-        </p>
       </div>
     </div>
   `;
@@ -50,15 +76,17 @@ function renderFatalError(message: string, detail?: string) {
   document.getElementById('btn-reload')?.addEventListener('click', () => {
     window.location.reload();
   });
-  document.getElementById('btn-reset')?.addEventListener('click', () => {
+  document.getElementById('btn-reset')?.addEventListener('click', async () => {
     try {
       localStorage.clear();
       sessionStorage.clear();
-      if ('caches' in window) {
-        caches.keys().then(names => names.forEach(n => caches.delete(n)));
-      }
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+        const regs = await navigator.serviceWorker.getRegistrations();
+        for (const r of regs) await r.unregister();
+      }
+      if ('caches' in window) {
+        const names = await caches.keys();
+        for (const n of names) await caches.delete(n);
       }
     } catch (e) { /* ignore */ }
     setTimeout(() => {
@@ -67,9 +95,8 @@ function renderFatalError(message: string, detail?: string) {
   });
 }
 
-// Tangkap semua error sebelum React render
 window.addEventListener('error', (event) => {
-  console.error('🔴 GLOBAL ERROR:', event.error || event.message);
+  console.error('GLOBAL ERROR:', event.error || event.message);
   renderFatalError(
     event.message || 'Unknown error',
     (event.error && event.error.stack) || ''
@@ -77,13 +104,13 @@ window.addEventListener('error', (event) => {
 });
 
 window.addEventListener('unhandledrejection', (event) => {
-  console.error('🔴 UNHANDLED PROMISE:', event.reason);
+  console.error('UNHANDLED PROMISE:', event.reason);
   const msg = event.reason?.message || String(event.reason);
   renderFatalError('Promise Rejection: ' + msg, event.reason?.stack || '');
 });
 
 // =========================================================
-// APPLY THEME SEBELUM RENDER
+// 3. APPLY THEME SEBELUM RENDER
 // =========================================================
 (function applyThemeEarly() {
   const STORAGE_KEY = 'spppt-theme-v2';
@@ -110,9 +137,13 @@ window.addEventListener('unhandledrejection', (event) => {
 })();
 
 // =========================================================
-// RENDER APP — dengan try/catch untuk load error
+// 4. BOOTSTRAP — cleanup SW dulu, baru render App
 // =========================================================
 (async () => {
+  // Cleanup dulu
+  await cleanupOldServiceWorkers();
+
+  // Render App
   try {
     const rootEl = document.getElementById('root');
     if (!rootEl) {
@@ -120,8 +151,9 @@ window.addEventListener('unhandledrejection', (event) => {
       return;
     }
     createRoot(rootEl).render(<App />);
+    console.log('SP-PPT berhasil dimuat.');
   } catch (err: any) {
-    console.error('🔴 RENDER ERROR:', err);
+    console.error('RENDER ERROR:', err);
     renderFatalError(
       err?.message || 'Gagal render aplikasi',
       err?.stack || ''
@@ -130,16 +162,9 @@ window.addEventListener('unhandledrejection', (event) => {
 })();
 
 // =========================================================
-// SERVICE WORKER
+// 5. SERVICE WORKER — DIMATIKAN TOTAL
 // =========================================================
-if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('./sw.js', { scope: './' })
-      .then((reg) => {
-        console.log('SW registered:', reg.scope);
-        setInterval(() => reg.update().catch(() => {}), 3600000);
-      })
-      .catch((err) => console.warn('SW registration failed:', err));
-  });
-}
+// SP-PPT butuh internet untuk Firebase, jadi offline mode tidak berguna.
+// Dengan SW dimatikan, TIDAK AKAN PERNAH terjadi blank page karena cache lama.
+// Tidak ada registrasi SW di sini.
+console.log('Service Worker dimatikan (by design). App selalu load fresh dari server.');
