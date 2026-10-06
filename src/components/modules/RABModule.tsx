@@ -92,8 +92,9 @@ export const RABModule: React.FC = () => {
 
   const [submitting, setSubmitting] = useState(false);
 
-  const canManageItems = isBendahara || isGuruPengampu || isAdminRole || isPimprod;
-  const canSignDocument = isBendahara || isGuruPengampu || isAdminRole || isPimprod;
+// HANYA BENDAHARA yang bisa edit. Guru & lainnya hanya melihat.
+  const canManageItems = isBendahara;
+  const canSignDocument = isBendahara;
 
   // Subscribe
   useEffect(() => {
