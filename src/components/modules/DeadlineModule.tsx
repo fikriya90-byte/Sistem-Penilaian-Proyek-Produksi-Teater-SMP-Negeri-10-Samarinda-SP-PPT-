@@ -2,14 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
   AlertTriangle, Check, BookOpen, ChevronRight, Sparkles, Target,
-  ListChecks, Square, CheckSquare, User, Briefcase, Copy,
+  ListChecks, Square, CheckSquare, User, Briefcase, Copy, FilePlus,
+  Wand2,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { STAGES } from '../../core/constants';
 import {
   DeadlineItem, DeadlineSubmission, DivisionType, UserRole,
-  ProductionStage, UserProfile, ClassRoom,
+  ProductionStage, UserProfile, ClassRoom, TaskPriority,
 } from '../../core/types';
 import {
   collection, query, where, onSnapshot, doc, setDoc, updateDoc, getDocs,
@@ -20,7 +21,7 @@ import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreServi
 import { DEADLINE_TEMPLATES, STAGE_INFO } from '../../core/deadlineTemplates';
 
 // =====================================================
-// PRIORITY CONFIG
+// CONFIG
 // =====================================================
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   LOW: { label: 'Rendah', color: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' },
@@ -130,14 +131,8 @@ const DeadlineCopyModal: React.FC<{
 
   const handleCopy = async () => {
     if (!user) return;
-    if (selectedDeadlineIds.length === 0) {
-      showToast('Pilih minimal 1 deadline untuk disalin.', 'warning');
-      return;
-    }
-    if (selectedClassIds.length === 0) {
-      showToast('Pilih minimal 1 kelas tujuan.', 'warning');
-      return;
-    }
+    if (selectedDeadlineIds.length === 0) { showToast('Pilih minimal 1 deadline.', 'warning'); return; }
+    if (selectedClassIds.length === 0) { showToast('Pilih minimal 1 kelas tujuan.', 'warning'); return; }
 
     setSubmitting(true);
     let totalCreated = 0;
@@ -219,19 +214,12 @@ const DeadlineCopyModal: React.FC<{
       }
 
       await recordAuditLog({
-        userId: user.uid,
-        userName: user.displayName,
-        role: user.role,
-        action: 'CREATE',
-        targetType: 'DeadlineCopy',
-        targetId: 'batch',
-        details: `Salin ${selectedDeadlineIds.length} deadline ke ${selectedClassIds.length} kelas (${totalCreated} deadline, ${totalNotif} notifikasi)`,
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'CREATE', targetType: 'DeadlineCopy', targetId: 'batch',
+        details: `Salin ${selectedDeadlineIds.length} deadline ke ${selectedClassIds.length} kelas`,
       });
 
-      showToast(
-        `✅ ${totalCreated} deadline berhasil disalin ke ${selectedClassIds.length} kelas! ${totalNotif} siswa menerima notifikasi.`,
-        'success'
-      );
+      showToast(`✅ ${totalCreated} deadline disalin ke ${selectedClassIds.length} kelas! ${totalNotif} siswa menerima notifikasi.`, 'success');
       onSuccess?.();
       onClose();
     } catch (err: any) {
@@ -246,7 +234,6 @@ const DeadlineCopyModal: React.FC<{
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
       <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[95vh] flex flex-col overflow-hidden">
-
         <div className="p-6 bg-gradient-to-r from-purple-700 to-indigo-800 text-white shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -260,24 +247,18 @@ const DeadlineCopyModal: React.FC<{
                 <h3 className="text-lg font-black mt-0.5">Langkah {step} dari 3</h3>
               </div>
             </div>
-            <button onClick={onClose}
-              className="p-1.5 rounded-lg hover:bg-white/20 transition">
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition">
               <X className="w-5 h-5" />
             </button>
           </div>
-
           <div className="flex items-center gap-2 mt-4">
             {[1, 2, 3].map(s => (
-              <div key={s}
-                className={`flex-1 h-1.5 rounded-full transition ${
-                  s <= step ? 'bg-white' : 'bg-white/30'
-                }`} />
+              <div key={s} className={`flex-1 h-1.5 rounded-full transition ${s <= step ? 'bg-white' : 'bg-white/30'}`} />
             ))}
           </div>
         </div>
 
         <div className="p-6 overflow-y-auto flex-1">
-
           {step === 1 && (
             <>
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -288,28 +269,19 @@ const DeadlineCopyModal: React.FC<{
                   </h4>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={selectAllDeadlines}
-                    className="text-[11px] font-bold text-blue-600 hover:underline">
-                    ✓ Pilih Semua
-                  </button>
+                  <button onClick={selectAllDeadlines} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
                   <span className="text-slate-300">|</span>
-                  <button onClick={deselectAllDeadlines}
-                    className="text-[11px] font-bold text-rose-600 hover:underline">
-                    ✕ Hapus Pilihan
-                  </button>
+                  <button onClick={deselectAllDeadlines} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus</button>
                 </div>
               </div>
-
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                <strong className="text-emerald-600">{selectedDeadlineIds.length}</strong> dari {deadlines.length} deadline terpilih
+                <strong className="text-emerald-600">{selectedDeadlineIds.length}</strong> dari {deadlines.length} terpilih
               </p>
 
               {deadlines.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
                   <AlertTriangle className="w-10 h-10 mx-auto text-amber-500 mb-2" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Belum ada deadline di kelas ini untuk disalin.
-                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Belum ada deadline.</p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
@@ -318,12 +290,10 @@ const DeadlineCopyModal: React.FC<{
                     const stage = (d as any).stage;
                     const stageInfo = stage ? STAGE_INFO[stage as keyof typeof STAGE_INFO] : null;
                     const isCritical = (d as any).isCritical;
-
                     return (
                       <button key={d.id} onClick={() => toggleDeadline(d.id)}
                         className={`w-full p-3 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
-                          isSelected
-                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                          isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
                             : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-purple-300'
                         }`}>
                         <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
@@ -337,13 +307,10 @@ const DeadlineCopyModal: React.FC<{
                               </span>
                             )}
                             {isCritical && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">
-                                ★ KRITIS
-                              </span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">★ KRITIS</span>
                             )}
                           </div>
                           <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{d.title}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{d.description}</p>
                         </div>
                       </button>
                     );
@@ -358,33 +325,22 @@ const DeadlineCopyModal: React.FC<{
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                 <div className="flex items-center gap-2">
                   <Target className="w-5 h-5 text-purple-600" />
-                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                    Pilih Kelas Tujuan
-                  </h4>
+                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Pilih Kelas Tujuan</h4>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={selectAllClasses}
-                    className="text-[11px] font-bold text-blue-600 hover:underline">
-                    ✓ Pilih Semua
-                  </button>
+                  <button onClick={selectAllClasses} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
                   <span className="text-slate-300">|</span>
-                  <button onClick={deselectAllClasses}
-                    className="text-[11px] font-bold text-rose-600 hover:underline">
-                    ✕ Hapus Pilihan
-                  </button>
+                  <button onClick={deselectAllClasses} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus</button>
                 </div>
               </div>
-
               <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                <strong className="text-emerald-600">{selectedClassIds.length}</strong> dari {otherClasses.length} kelas terpilih
+                <strong className="text-emerald-600">{selectedClassIds.length}</strong> dari {otherClasses.length} kelas
               </p>
 
               {otherClasses.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
                   <AlertTriangle className="w-10 h-10 mx-auto text-amber-500 mb-2" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Tidak ada kelas lain.
-                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Tidak ada kelas lain.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -394,8 +350,7 @@ const DeadlineCopyModal: React.FC<{
                     return (
                       <button key={c.id} onClick={() => toggleClass(c.id)}
                         className={`p-4 rounded-2xl border-2 text-left transition ${
-                          isSelected
-                            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                          isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
                             : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-purple-300'
                         }`}>
                         <div className="flex items-start gap-3">
@@ -406,9 +361,7 @@ const DeadlineCopyModal: React.FC<{
                             <p className="text-sm font-black text-slate-900 dark:text-white">{c.name}</p>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">Kode: {c.code}</p>
                             {isSelected && recipients > 0 && (
-                              <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 mt-1">
-                                ✓ {recipients} siswa akan menerima
-                              </p>
+                              <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 mt-1">✓ {recipients} siswa</p>
                             )}
                           </div>
                         </div>
@@ -424,44 +377,21 @@ const DeadlineCopyModal: React.FC<{
             <>
               <div className="flex items-center gap-2 mb-3">
                 <Check className="w-5 h-5 text-emerald-600" />
-                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  Konfirmasi Salin
-                </h4>
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Konfirmasi Salin</h4>
               </div>
-
-              <div className="space-y-3">
-                <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10 border-2 border-purple-200 dark:border-purple-500/30">
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div>
-                      <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Deadline</p>
-                      <p className="text-2xl font-black text-purple-900 dark:text-purple-200">
-                        {selectedDeadlineIds.length}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Kelas</p>
-                      <p className="text-2xl font-black text-purple-900 dark:text-purple-200">
-                        {selectedClassIds.length}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Siswa Target</p>
-                      <p className="text-2xl font-black text-purple-900 dark:text-purple-200">
-                        {totalRecipients}
-                      </p>
-                    </div>
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10 border-2 border-purple-200 dark:border-purple-500/30">
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Deadline</p>
+                    <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{selectedDeadlineIds.length}</p>
                   </div>
-                </div>
-
-                <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  <div className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
-                    <p className="font-bold mb-0.5">Yang akan terjadi:</p>
-                    <ul className="list-disc pl-4 space-y-0.5">
-                      <li>Deadline baru dibuat untuk tiap kelas target</li>
-                      <li>Target siswa di-remap otomatis</li>
-                      <li>Notifikasi dikirim ke <strong>{totalRecipients} siswa</strong></li>
-                    </ul>
+                  <div>
+                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Kelas</p>
+                    <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{selectedClassIds.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Siswa Target</p>
+                    <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{totalRecipients}</p>
                   </div>
                 </div>
               </div>
@@ -469,12 +399,8 @@ const DeadlineCopyModal: React.FC<{
           )}
         </div>
 
-        <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center gap-2 shrink-0">
-          <button onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
-            Batal
-          </button>
-
+        <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t flex justify-between items-center gap-2 shrink-0">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">Batal</button>
           <div className="flex items-center gap-2">
             {step > 1 && (
               <button onClick={() => setStep((step - 1) as any)}
@@ -484,10 +410,7 @@ const DeadlineCopyModal: React.FC<{
             )}
             {step < 3 && (
               <button onClick={() => setStep((step + 1) as any)}
-                disabled={
-                  (step === 1 && selectedDeadlineIds.length === 0) ||
-                  (step === 2 && selectedClassIds.length === 0)
-                }
+                disabled={(step === 1 && selectedDeadlineIds.length === 0) || (step === 2 && selectedClassIds.length === 0)}
                 className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 Lanjut <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -507,7 +430,7 @@ const DeadlineCopyModal: React.FC<{
 };
 
 // =====================================================
-// MAIN: DeadlineModule
+// MAIN COMPONENT
 // =====================================================
 export const DeadlineModule: React.FC = () => {
   const { user, activeClass, classes } = useAuth();
@@ -516,7 +439,8 @@ export const DeadlineModule: React.FC = () => {
   const [deadlines, setDeadlines] = useState<DeadlineItem[]>([]);
   const [mySubmissions, setMySubmissions] = useState<Record<string, DeadlineSubmission>>({});
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isTemplateOpen, setIsTemplateOpen] = useState(false);
+  const [isManualOpen, setIsManualOpen] = useState(false);
   const [isCopyOpen, setIsCopyOpen] = useState(false);
   const [selectedDeadline, setSelectedDeadline] = useState<DeadlineItem | null>(null);
   const [isSubmitOpen, setIsSubmitOpen] = useState(false);
@@ -526,13 +450,27 @@ export const DeadlineModule: React.FC = () => {
   const [now, setNow] = useState(new Date());
   const [submitting, setSubmitting] = useState(false);
 
-  // Wizard state
+  // ============================================================
+  // STATE: TEMPLATE WIZARD (4 langkah)
+  // ============================================================
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [selectedTargets, setSelectedTargets] = useState<TargetItem[]>([]);
   const [targetAll, setTargetAll] = useState(false);
   const [dueDateOverride, setDueDateOverride] = useState('');
+
+  // ============================================================
+  // STATE: MANUAL FORM (buat deadline manual)
+  // ============================================================
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualDescription, setManualDescription] = useState('');
+  const [manualDueDate, setManualDueDate] = useState('');
+  const [manualPriority, setManualPriority] = useState<TaskPriority>('MEDIUM');
+  const [manualStage, setManualStage] = useState<ProductionStage>('PELAKSANAAN');
+  const [manualTargetAll, setManualTargetAll] = useState(true);
+  const [manualTargets, setManualTargets] = useState<TargetItem[]>([]);
+  const [manualIsCritical, setManualIsCritical] = useState(false);
 
   // Submit proof
   const [proofUrl, setProofUrl] = useState('');
@@ -598,16 +536,34 @@ export const DeadlineModule: React.FC = () => {
     return { text: `${days} hari lagi`, color: 'text-slate-700 bg-slate-50 border-slate-200' };
   };
 
-  const handleOpenCreate = () => {
+  // ============================================================
+  // OPEN HANDLERS
+  // ============================================================
+  const handleOpenTemplate = () => {
     setWizardStep(1);
     setSelectedStage('PELAKSANAAN');
     setSelectedTemplateIds([]);
     setSelectedTargets([]);
     setTargetAll(false);
     setDueDateOverride('');
-    setIsCreateOpen(true);
+    setIsTemplateOpen(true);
   };
 
+  const handleOpenManual = () => {
+    setManualTitle('');
+    setManualDescription('');
+    setManualDueDate('');
+    setManualPriority('MEDIUM');
+    setManualStage('PELAKSANAAN');
+    setManualTargetAll(true);
+    setManualTargets([]);
+    setManualIsCritical(false);
+    setIsManualOpen(true);
+  };
+
+  // ============================================================
+  // TEMPLATE: TOGGLE & HELPERS
+  // ============================================================
   const currentTemplates = DEADLINE_TEMPLATES[selectedStage];
 
   const toggleTemplate = (id: string) => {
@@ -626,6 +582,17 @@ export const DeadlineModule: React.FC = () => {
 
   const isTargetSelected = (type: 'PERAN' | 'DIVISI', name: string) =>
     selectedTargets.some(t => t.type === type && t.name === name);
+
+  const manualToggleTarget = (type: 'PERAN' | 'DIVISI', name: string) => {
+    setManualTargets(prev => {
+      const exists = prev.find(t => t.type === type && t.name === name);
+      if (exists) return prev.filter(t => !(t.type === type && t.name === name));
+      return [...prev, { type, name }];
+    });
+  };
+
+  const manualIsTargetSelected = (type: 'PERAN' | 'DIVISI', name: string) =>
+    manualTargets.some(t => t.type === type && t.name === name);
 
   const recipientCount = (() => {
     if (targetAll) {
@@ -646,7 +613,29 @@ export const DeadlineModule: React.FC = () => {
     return matched.size;
   })();
 
-  const handleCreate = async () => {
+  const manualRecipientCount = (() => {
+    if (manualTargetAll) {
+      return users.filter(u =>
+        u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
+        u.role !== 'Admin' && u.role !== 'Super Admin'
+      ).length;
+    }
+    const matched = new Set<string>();
+    manualTargets.forEach(t => {
+      users.forEach(u => {
+        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+        if (u.role === 'Admin' || u.role === 'Super Admin') return;
+        if (t.type === 'PERAN' && u.role === t.name) matched.add(u.uid);
+        if (t.type === 'DIVISI' && u.divisionName === t.name) matched.add(u.uid);
+      });
+    });
+    return matched.size;
+  })();
+
+  // ============================================================
+  // TEMPLATE: CREATE
+  // ============================================================
+  const handleCreateFromTemplate = async () => {
     if (!user || !activeClass) return;
     if (selectedTemplateIds.length === 0) { showToast('Pilih minimal 1 template.', 'warning'); return; }
     if (!targetAll && selectedTargets.length === 0) { showToast('Pilih minimal 1 target penerima.', 'warning'); return; }
@@ -713,9 +702,7 @@ export const DeadlineModule: React.FC = () => {
             classId: activeClass.id,
             title: `📌 ${success} Deadline Baru`,
             message: `${user.displayName} mengirim ${success} deadline untuk ${label} (${selectedStage}).`,
-            category: 'Tugas',
-            read: false,
-            link: 'deadline',
+            category: 'Tugas', read: false, link: 'deadline',
             createdAt: nowStr,
           });
         });
@@ -729,7 +716,7 @@ export const DeadlineModule: React.FC = () => {
       });
 
       showToast(`✅ ${success} deadline berhasil dikirim ke ${recipientCount} siswa!`, 'success');
-      setIsCreateOpen(false);
+      setIsTemplateOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     } finally {
@@ -737,6 +724,87 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
+  // ============================================================
+  // MANUAL: CREATE
+  // ============================================================
+  const handleCreateManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !activeClass) return;
+    if (!manualTitle.trim()) { showToast('Judul wajib diisi.', 'warning'); return; }
+    if (!manualDueDate) { showToast('Tenggat waktu wajib diisi.', 'warning'); return; }
+    if (!manualTargetAll && manualTargets.length === 0) {
+      showToast('Pilih minimal 1 target penerima.', 'warning'); return;
+    }
+
+    setSubmitting(true);
+    try {
+      const recipientIds = new Set<string>();
+      users.forEach(u => {
+        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+        if (u.role === 'Admin' || u.role === 'Super Admin') return;
+        if (manualTargetAll) { recipientIds.add(u.uid); return; }
+        manualTargets.forEach(t => {
+          if (t.type === 'PERAN' && u.role === t.name) recipientIds.add(u.uid);
+          if (t.type === 'DIVISI' && u.divisionName === t.name) recipientIds.add(u.uid);
+        });
+      });
+
+      const newRef = doc(collection(db, 'deadlines'));
+      await setDoc(newRef, {
+        id: newRef.id,
+        classId: activeClass.id,
+        title: manualTitle.trim(),
+        description: manualDescription.trim(),
+        dueDate: new Date(manualDueDate).toISOString(),
+        priority: manualPriority,
+        targetScope: manualTargetAll ? 'SEMUA' : 'CUSTOM',
+        targetUserIds: Array.from(recipientIds),
+        stage: manualStage,
+        isCritical: manualIsCritical,
+        createdBy: user.uid,
+        creatorName: user.displayName,
+        creatorRole: user.role,
+        createdAt: new Date().toISOString(),
+        isManual: true,
+      });
+
+      if (recipientIds.size > 0) {
+        const batch = writeBatch(db);
+        const nowStr = new Date().toISOString();
+        const label = manualTargetAll ? 'Semua Siswa' : manualTargets.map(t => t.name).join(', ');
+        recipientIds.forEach(uid => {
+          const notifRef = doc(collection(db, 'notifications'));
+          batch.set(notifRef, {
+            id: notifRef.id,
+            userId: uid,
+            classId: activeClass.id,
+            title: `📌 Deadline Baru (${manualStage})`,
+            message: `${user.displayName} mengirim deadline untuk ${label}: "${manualTitle.trim()}"`,
+            category: 'Tugas', read: false, link: 'deadline',
+            createdAt: nowStr,
+          });
+        });
+        await batch.commit();
+      }
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'CREATE', targetType: 'DeadlineManual', targetId: newRef.id,
+        details: `Buat deadline manual: ${manualTitle} (${manualRecipientCount} siswa)`,
+      });
+
+      showToast(`✅ Deadline manual berhasil dikirim ke ${manualRecipientCount} siswa!`, 'success');
+      setIsManualOpen(false);
+    } catch (err: any) {
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ============================================================
+  // SUBMIT PROOF
+  // ============================================================
   const handleSubmitProof = async () => {
     if (!user || !activeClass || !selectedDeadline) return;
     setSubmitting(true);
@@ -831,21 +899,27 @@ export const DeadlineModule: React.FC = () => {
             </span>
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-rose-300 bg-rose-500/20 px-2.5 py-0.5 rounded-full border border-rose-500/30">
-                Deadline Produksi
+                Manajemen Tugas
               </span>
-              <h2 className="text-xl font-black text-white mt-1">Tenggat Waktu & Pengumpulan</h2>
-              <p className="text-xs text-slate-300 mt-0.5">Multi-template × Multi-target × Salin ke kelas lain</p>
+              <h2 className="text-xl font-black text-white mt-1">Tugas & Deadline Produksi</h2>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Buat dari template, input manual, atau salin ke kelas lain
+              </p>
             </div>
           </div>
           {canCreate && (
             <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={handleOpenManual}
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg transition">
+                <FilePlus className="w-4 h-4" /> Buat Manual
+              </button>
+              <button onClick={handleOpenTemplate}
+                className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg transition">
+                <Wand2 className="w-4 h-4" /> Dari Template
+              </button>
               <button onClick={() => setIsCopyOpen(true)} disabled={deadlines.length === 0}
                 className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition">
-                <Copy className="w-4 h-4" /> Salin ke Kelas Lain
-              </button>
-              <button onClick={handleOpenCreate}
-                className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
-                <PlusCircle className="w-4 h-4" /> Kirim Deadline
+                <Copy className="w-4 h-4" /> Salin
               </button>
             </div>
           )}
@@ -882,7 +956,7 @@ export const DeadlineModule: React.FC = () => {
           <Timer className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
           <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Deadline</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {canCreate ? 'Klik "Kirim Deadline" untuk mulai dari template.' : 'Tunggu instruksi Guru Pengampu.'}
+            {canCreate ? 'Klik "Buat Manual" atau "Dari Template" untuk membuat tugas.' : 'Tunggu instruksi Guru Pengampu.'}
           </p>
         </div>
       ) : (
@@ -896,6 +970,7 @@ export const DeadlineModule: React.FC = () => {
             const tplRef = (d as any).templateReference;
             const targetCount = ((d as any).targetUserIds || []).length;
             const isCritical = (d as any).isCritical;
+            const isManual = (d as any).isManual;
 
             return (
               <div key={d.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-rose-300 transition shadow-sm space-y-3">
@@ -908,6 +983,11 @@ export const DeadlineModule: React.FC = () => {
                   {isCritical && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40">
                       ★ KRITIS
+                    </span>
+                  )}
+                  {isManual && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40">
+                      MANUAL
                     </span>
                   )}
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${priority.color}`}>
@@ -990,22 +1070,221 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ========== MODAL WIZARD 4 STEP ========== */}
-      {isCreateOpen && (
+      {/* ============================================================ */}
+      {/* MODAL: BUAT MANUAL */}
+      {/* ============================================================ */}
+      {isManualOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+          <form onSubmit={handleCreateManual}
+            className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[95vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-amber-500 to-orange-600 text-white shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="p-2.5 rounded-2xl bg-white/20 backdrop-blur-sm">
+                    <FilePlus className="w-6 h-6" />
+                  </span>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">
+                      Buat Tugas Manual
+                    </span>
+                    <h3 className="text-lg font-black mt-0.5">Tugas & Deadline Produksi</h3>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setIsManualOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-white/20 transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              {/* Judul */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Judul Tugas <span className="text-rose-500">*</span>
+                </label>
+                <input type="text" required value={manualTitle}
+                  onChange={(e) => setManualTitle(e.target.value)}
+                  placeholder="Contoh: Latihan Blocking Babak 2"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+              </div>
+
+              {/* Deskripsi */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Deskripsi / Instruksi
+                </label>
+                <textarea rows={3} value={manualDescription}
+                  onChange={(e) => setManualDescription(e.target.value)}
+                  placeholder="Jelaskan tugas secara detail: apa yang harus dikerjakan, di mana, dan hal yang perlu dibawa..."
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+              </div>
+
+              {/* Tahap + Prioritas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Tahap Produksi <span className="text-rose-500">*</span>
+                  </label>
+                  <select value={manualStage} onChange={(e) => setManualStage(e.target.value as ProductionStage)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
+                    <option value="PERSIAPAN">Persiapan</option>
+                    <option value="PELAKSANAAN">Pelaksanaan</option>
+                    <option value="PERTUNJUKAN">Pertunjukan</option>
+                    <option value="PASCA">Pasca Produksi</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Prioritas <span className="text-rose-500">*</span>
+                  </label>
+                  <select value={manualPriority}
+                    onChange={(e) => setManualPriority(e.target.value as TaskPriority)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
+                    <option value="LOW">Rendah</option>
+                    <option value="MEDIUM">Sedang</option>
+                    <option value="HIGH">Tinggi</option>
+                    <option value="CRITICAL">Kritis</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Deadline */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tenggat Waktu <span className="text-rose-500">*</span>
+                </label>
+                <input type="datetime-local" required value={manualDueDate}
+                  onChange={(e) => setManualDueDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+              </div>
+
+              {/* Critical toggle */}
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-rose-900 dark:text-rose-200">
+                  <input type="checkbox" checked={manualIsCritical}
+                    onChange={(e) => setManualIsCritical(e.target.checked)}
+                    className="rounded border-rose-300 text-rose-500" />
+                  <span>★ Tandai sebagai <strong>Tugas Kritis</strong></span>
+                </label>
+                <p className="text-[10px] text-rose-700 dark:text-rose-300 mt-1 pl-6">
+                  Tugas kritis memengaruhi skor Tanggung Jawab lebih besar bila terlambat.
+                </p>
+              </div>
+
+              {/* Target */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                  Target Penerima <span className="text-rose-500">*</span>
+                </label>
+
+                <button type="button"
+                  onClick={() => { setManualTargetAll(!manualTargetAll); setManualTargets([]); }}
+                  className={`w-full p-3 rounded-xl border-2 text-left flex items-center gap-3 transition mb-3 ${
+                    manualTargetAll ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700'
+                  }`}>
+                  <div className={`p-0.5 rounded-md shrink-0 ${manualTargetAll ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'}`}>
+                    {manualTargetAll ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
+                  </div>
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-900 dark:text-white">🎯 Semua Siswa</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                      Kirim ke semua siswa kelas ini
+                    </p>
+                  </div>
+                </button>
+
+                {!manualTargetAll && (
+                  <>
+                    <div className="mb-3">
+                      <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
+                        <User className="w-3 h-3" /> Per Peran
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {ROLE_LIST.map(r => {
+                          const sel = manualIsTargetSelected('PERAN', r);
+                          return (
+                            <button type="button" key={r} onClick={() => manualToggleTarget('PERAN', r)}
+                              className={`p-2 rounded-lg border-2 text-[10px] font-bold transition text-left flex items-center gap-1.5 ${
+                                sel ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
+                                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                              }`}>
+                              {sel ? <CheckSquare className="w-3 h-3 shrink-0" /> : <Square className="w-3 h-3 shrink-0" />}
+                              <span className="truncate">{r}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
+                        <Briefcase className="w-3 h-3" /> Per Divisi
+                      </p>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {DIVISION_LIST.map(d => {
+                          const sel = manualIsTargetSelected('DIVISI', d);
+                          return (
+                            <button type="button" key={d} onClick={() => manualToggleTarget('DIVISI', d)}
+                              className={`p-2 rounded-lg border-2 text-[10px] font-bold transition text-left flex items-center gap-1.5 ${
+                                sel ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300'
+                                  : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                              }`}>
+                              {sel ? <CheckSquare className="w-3 h-3 shrink-0" /> : <Square className="w-3 h-3 shrink-0" />}
+                              <span className="truncate">{d}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <div className="mt-3 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <p className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
+                    <strong>{manualRecipientCount} siswa</strong> akan menerima notifikasi
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 shrink-0">
+              <button type="button" onClick={() => setIsManualOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
+                Batal
+              </button>
+              <button type="submit" disabled={submitting}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5" />
+                {submitting ? 'Mengirim...' : `Kirim ke ${manualRecipientCount} Siswa`}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* MODAL: WIZARD TEMPLATE */}
+      {/* ============================================================ */}
+      {isTemplateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] overflow-y-auto my-auto">
             <div className="p-6 border-b border-slate-100 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-900 z-10">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <span className="p-2 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
-                    <Send className="w-5 h-5" />
+                    <Wand2 className="w-5 h-5" />
                   </span>
                   <div>
-                    <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Kirim Deadline Baru</h3>
+                    <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Kirim dari Template</h3>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">Langkah {wizardStep} dari 4</p>
                   </div>
                 </div>
-                <button onClick={() => setIsCreateOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <button onClick={() => setIsTemplateOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -1017,7 +1296,6 @@ export const DeadlineModule: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-4">
-              {/* STEP 1 */}
               {wizardStep === 1 && (
                 <>
                   <div className="flex items-center gap-2">
@@ -1033,9 +1311,7 @@ export const DeadlineModule: React.FC = () => {
                           className={`p-4 rounded-2xl border-2 text-left transition hover:scale-[1.02] bg-gradient-to-br ${info.gradient} text-white border-transparent shadow-md`}>
                           <p className="text-xs font-black uppercase tracking-wider">{s.id}</p>
                           <p className="text-[10px] mt-1 opacity-90">{info.desc}</p>
-                          <p className="text-[10px] mt-2 font-bold bg-white/20 px-2 py-0.5 rounded-md inline-block">
-                            {tplCount} template
-                          </p>
+                          <p className="text-[10px] mt-2 font-bold bg-white/20 px-2 py-0.5 rounded-md inline-block">{tplCount} template</p>
                         </button>
                       );
                     })}
@@ -1043,7 +1319,6 @@ export const DeadlineModule: React.FC = () => {
                 </>
               )}
 
-              {/* STEP 2 */}
               {wizardStep === 2 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1053,11 +1328,8 @@ export const DeadlineModule: React.FC = () => {
                         Langkah 2: Pilih Template ({STAGE_INFO[selectedStage].label})
                       </h4>
                     </div>
-                    <button onClick={() => setWizardStep(1)} className="text-[11px] font-bold text-blue-600 hover:underline">
-                      ← Ganti Tahap
-                    </button>
+                    <button onClick={() => setWizardStep(1)} className="text-[11px] font-bold text-blue-600 hover:underline">← Ganti Tahap</button>
                   </div>
-
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <p className="text-xs text-slate-500 dark:text-slate-400">
                       <strong>{currentTemplates.length} template</strong> — terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
@@ -1065,10 +1337,9 @@ export const DeadlineModule: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <button onClick={selectAllTemplates} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
                       <span className="text-slate-300">|</span>
-                      <button onClick={deselectAllTemplates} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus Pilihan</button>
+                      <button onClick={deselectAllTemplates} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus</button>
                     </div>
                   </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
                     {currentTemplates.map(tpl => {
                       const prio = getPriorityConfig(tpl.priority);
@@ -1087,13 +1358,10 @@ export const DeadlineModule: React.FC = () => {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
                               {tpl.isCritical && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">
-                                  ★ KRITIS
-                                </span>
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">★ KRITIS</span>
                               )}
                               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>{prio.label}</span>
                               <span className="text-[9px] text-slate-600 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-md">{label}</span>
-                              <span className="text-[9px] text-slate-500 ml-auto">{tpl.deadlineRef}</span>
                             </div>
                             <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{tpl.title}</p>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{tpl.description}</p>
@@ -1105,17 +1373,14 @@ export const DeadlineModule: React.FC = () => {
                 </>
               )}
 
-              {/* STEP 3 */}
               {wizardStep === 3 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <Users className="w-5 h-5 text-rose-600" />
-                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 3: Pilih Target Penerima (Multi)</h4>
+                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 3: Pilih Target Penerima</h4>
                     </div>
-                    <button onClick={() => setWizardStep(2)} className="text-[11px] font-bold text-blue-600 hover:underline">
-                      ← Ganti Template
-                    </button>
+                    <button onClick={() => setWizardStep(2)} className="text-[11px] font-bold text-blue-600 hover:underline">← Ganti Template</button>
                   </div>
 
                   <button onClick={() => { setTargetAll(!targetAll); setSelectedTargets([]); }}
@@ -1127,9 +1392,7 @@ export const DeadlineModule: React.FC = () => {
                     </div>
                     <div>
                       <p className="text-sm font-extrabold text-slate-900 dark:text-white">🎯 Semua Siswa</p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Kirim ke semua siswa kelas ini kecuali guru/admin
-                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Kirim ke semua siswa kelas ini</p>
                     </div>
                   </button>
 
@@ -1146,7 +1409,7 @@ export const DeadlineModule: React.FC = () => {
                               <button key={r} onClick={() => toggleTarget('PERAN', r)}
                                 className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
                                   sel ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
-                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-300'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                                 }`}>
                                 {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
                                 <span className="truncate">{r}</span>
@@ -1167,7 +1430,7 @@ export const DeadlineModule: React.FC = () => {
                               <button key={d} onClick={() => toggleTarget('DIVISI', d)}
                                 className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
                                   sel ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300'
-                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-purple-300'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                                 }`}>
                                 {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
                                 <span className="truncate">{d}</span>
@@ -1190,7 +1453,6 @@ export const DeadlineModule: React.FC = () => {
                 </>
               )}
 
-              {/* STEP 4 */}
               {wizardStep === 4 && (
                 <>
                   <div className="flex items-center gap-2">
@@ -1224,7 +1486,7 @@ export const DeadlineModule: React.FC = () => {
             </div>
 
             <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center gap-2 sticky bottom-0 bg-white dark:bg-slate-900">
-              <button onClick={() => setIsCreateOpen(false)}
+              <button onClick={() => setIsTemplateOpen(false)}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
                 Batal
               </button>
@@ -1237,16 +1499,13 @@ export const DeadlineModule: React.FC = () => {
                 )}
                 {wizardStep < 4 && wizardStep >= 2 && (
                   <button onClick={() => setWizardStep((wizardStep + 1) as any)}
-                    disabled={
-                      (wizardStep === 2 && selectedTemplateIds.length === 0) ||
-                      (wizardStep === 3 && !targetAll && selectedTargets.length === 0)
-                    }
+                    disabled={(wizardStep === 2 && selectedTemplateIds.length === 0) || (wizardStep === 3 && !targetAll && selectedTargets.length === 0)}
                     className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                     Lanjut <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 )}
                 {wizardStep === 4 && (
-                  <button onClick={handleCreate} disabled={submitting}
+                  <button onClick={handleCreateFromTemplate} disabled={submitting}
                     className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                     <Send className="w-3.5 h-3.5" />
                     {submitting ? 'Mengirim...' : `Kirim ke ${recipientCount} Siswa`}
@@ -1258,7 +1517,9 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ========== MODAL SUBMIT PROOF ========== */}
+      {/* ============================================================ */}
+      {/* MODAL SUBMIT PROOF */}
+      {/* ============================================================ */}
       {isSubmitOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
@@ -1314,7 +1575,9 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ========== MODAL REVIEW ========== */}
+      {/* ============================================================ */}
+      {/* MODAL REVIEW */}
+      {/* ============================================================ */}
       {isReviewOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 max-h-[92vh] overflow-y-auto">
@@ -1390,7 +1653,9 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ========== MODAL SALIN KE KELAS LAIN ========== */}
+      {/* ============================================================ */}
+      {/* MODAL SALIN */}
+      {/* ============================================================ */}
       {isCopyOpen && (
         <DeadlineCopyModal
           allClasses={classes || []}
