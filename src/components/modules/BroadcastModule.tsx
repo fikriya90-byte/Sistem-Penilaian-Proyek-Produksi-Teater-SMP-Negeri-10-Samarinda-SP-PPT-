@@ -56,7 +56,7 @@ const sanitizeText = (text: string): string => {
   return result;
 };
 
-export const NotificationPage: React.FC = () => {
+export const BroadcastModule: React.FC = () => {
   const { user, classes } = useAuth();
   const { showToast } = useToast();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
@@ -166,7 +166,7 @@ export const NotificationPage: React.FC = () => {
     // Cek kata kasar
     const check = containsBadWord(text);
     if (check.has) {
-      showToast(`❌ Balasan mengandung kata tidak pantas: ${check.found.join(', ')}. Mohon perbaiki.`, 'error');
+      showToast(`Balasan mengandung kata tidak pantas: ${check.found.join(', ')}. Mohon perbaiki.`, 'error');
       return;
     }
 
@@ -193,7 +193,7 @@ export const NotificationPage: React.FC = () => {
             id: notifRef.id,
             userId: (replyTo as any).senderId || 'teacher-fikri',
             classId: replyTo.classId || '',
-            title: `💬 Balasan dari ${user.displayName}`,
+            title: `Balasan dari ${user.displayName}`,
             message: text.slice(0, 200),
             category: 'Feedback',
             read: false,
@@ -203,7 +203,7 @@ export const NotificationPage: React.FC = () => {
         } catch { /* non-fatal */ }
       }
 
-      showToast('✅ Balasan terkirim!', 'success');
+      showToast('Balasan terkirim!', 'success');
       setReplyTo(null);
       setReplyText('');
     } catch (err: any) {
@@ -451,8 +451,8 @@ export const NotificationPage: React.FC = () => {
                   {replyText.length}/300 karakter
                 </p>
                 {replyText && containsBadWord(replyText).has && (
-                  <p className="text-[10px] font-bold text-rose-600">
-                    ⚠️ Mengandung kata tidak pantas
+                  <p className="text-[10px] font-bold text-rose-600 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> Mengandung kata tidak pantas
                   </p>
                 )}
               </div>
@@ -476,3 +476,6 @@ export const NotificationPage: React.FC = () => {
     </div>
   );
 };
+
+// Alias untuk kompatibilitas jika masih ada import lama
+export const NotificationPage = BroadcastModule;
