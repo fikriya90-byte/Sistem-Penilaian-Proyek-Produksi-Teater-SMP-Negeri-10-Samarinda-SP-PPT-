@@ -5,6 +5,7 @@ import {
   Clock, Star, BookOpen, Play, Send, Bell, ChevronRight, BarChart3,
   Layers, Flag, ExternalLink, Upload, Link2, Music, Palette, Scissors,
   Package, Camera, CheckSquare, X, Save, Eye, TrendingDown, Activity,
+  Timer,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS, STAGES, getPredikat } from '../../core/constants';
@@ -22,9 +23,6 @@ interface RoleDashboardProps {
   onNavigate: (module: string) => void;
 }
 
-// ====================================================
-// HOOK DATA
-// ====================================================
 function useDashboardData() {
   const { activeClass } = useAuth();
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -46,9 +44,6 @@ function useDashboardData() {
   return { tasks, schedules, sessions, assessments, users };
 }
 
-// ====================================================
-// SHARED COMPONENTS
-// ====================================================
 const StatCard: React.FC<{
   icon: any; label: string; value: string | number; sub?: string;
   color?: 'amber' | 'blue' | 'emerald' | 'rose' | 'purple' | 'cyan' | 'indigo';
@@ -99,9 +94,6 @@ const QuickAction: React.FC<{ icon: any; label: string; sub: string; onClick: ()
     </button>
   );
 
-// ====================================================
-// GOOGLE DRIVE UPLOAD WIDGET
-// ====================================================
 const DriveUploadWidget: React.FC<{
   folderKey: keyof typeof DRIVE_FOLDERS;
   folderLabel: string;
@@ -116,7 +108,7 @@ const DriveUploadWidget: React.FC<{
 
   const handleOpenDrive = () => {
     openDriveFolder(folderKey);
-    showToast('Folder Google Drive terbuka di tab baru. Upload file Anda di sana.', 'info');
+    showToast('Folder Google Drive terbuka di tab baru.', 'info');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -155,7 +147,7 @@ const DriveUploadWidget: React.FC<{
         targetId: newRef.id,
         details: `Upload link ${category}: ${title}`,
       });
-      showToast('Link berhasil didistribusikan ke semua divisi!', 'success');
+      showToast('Link berhasil didistribusikan!', 'success');
       setLink('');
       setTitle('');
       if (onSubmitted) onSubmitted();
@@ -175,7 +167,7 @@ const DriveUploadWidget: React.FC<{
           </div>
           <div>
             <h4 className="text-xs font-extrabold text-slate-900">Upload ke {folderLabel}</h4>
-            <p className="text-[10px] text-slate-500">Buka Drive → Upload → Paste link di sini</p>
+            <p className="text-[10px] text-slate-500">Buka Drive → Upload → Paste link</p>
           </div>
         </div>
         <button onClick={handleOpenDrive}
@@ -187,13 +179,13 @@ const DriveUploadWidget: React.FC<{
 
       <form onSubmit={handleSubmit} className="space-y-2">
         <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)}
-          placeholder={`Judul ${category.toLowerCase()} (contoh: Nota beli kayu)`}
+          placeholder={`Judul ${category.toLowerCase()}`}
           className="w-full px-3 py-2 rounded-xl border border-blue-200 text-xs font-semibold text-slate-800 bg-white" />
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Link2 className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
             <input type="url" required value={link} onChange={(e) => setLink(e.target.value)}
-              placeholder="Tempel link Google Drive di sini"
+              placeholder="Tempel link Google Drive"
               className="w-full pl-9 pr-3 py-2 rounded-xl border border-blue-200 text-xs font-semibold text-slate-800 bg-white" />
           </div>
           <button type="submit" disabled={submitting}
@@ -213,13 +205,13 @@ const DriveUploadWidget: React.FC<{
 export const GuruDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
   const { tasks, assessments, users, sessions, schedules } = useDashboardData();
   const totalUsers = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
   const completedTasks = tasks.filter(t => t.status === 'APPROVED').length;
   const taskProgress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
   const overdueTasks = tasks.filter(t => t.status === 'OVERDUE');
   const usersWithoutAssessment = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin' &&
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin' &&
     !assessments.find(a => a.studentId === u.uid)
   );
 
@@ -273,7 +265,7 @@ export const GuruDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={Sparkles} title="Aksi Cepat" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Beri Nilai" sub="Semua peran" onClick={() => onNavigate('nilai')} />
+          <QuickAction icon={Award} label="Beri Nilai" sub="Pimprod & Sutradara" onClick={() => onNavigate('nilai')} />
           <QuickAction icon={Bell} label="Moderasi" sub="Cek anomali" onClick={() => onNavigate('moderasi')} />
           <QuickAction icon={BarChart3} label="Statistik" sub="Absensi & nilai" onClick={() => onNavigate('statistik-absensi')} />
           <QuickAction icon={BookOpen} label="Kelola Kelas" sub="Siswa & kode" onClick={() => onNavigate('kelola-kelas')} />
@@ -294,12 +286,13 @@ export const PimprodDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
   const { tasks, sessions, users, assessments } = useDashboardData();
 
   const totalUsers = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
 
   const completedTasks = tasks.filter(t => t.status === 'APPROVED').length;
   const progress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
   const overdueTasks = tasks.filter(t => t.status === 'OVERDUE');
+  const criticalTasks = tasks.filter(t => (t as any).isCritical && t.status !== 'APPROVED');
 
   const divProgress = DIVISIONS.slice(1).map(d => {
     const dTasks = tasks.filter(t => t.divisionName === d.id);
@@ -311,7 +304,6 @@ export const PimprodDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
     };
   });
 
-  // Presensi keseluruhan tim
   const totalAttendRecs = sessions.reduce((sum, s) => sum + 1, 0);
   const overallAttendPct = totalAttendRecs > 0 ? Math.min(100, 80 + Math.round(totalAttendRecs / 2)) : 0;
 
@@ -339,6 +331,34 @@ export const PimprodDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
         </div>
       </div>
 
+      {criticalTasks.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5 text-rose-600 animate-pulse" />
+            <h3 className="text-sm font-extrabold text-rose-900">
+              🚨 ALERT KRITIS ★ — {criticalTasks.length} Tugas Kritis Belum Selesai
+            </h3>
+          </div>
+          <p className="text-[11px] text-rose-700 mb-2">
+            Tugas ★ membuat teman/divisi lain tertunda jika tidak selesai.
+          </p>
+          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+            {criticalTasks.slice(0, 5).map(t => (
+              <div key={t.id} className="text-xs text-rose-800 bg-white/70 p-2 rounded-lg flex items-center justify-between border border-rose-200">
+                <span className="truncate">
+                  <strong className="text-rose-600">★</strong> {t.title}
+                  <span className="text-rose-500 ml-1">({t.divisionName || t.role})</span>
+                </span>
+                <button onClick={() => onNavigate('tugas')}
+                  className="text-[10px] font-bold text-rose-600 hover:underline shrink-0">
+                  Lihat
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Users} label="Total Anggota" value={totalUsers} color="blue" />
         <StatCard icon={CheckCircle} label="Tugas Selesai" value={`${completedTasks}/${tasks.length}`} color="emerald" />
@@ -346,7 +366,6 @@ export const PimprodDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
         <StatCard icon={ClipboardList} label="Presensi Tim" value={`${overallAttendPct}%`} color="cyan" sub={`${sessions.length} sesi`} />
       </div>
 
-      {/* Timeline Produksi */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={Flag} title="Timeline Produksi" subtitle="4 tahapan utama produksi teater" />
         <div className="relative">
@@ -373,7 +392,6 @@ export const PimprodDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
         </div>
       </div>
 
-      {/* Progress Divisi */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={Layers} title="Progress 6 Divisi Produksi" subtitle="Pantau divisi yang tertinggal" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -427,11 +445,11 @@ export const PimprodDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
 };
 
 // ====================================================
-// 3. SUTRADARA (TANPA Pemain Terbaik)
+// 3. SUTRADARA
 // ====================================================
 export const SutradaraDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
   const { tasks, assessments, users, sessions } = useDashboardData();
-  const actors = users.filter(u => u.role === 'Pemain');
+  const actors = users.filter(u => u.role === 'Pemeran');
 
   const actorScores = actors.map(a => {
     const recs = assessments.filter(r => r.studentId === a.uid);
@@ -439,38 +457,35 @@ export const SutradaraDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
     return { user: a, avg, hasScore: recs.length > 0 };
   });
 
-  // Pemain Perlu Perhatian: nilai < 70 atau belum ada nilai
   const needAttention = actorScores.filter(a => !a.hasScore || a.avg < 70);
   const rehearsalTasks = tasks.filter(t => t.divisionName === 'Pemeran');
   const rehearsalDone = rehearsalTasks.filter(t => t.status === 'APPROVED').length;
   const rehearsalPct = rehearsalTasks.length > 0 ? Math.round((rehearsalDone / rehearsalTasks.length) * 100) : 0;
 
-  // Absensi pemain
   const attendanceSessions = sessions.filter(s => s.targetScope === 'PEMAIN_MUSIK');
 
   return (
     <div className="space-y-5">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-800 to-rose-950 text-white shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Sutradara</span>
-        <h2 className="text-2xl font-black mt-1">Latihan & Evaluasi Pemain</h2>
+        <h2 className="text-2xl font-black mt-1">Latihan & Evaluasi Pemeran</h2>
         <p className="text-xs opacity-90 mt-1">
-          {actors.length} pemain • {rehearsalDone}/{rehearsalTasks.length} tugas latihan selesai
+          {actors.length} pemeran • {rehearsalDone}/{rehearsalTasks.length} tugas latihan selesai
         </p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Users} label="Total Pemain" value={actors.length} color="rose" />
+        <StatCard icon={Users} label="Total Pemeran" value={actors.length} color="rose" />
         <StatCard icon={Mic} label="Progres Latihan" value={`${rehearsalPct}%`} color="amber" sub={`${rehearsalDone}/${rehearsalTasks.length} tugas`} />
         <StatCard icon={AlertTriangle} label="Perlu Perhatian" value={needAttention.length} color="rose" />
-        <StatCard icon={ClipboardList} label="Absensi Pemain" value={attendanceSessions.length} color="blue" />
+        <StatCard icon={ClipboardList} label="Absensi Pemeran" value={attendanceSessions.length} color="blue" />
       </div>
 
-      {/* Pemain Perlu Perhatian Khusus */}
       <div className="p-5 rounded-3xl bg-rose-50 border border-rose-200 shadow-sm">
-        <SectionTitle icon={AlertTriangle} title="⚠️ Pemain Perlu Perhatian Khusus" subtitle="Nilai < 70 atau belum ada nilai" />
+        <SectionTitle icon={AlertTriangle} title="⚠️ Pemeran Perlu Perhatian Khusus" subtitle="Nilai < 70 atau belum ada nilai" />
         {needAttention.length === 0 ? (
           <p className="text-xs text-emerald-700 italic text-center py-4 bg-emerald-50 rounded-xl">
-            ✅ Semua pemain dalam kondisi baik!
+            ✅ Semua pemeran dalam kondisi baik!
           </p>
         ) : (
           <div className="space-y-2">
@@ -482,7 +497,7 @@ export const SutradaraDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold text-slate-900 truncate">{a.user.displayName}</p>
                   <p className="text-[10px] text-slate-500">
-                    {a.hasScore ? `Nilai: ${a.avg.toFixed(1)} — perlu bimbingan intensif` : 'Belum ada nilai — segera evaluasi'}
+                    {a.hasScore ? `Nilai: ${a.avg.toFixed(1)} — perlu bimbingan` : 'Belum ada nilai'}
                   </p>
                 </div>
                 <button onClick={() => onNavigate('nilai')}
@@ -495,13 +510,12 @@ export const SutradaraDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
         )}
       </div>
 
-      {/* Catatan Evaluasi */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={MessageSquare} title="📝 Catatan Evaluasi" subtitle="Dokumentasikan catatan latihan harian" />
         <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-3">
           <div className="text-xs text-amber-900">
             <p className="font-bold">Belum ada catatan hari ini</p>
-            <p className="text-[11px] text-amber-700 mt-0.5">Tulis catatan evaluasi untuk pemain</p>
+            <p className="text-[11px] text-amber-700 mt-0.5">Tulis catatan evaluasi untuk pemeran</p>
           </div>
           <button onClick={() => onNavigate('dokumen')}
             className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs">
@@ -513,8 +527,8 @@ export const SutradaraDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={Sparkles} title="Aksi Cepat Casting & Penilaian" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Nilai Pemain" sub="6 kriteria akting" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Absensi Latihan" sub="Pemain + Musik" onClick={() => onNavigate('absensi')} />
+          <QuickAction icon={Award} label="Nilai Pemeran" sub="6 kriteria akting" onClick={() => onNavigate('nilai')} />
+          <QuickAction icon={ClipboardList} label="Absensi Latihan" sub="Pemeran + Musik" onClick={() => onNavigate('absensi')} />
           <QuickAction icon={Calendar} label="Jadwal Latihan" sub="Agenda akting" onClick={() => onNavigate('jadwal')} />
           <QuickAction icon={Sparkles} label="Prompt Book" sub="Blocking + Cue" onClick={() => onNavigate('studio')} />
         </div>
@@ -528,7 +542,7 @@ export const SutradaraDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
 // ====================================================
 export const AsistenDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
   const { tasks, schedules, users, sessions } = useDashboardData();
-  const actors = users.filter(u => u.role === 'Pemain');
+  const actors = users.filter(u => u.role === 'Pemeran');
   const upcoming = schedules
     .filter(s => new Date(s.startAt).getTime() > Date.now())
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
@@ -547,11 +561,10 @@ export const AsistenDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Play} label="Prompt Book" value="Aktif" color="purple" sub="Editor blocking 3x3" />
         <StatCard icon={FileText} label="Catatan Latihan" value="—" color="amber" sub="Update harian" />
-        <StatCard icon={ClipboardList} label="Absensi Pemain" value={pemainSessions.length} color="blue" />
-        <StatCard icon={Users} label="Status Pemain" value={actors.length} color="emerald" />
+        <StatCard icon={ClipboardList} label="Absensi Pemeran" value={pemainSessions.length} color="blue" />
+        <StatCard icon={Users} label="Status Pemeran" value={actors.length} color="emerald" />
       </div>
 
-      {/* Prompt Book & Cue */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={Sparkles} title="📐 Prompt Book & Blocking" subtitle="Editor posisi panggung 3×3" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -574,7 +587,6 @@ export const AsistenDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
         </div>
       </div>
 
-      {/* Cue Berikutnya */}
       <div className="p-5 rounded-3xl bg-indigo-50 border border-indigo-200 shadow-sm">
         <SectionTitle icon={Clock} title="⏱️ Cue Berikutnya — Standby" subtitle="Persiapan jadwal mendatang" />
         {upcoming.length === 0 ? (
@@ -600,8 +612,8 @@ export const AsistenDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =
         <SectionTitle icon={Sparkles} title="Aksi Cepat Standby Cue" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           <QuickAction icon={Sparkles} label="Prompt Book" sub="Editor blocking" onClick={() => onNavigate('studio')} />
-          <QuickAction icon={Award} label="Nilai Pemain" sub="Aspek teknis" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Absensi Pemain" sub="Pemain + Musik" onClick={() => onNavigate('absensi')} />
+          <QuickAction icon={Award} label="Nilai Pemeran" sub="Aspek teknis" onClick={() => onNavigate('nilai')} />
+          <QuickAction icon={ClipboardList} label="Absensi Pemeran" sub="Pemeran + Musik" onClick={() => onNavigate('absensi')} />
           <QuickAction icon={FileText} label="Catatan" sub="Upload evaluasi" onClick={() => onNavigate('dokumen')} />
         </div>
       </div>
@@ -618,7 +630,7 @@ export const SekretarisDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }
   const todaySchedules = schedules.filter(s => new Date(s.startAt).toISOString().slice(0, 10) === today);
   const openSessions = sessions.filter(s => s.isOpen);
   const totalStudents = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
   const attendPct = sessions.length > 0 ? Math.min(100, 75 + openSessions.length * 5) : 0;
 
@@ -673,7 +685,6 @@ export const SekretarisDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }
         </div>
       </div>
 
-      {/* Dokumen Terbaru */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={FileText} title="📁 Dokumen Terbaru" subtitle="Arsip & LPJ" />
         <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
@@ -700,7 +711,7 @@ export const SekretarisDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }
 };
 
 // ====================================================
-// 6. BENDAHARA (dengan Google Drive Upload)
+// 6. BENDAHARA
 // ====================================================
 export const BendaharaDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
   const { activeClass, user } = useAuth();
@@ -727,7 +738,7 @@ export const BendaharaDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
 
   const handleOpenDrive = () => {
     openDriveFolder('keuangan');
-    showToast('Folder Drive Keuangan terbuka. Upload nota & bukti di sana.', 'info');
+    showToast('Folder Drive Keuangan terbuka.', 'info');
   };
 
   return (
@@ -742,10 +753,9 @@ export const BendaharaDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
         <StatCard icon={Wallet} label="Saldo Kas" value={`Rp ${saldo.toLocaleString('id-ID')}`} color="emerald" />
         <StatCard icon={TrendingUp} label="Total Terkumpul" value={`Rp ${totalCollected.toLocaleString('id-ID')}`} color="blue" sub={`dari Rp ${totalTarget.toLocaleString('id-ID')}`} />
         <StatCard icon={AlertTriangle} label="Belum Bayar" value={belumBayar} color="rose" />
-        <StatCard icon={FileText} label="LPJ Keuangan" value="Segera" color="amber" sub="Upload di menu Dokumen" />
+        <StatCard icon={FileText} label="LPJ Keuangan" value="Segera" color="amber" sub="Upload di Dokumen" />
       </div>
 
-      {/* Kartu Kas */}
       <div className="p-5 rounded-3xl bg-emerald-50 border border-emerald-200">
         <div className="flex items-center gap-3 flex-wrap">
           <Wallet className="w-6 h-6 text-emerald-600 shrink-0" />
@@ -762,9 +772,8 @@ export const BendaharaDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
         </div>
       </div>
 
-      {/* Google Drive Upload Widget */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
-        <SectionTitle icon={Upload} title="📁 Upload Bukti Nota / Kwitansi" subtitle="Ke Google Drive → Paste link di sini" />
+        <SectionTitle icon={Upload} title="📁 Upload Bukti Nota / Kwitansi" subtitle="Ke Google Drive → Paste link" />
         <DriveUploadWidget folderKey="keuangan" folderLabel="Folder Keuangan" category="Nota Keuangan" />
       </div>
 
@@ -782,7 +791,7 @@ export const BendaharaDashboard: React.FC<RoleDashboardProps> = ({ onNavigate })
 };
 
 // ====================================================
-// 7-12. KOORDINATOR DIVISI
+// 7-12. KOORDINATOR
 // ====================================================
 interface KoorConfig {
   division: string;
@@ -805,6 +814,7 @@ const KoordinatorDashboardBase: React.FC<RoleDashboardProps & { config: KoorConf
   const divSchedules = schedules.filter(s => s.divisionName === config.division);
   const divSessions = sessions.filter(s => s.targetDivisionName === config.division);
   const overdue = divTasks.filter(t => t.status === 'OVERDUE');
+  const criticalDivTasks = divTasks.filter(t => (t as any).isCritical && t.status !== 'APPROVED');
 
   const memberScores = members.map(m => {
     const recs = assessments.filter(r => r.studentId === m.uid);
@@ -831,7 +841,24 @@ const KoordinatorDashboardBase: React.FC<RoleDashboardProps & { config: KoorConf
         <StatCard icon={AlertTriangle} label="Terlambat" value={overdue.length} color="rose" />
       </div>
 
-      {/* Progress Divisi */}
+      {criticalDivTasks.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5 text-rose-600 animate-pulse" />
+            <h3 className="text-sm font-extrabold text-rose-900">
+              🚨 {criticalDivTasks.length} Tugas Kritis ★ Divisi {config.division}
+            </h3>
+          </div>
+          <div className="space-y-1">
+            {criticalDivTasks.slice(0, 3).map(t => (
+              <div key={t.id} className="text-xs text-rose-800 bg-white/70 p-2 rounded-lg">
+                <strong>★</strong> {t.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <SectionTitle icon={Layers} title={`Progress ${config.division}`} />
@@ -843,10 +870,8 @@ const KoordinatorDashboardBase: React.FC<RoleDashboardProps & { config: KoorConf
         </div>
       </div>
 
-      {/* Panel Khusus */}
       {config.specificPanel && config.specificPanel(onNavigate)}
 
-      {/* Google Drive Upload */}
       {config.driveKey && (
         <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
           <SectionTitle icon={Upload} title={`📁 Upload ${config.driveLabel || 'Media'}`} subtitle="Ke Drive → Paste link" />
@@ -854,7 +879,6 @@ const KoordinatorDashboardBase: React.FC<RoleDashboardProps & { config: KoorConf
         </div>
       )}
 
-      {/* Anggota */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={Users} title="👥 Anggota Divisi" subtitle="Nilai sementara" />
         {members.length === 0 ? (
@@ -983,7 +1007,7 @@ export const KoorRiasDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) 
         <div className="grid grid-cols-2 gap-3">
           <div className="p-3 rounded-xl bg-white border border-pink-200">
             <p className="text-[10px] text-pink-700 font-semibold">Jadwal Fitting</p>
-            <p className="text-xs font-bold text-pink-900 mt-0.5">Per pemain</p>
+            <p className="text-xs font-bold text-pink-900 mt-0.5">Per pemeran</p>
           </div>
           <div className="p-3 rounded-xl bg-white border border-pink-200">
             <p className="text-[10px] text-pink-700 font-semibold">Higienitas Alat</p>
@@ -1013,7 +1037,7 @@ export const KoorBusanaDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }
           </div>
           <div className="p-3 rounded-xl bg-white border border-indigo-200">
             <p className="text-[10px] text-indigo-700 font-semibold">Fitting</p>
-            <p className="text-xs font-bold text-indigo-900 mt-0.5">Per pemain 15 menit</p>
+            <p className="text-xs font-bold text-indigo-900 mt-0.5">Per pemeran 15 menit</p>
           </div>
         </div>
       </div>
@@ -1122,7 +1146,9 @@ const AnggotaDashboardBase: React.FC<RoleDashboardProps & { division: string }> 
               }`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-900 truncate">{t.title}</p>
+                    <p className="text-xs font-bold text-slate-900 truncate">
+                      {(t as any).isCritical && <span className="text-rose-500">★ </span>}{t.title}
+                    </p>
                     <p className="text-[10px] text-slate-500">
                       Deadline: {new Date(t.dueDate).toLocaleDateString('id-ID')}
                     </p>
@@ -1177,7 +1203,7 @@ export const AnggotaBusanaDashboard: React.FC<RoleDashboardProps> = ({ onNavigat
   <div className="space-y-5">
     <AnggotaDashboardBase onNavigate={onNavigate} division="Tata Busana" />
     <div className="p-5 rounded-3xl bg-indigo-50 border border-indigo-200 shadow-sm">
-      <SectionTitle icon={Scissors} title="👗 Input Detail Pakaian per Peran" subtitle="Catat detail kostum tiap pemain" />
+      <SectionTitle icon={Scissors} title="👗 Input Detail Pakaian per Peran" subtitle="Catat detail kostum tiap pemeran" />
       <div className="p-4 rounded-2xl bg-white border border-indigo-200 text-center">
         <Scissors className="w-8 h-8 mx-auto text-indigo-400 mb-2" />
         <p className="text-xs text-slate-500">Fitur input detail akan segera aktif di menu Tugas</p>
@@ -1195,9 +1221,9 @@ export const AnggotaMusikDashboard: React.FC<RoleDashboardProps> = ({ onNavigate
 );
 
 // ====================================================
-// 19. PEMAIN (Pemeran)
+// 19. PEMERAN
 // ====================================================
-export const PemainDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
+export const PemeranDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const { tasks, schedules, assessments } = useDashboardData();
 
@@ -1214,8 +1240,8 @@ export const PemainDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =>
 
   const upcomingRehearsals = schedules
     .filter(s => new Date(s.startAt).getTime() > Date.now() &&
-      (s.participants.toLowerCase().includes('pemain') ||
-       s.participants.toLowerCase().includes('pemeran') ||
+      (s.participants.toLowerCase().includes('pemeran') ||
+       s.participants.toLowerCase().includes('pemain') ||
        s.type === 'Latihan' || s.type === 'Gladi'))
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
     .slice(0, 3);
@@ -1223,7 +1249,7 @@ export const PemainDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =>
   return (
     <div className="space-y-5">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-700 to-pink-900 text-white shadow-lg">
-        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Pemain</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Pemeran</span>
         <h2 className="text-2xl font-black mt-1">Naskah, Blocking & Latihan</h2>
         <p className="text-xs opacity-90 mt-1">
           Progres latihan: <strong>{rehearsalPct}%</strong> • {rehearsalDone}/{rehearsalTasks.length} tugas selesai
@@ -1237,7 +1263,6 @@ export const PemainDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =>
         <StatCard icon={Star} label="Predikat" value={myPred?.predikat || '-'} color="emerald" />
       </div>
 
-      {/* Naskah & Latihan */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={BookOpen} title="📖 Latihan Dialog & Blocking" subtitle="10 langkah dialog + rekam suara" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1260,7 +1285,6 @@ export const PemainDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =>
         </div>
       </div>
 
-      {/* Latihan Mendatang */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
         <SectionTitle icon={Calendar} title="📅 Latihan Mendatang" subtitle="Konfirmasi kehadiran di menu Jadwal" />
         {upcomingRehearsals.length === 0 ? (
@@ -1285,7 +1309,6 @@ export const PemainDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =>
         )}
       </div>
 
-      {/* Refleksi Diri */}
       <div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 shadow-sm">
         <div className="flex items-center gap-3">
           <Sparkles className="w-6 h-6 text-indigo-600 shrink-0" />
@@ -1306,12 +1329,9 @@ export const PemainDashboard: React.FC<RoleDashboardProps> = ({ onNavigate }) =>
           <QuickAction icon={Award} label="Nilai Saya" sub="Rapor" onClick={() => onNavigate('nilai-saya')} />
           <QuickAction icon={Star} label="Nilai Rekan" sub="Sejawat" onClick={() => onNavigate('nilai')} />
           <QuickAction icon={ClipboardList} label="Presensi" sub="Kehadiran" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={Timer} label="Deadline" sub="Tenggat" onClick={() => onNavigate('deadline')} />
+          <QuickAction icon={Timer} label="Deadline" sub="Tenggat" onClick={() => onNavigate('tugas')} />
         </div>
       </div>
     </div>
   );
 };
-
-// Need Timer import
-import { Timer } from 'lucide-react';
