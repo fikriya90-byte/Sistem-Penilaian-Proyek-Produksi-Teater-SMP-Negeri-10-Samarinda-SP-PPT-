@@ -3,7 +3,7 @@ import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
   AlertTriangle, Check, BookOpen, ChevronRight, Sparkles, Target,
   ListChecks, Square, CheckSquare, User, Briefcase, Copy, FilePlus,
-  Wand2,
+  Wand2, Loader2,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -20,9 +20,6 @@ import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { DEADLINE_TEMPLATES, STAGE_INFO } from '../../core/deadlineTemplates';
 
-// =====================================================
-// CONFIG
-// =====================================================
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   LOW: { label: 'Rendah', color: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' },
   MEDIUM: { label: 'Sedang', color: 'bg-blue-100 text-blue-800 border-blue-300', dot: 'bg-blue-500' },
@@ -54,9 +51,6 @@ interface TargetItem {
   name: string;
 }
 
-// =====================================================
-// SUB-KOMPONEN: MODAL SALIN DEADLINE KE KELAS LAIN
-// =====================================================
 const DeadlineCopyModal: React.FC<{
   allClasses: ClassRoom[];
   currentClassId: string;
@@ -181,30 +175,24 @@ const DeadlineCopyModal: React.FC<{
             creatorName: user.displayName,
             creatorRole: user.role,
             createdAt: new Date().toISOString(),
-            copiedFrom: {
-              sourceDeadlineId: source.id,
-              sourceClassId: currentClassId,
-              copiedAt: new Date().toISOString(),
-              copiedBy: user.uid,
-            },
           });
           totalCreated++;
 
           if (recipientIds.size > 0) {
             const batch = writeBatch(db);
-            const now = new Date().toISOString();
+            const nowStr = new Date().toISOString();
             recipientIds.forEach(uid => {
               const notifRef = doc(collection(db, 'notifications'));
               batch.set(notifRef, {
                 id: notifRef.id,
                 userId: uid,
                 classId: targetClassId,
-                title: `📌 Deadline Baru (${(source as any).stage || 'Tugas'})`,
+                title: '📌 Deadline Baru',
                 message: `${user.displayName} mengirim deadline untuk ${targetClass.name}: "${source.title}"`,
                 category: 'Tugas',
                 read: false,
                 link: 'deadline',
-                createdAt: now,
+                createdAt: nowStr,
               });
             });
             await batch.commit();
@@ -213,13 +201,7 @@ const DeadlineCopyModal: React.FC<{
         }
       }
 
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'DeadlineCopy', targetId: 'batch',
-        details: `Salin ${selectedDeadlineIds.length} deadline ke ${selectedClassIds.length} kelas`,
-      });
-
-      showToast(`✅ ${totalCreated} deadline disalin ke ${selectedClassIds.length} kelas! ${totalNotif} siswa menerima notifikasi.`, 'success');
+      showToast(`✅ ${totalCreated} deadline disalin! ${totalNotif} siswa menerima notifikasi.`, 'success');
       onSuccess?.();
       onClose();
     } catch (err: any) {
@@ -241,9 +223,7 @@ const DeadlineCopyModal: React.FC<{
                 <Copy className="w-6 h-6" />
               </span>
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">
-                  Salin Deadline ke Kelas Lain
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">Salin Deadline</span>
                 <h3 className="text-lg font-black mt-0.5">Langkah {step} dari 3</h3>
               </div>
             </div>
@@ -262,135 +242,83 @@ const DeadlineCopyModal: React.FC<{
           {step === 1 && (
             <>
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Pilih Deadline</h4>
                 <div className="flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-purple-600" />
-                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                    Pilih Deadline yang Mau Disalin
-                  </h4>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={selectAllDeadlines} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
+                  <button onClick={selectAllDeadlines} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Semua</button>
                   <span className="text-slate-300">|</span>
                   <button onClick={deselectAllDeadlines} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus</button>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                <strong className="text-emerald-600">{selectedDeadlineIds.length}</strong> dari {deadlines.length} terpilih
-              </p>
-
-              {deadlines.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
-                  <AlertTriangle className="w-10 h-10 mx-auto text-amber-500 mb-2" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Belum ada deadline.</p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                  {deadlines.map(d => {
-                    const isSelected = selectedDeadlineIds.includes(d.id);
-                    const stage = (d as any).stage;
-                    const stageInfo = stage ? STAGE_INFO[stage as keyof typeof STAGE_INFO] : null;
-                    const isCritical = (d as any).isCritical;
-                    return (
-                      <button key={d.id} onClick={() => toggleDeadline(d.id)}
-                        className={`w-full p-3 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
-                          isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
-                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-purple-300'
-                        }`}>
-                        <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
-                          {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                            {stageInfo && stage && (
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-gradient-to-r ${stageInfo.gradient} text-white`}>
-                                {stage}
-                              </span>
-                            )}
-                            {isCritical && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">★ KRITIS</span>
-                            )}
-                          </div>
-                          <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{d.title}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                {deadlines.map(d => {
+                  const isSelected = selectedDeadlineIds.includes(d.id);
+                  return (
+                    <button key={d.id} onClick={() => toggleDeadline(d.id)}
+                      className={`w-full p-3 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
+                        isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                      }`}>
+                      <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
+                        {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
+                      </div>
+                      <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{d.title}</p>
+                    </button>
+                  );
+                })}
+              </div>
             </>
           )}
 
           {step === 2 && (
             <>
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Pilih Kelas Tujuan</h4>
                 <div className="flex items-center gap-2">
-                  <Target className="w-5 h-5 text-purple-600" />
-                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Pilih Kelas Tujuan</h4>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={selectAllClasses} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
+                  <button onClick={selectAllClasses} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Semua</button>
                   <span className="text-slate-300">|</span>
                   <button onClick={deselectAllClasses} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus</button>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                <strong className="text-emerald-600">{selectedClassIds.length}</strong> dari {otherClasses.length} kelas
-              </p>
-
-              {otherClasses.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700">
-                  <AlertTriangle className="w-10 h-10 mx-auto text-amber-500 mb-2" />
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Tidak ada kelas lain.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {otherClasses.map(c => {
-                    const isSelected = selectedClassIds.includes(c.id);
-                    const recipients = recipientPreview[c.id] ?? 0;
-                    return (
-                      <button key={c.id} onClick={() => toggleClass(c.id)}
-                        className={`p-4 rounded-2xl border-2 text-left transition ${
-                          isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
-                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-purple-300'
-                        }`}>
-                        <div className="flex items-start gap-3">
-                          <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
-                            {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-black text-slate-900 dark:text-white">{c.name}</p>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">Kode: {c.code}</p>
-                            {isSelected && recipients > 0 && (
-                              <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 mt-1">✓ {recipients} siswa</p>
-                            )}
-                          </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {otherClasses.map(c => {
+                  const isSelected = selectedClassIds.includes(c.id);
+                  return (
+                    <button key={c.id} onClick={() => toggleClass(c.id)}
+                      className={`p-4 rounded-2xl border-2 text-left transition ${
+                        isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                      }`}>
+                      <div className="flex items-start gap-3">
+                        <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
+                          {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
                         </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                        <div>
+                          <p className="text-sm font-black text-slate-900 dark:text-white">{c.name}</p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{c.code}</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </>
           )}
 
           {step === 3 && (
             <>
-              <div className="flex items-center gap-2 mb-3">
-                <Check className="w-5 h-5 text-emerald-600" />
-                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Konfirmasi Salin</h4>
-              </div>
+              <h4 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">Konfirmasi</h4>
               <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10 border-2 border-purple-200 dark:border-purple-500/30">
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
-                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Deadline</p>
+                    <p className="text-[10px] font-bold text-purple-700 uppercase">Deadline</p>
                     <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{selectedDeadlineIds.length}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Kelas</p>
+                    <p className="text-[10px] font-bold text-purple-700 uppercase">Kelas</p>
                     <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{selectedClassIds.length}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Siswa Target</p>
+                    <p className="text-[10px] font-bold text-purple-700 uppercase">Siswa</p>
                     <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{totalRecipients}</p>
                   </div>
                 </div>
@@ -429,9 +357,6 @@ const DeadlineCopyModal: React.FC<{
   );
 };
 
-// =====================================================
-// MAIN COMPONENT
-// =====================================================
 export const DeadlineModule: React.FC = () => {
   const { user, activeClass, classes } = useAuth();
   const { showToast } = useToast();
@@ -450,9 +375,6 @@ export const DeadlineModule: React.FC = () => {
   const [now, setNow] = useState(new Date());
   const [submitting, setSubmitting] = useState(false);
 
-  // ============================================================
-  // STATE: TEMPLATE WIZARD (4 langkah)
-  // ============================================================
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
@@ -460,9 +382,6 @@ export const DeadlineModule: React.FC = () => {
   const [targetAll, setTargetAll] = useState(false);
   const [dueDateOverride, setDueDateOverride] = useState('');
 
-  // ============================================================
-  // STATE: MANUAL FORM (buat deadline manual)
-  // ============================================================
   const [manualTitle, setManualTitle] = useState('');
   const [manualDescription, setManualDescription] = useState('');
   const [manualDueDate, setManualDueDate] = useState('');
@@ -472,14 +391,12 @@ export const DeadlineModule: React.FC = () => {
   const [manualTargets, setManualTargets] = useState<TargetItem[]>([]);
   const [manualIsCritical, setManualIsCritical] = useState(false);
 
-  // Submit proof
   const [proofUrl, setProofUrl] = useState('');
   const [proofNote, setProofNote] = useState('');
   const [progress, setProgress] = useState(50);
   const [askExtension, setAskExtension] = useState(false);
   const [extensionReason, setExtensionReason] = useState('');
 
-  // Review
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [approveExt, setApproveExt] = useState(false);
@@ -536,9 +453,6 @@ export const DeadlineModule: React.FC = () => {
     return { text: `${days} hari lagi`, color: 'text-slate-700 bg-slate-50 border-slate-200' };
   };
 
-  // ============================================================
-  // OPEN HANDLERS
-  // ============================================================
   const handleOpenTemplate = () => {
     setWizardStep(1);
     setSelectedStage('PELAKSANAAN');
@@ -561,9 +475,6 @@ export const DeadlineModule: React.FC = () => {
     setIsManualOpen(true);
   };
 
-  // ============================================================
-  // TEMPLATE: TOGGLE & HELPERS
-  // ============================================================
   const currentTemplates = DEADLINE_TEMPLATES[selectedStage];
 
   const toggleTemplate = (id: string) => {
@@ -632,13 +543,10 @@ export const DeadlineModule: React.FC = () => {
     return matched.size;
   })();
 
-  // ============================================================
-  // TEMPLATE: CREATE
-  // ============================================================
   const handleCreateFromTemplate = async () => {
     if (!user || !activeClass) return;
     if (selectedTemplateIds.length === 0) { showToast('Pilih minimal 1 template.', 'warning'); return; }
-    if (!targetAll && selectedTargets.length === 0) { showToast('Pilih minimal 1 target penerima.', 'warning'); return; }
+    if (!targetAll && selectedTargets.length === 0) { showToast('Pilih minimal 1 target.', 'warning'); return; }
 
     setSubmitting(true);
     let success = 0;
@@ -693,7 +601,6 @@ export const DeadlineModule: React.FC = () => {
       if (recipientIds.size > 0) {
         const batch = writeBatch(db);
         const nowStr = new Date().toISOString();
-        const label = targetAll ? 'Semua Siswa' : selectedTargets.map(t => t.name).join(', ');
         recipientIds.forEach(uid => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
@@ -701,7 +608,7 @@ export const DeadlineModule: React.FC = () => {
             userId: uid,
             classId: activeClass.id,
             title: `📌 ${success} Deadline Baru`,
-            message: `${user.displayName} mengirim ${success} deadline untuk ${label} (${selectedStage}).`,
+            message: `${user.displayName} mengirim ${success} deadline (${selectedStage}).`,
             category: 'Tugas', read: false, link: 'deadline',
             createdAt: nowStr,
           });
@@ -709,13 +616,7 @@ export const DeadlineModule: React.FC = () => {
         await batch.commit();
       }
 
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'DeadlineBatch', targetId: 'batch',
-        details: `Kirim ${success} deadline ke ${recipientCount} siswa (${selectedStage})`,
-      });
-
-      showToast(`✅ ${success} deadline berhasil dikirim ke ${recipientCount} siswa!`, 'success');
+      showToast(`✅ ${success} deadline dikirim ke ${recipientCount} siswa!`, 'success');
       setIsTemplateOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
@@ -724,16 +625,13 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
-  // ============================================================
-  // MANUAL: CREATE
-  // ============================================================
   const handleCreateManual = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
     if (!manualTitle.trim()) { showToast('Judul wajib diisi.', 'warning'); return; }
-    if (!manualDueDate) { showToast('Tenggat waktu wajib diisi.', 'warning'); return; }
+    if (!manualDueDate) { showToast('Tenggat wajib diisi.', 'warning'); return; }
     if (!manualTargetAll && manualTargets.length === 0) {
-      showToast('Pilih minimal 1 target penerima.', 'warning'); return;
+      showToast('Pilih minimal 1 target.', 'warning'); return;
     }
 
     setSubmitting(true);
@@ -771,15 +669,14 @@ export const DeadlineModule: React.FC = () => {
       if (recipientIds.size > 0) {
         const batch = writeBatch(db);
         const nowStr = new Date().toISOString();
-        const label = manualTargetAll ? 'Semua Siswa' : manualTargets.map(t => t.name).join(', ');
         recipientIds.forEach(uid => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
             id: notifRef.id,
             userId: uid,
             classId: activeClass.id,
-            title: `📌 Deadline Baru (${manualStage})`,
-            message: `${user.displayName} mengirim deadline untuk ${label}: "${manualTitle.trim()}"`,
+            title: '📌 Deadline Baru',
+            message: `${user.displayName}: "${manualTitle.trim()}"`,
             category: 'Tugas', read: false, link: 'deadline',
             createdAt: nowStr,
           });
@@ -787,13 +684,7 @@ export const DeadlineModule: React.FC = () => {
         await batch.commit();
       }
 
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'DeadlineManual', targetId: newRef.id,
-        details: `Buat deadline manual: ${manualTitle} (${manualRecipientCount} siswa)`,
-      });
-
-      showToast(`✅ Deadline manual berhasil dikirim ke ${manualRecipientCount} siswa!`, 'success');
+      showToast(`✅ Deadline dikirim ke ${manualRecipientCount} siswa!`, 'success');
       setIsManualOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
@@ -802,9 +693,6 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
-  // ============================================================
-  // SUBMIT PROOF
-  // ============================================================
   const handleSubmitProof = async () => {
     if (!user || !activeClass || !selectedDeadline) return;
     setSubmitting(true);
@@ -827,7 +715,7 @@ export const DeadlineModule: React.FC = () => {
         updatedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
       });
-      showToast('Bukti berhasil dikirim!', 'success');
+      showToast('Bukti dikirim!', 'success');
       setIsSubmitOpen(false);
       setSelectedDeadline(null);
       setProofUrl('');
@@ -890,7 +778,6 @@ export const DeadlineModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-900 via-slate-900 to-slate-800 text-white shadow-xl border border-rose-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -926,7 +813,6 @@ export const DeadlineModule: React.FC = () => {
         </div>
       </div>
 
-      {/* FILTER TAHAP */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         <button onClick={() => setFilterStage('ALL')}
           className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
@@ -950,13 +836,12 @@ export const DeadlineModule: React.FC = () => {
         })}
       </div>
 
-      {/* LIST DEADLINES */}
       {visibleDeadlines.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <Timer className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
           <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Deadline</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {canCreate ? 'Klik "Buat Manual" atau "Dari Template" untuk membuat tugas.' : 'Tunggu instruksi Guru Pengampu.'}
+            {canCreate ? 'Klik "Buat Manual" atau "Dari Template".' : 'Tunggu instruksi Guru Pengampu.'}
           </p>
         </div>
       ) : (
@@ -967,7 +852,6 @@ export const DeadlineModule: React.FC = () => {
             const priority = getPriorityConfig(d.priority);
             const dStage = (d as any).stage as ProductionStage | undefined;
             const stageInfo = dStage ? STAGE_INFO[dStage] : null;
-            const tplRef = (d as any).templateReference;
             const targetCount = ((d as any).targetUserIds || []).length;
             const isCritical = (d as any).isCritical;
             const isManual = (d as any).isManual;
@@ -1002,18 +886,12 @@ export const DeadlineModule: React.FC = () => {
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{d.title}</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-3">{d.description}</p>
 
-                {tplRef && (
-                  <p className="text-[10px] text-blue-600 dark:text-blue-400 italic bg-blue-50 dark:bg-blue-500/10 px-2 py-1 rounded-md border border-blue-200 dark:border-blue-500/30">
-                    <BookOpen className="w-3 h-3 inline mr-1" /> {tplRef}
-                  </p>
-                )}
-
                 <div className={`p-3 rounded-xl border text-xs font-bold text-center ${cd.color}`}>
                   <Clock className="w-4 h-4 inline mr-1" /> {cd.text}
                 </div>
 
                 <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                  Dibuat <strong className="text-slate-600 dark:text-slate-300">{d.creatorName || 'Guru'}</strong>
+                  Oleh <strong className="text-slate-600 dark:text-slate-300">{d.creatorName || 'Guru'}</strong>
                   {d.dueDate ? ` — ${new Date(d.dueDate).toLocaleString('id-ID')}` : ''}
                 </p>
 
@@ -1029,11 +907,6 @@ export const DeadlineModule: React.FC = () => {
                             'bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
                           }`}>{mySub.status}</span>
                         </div>
-                        {mySub.feedback && (
-                          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-[11px] text-emerald-900 dark:text-emerald-200">
-                            <strong>Feedback:</strong> {mySub.feedback}
-                          </div>
-                        )}
                         <button onClick={() => {
                           setSelectedDeadline(d);
                           setProofUrl(mySub.proofUrl || '');
@@ -1070,14 +943,10 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL: BUAT MANUAL */}
-      {/* ============================================================ */}
       {isManualOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleCreateManual}
             className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[95vh] flex flex-col overflow-hidden">
-            {/* Header */}
             <div className="p-5 bg-gradient-to-r from-amber-500 to-orange-600 text-white shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1085,9 +954,7 @@ export const DeadlineModule: React.FC = () => {
                     <FilePlus className="w-6 h-6" />
                   </span>
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">
-                      Buat Tugas Manual
-                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">Buat Manual</span>
                     <h3 className="text-lg font-black mt-0.5">Tugas & Deadline Produksi</h3>
                   </div>
                 </div>
@@ -1098,9 +965,7 @@ export const DeadlineModule: React.FC = () => {
               </div>
             </div>
 
-            {/* Body */}
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
-              {/* Judul */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Judul Tugas <span className="text-rose-500">*</span>
@@ -1111,22 +976,20 @@ export const DeadlineModule: React.FC = () => {
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
 
-              {/* Deskripsi */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Deskripsi / Instruksi
                 </label>
                 <textarea rows={3} value={manualDescription}
                   onChange={(e) => setManualDescription(e.target.value)}
-                  placeholder="Jelaskan tugas secara detail: apa yang harus dikerjakan, di mana, dan hal yang perlu dibawa..."
+                  placeholder="Jelaskan detail tugas..."
                   className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
               </div>
 
-              {/* Tahap + Prioritas */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Tahap Produksi <span className="text-rose-500">*</span>
+                    Tahap <span className="text-rose-500">*</span>
                   </label>
                   <select value={manualStage} onChange={(e) => setManualStage(e.target.value as ProductionStage)}
                     className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
@@ -1151,7 +1014,6 @@ export const DeadlineModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* Deadline */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Tenggat Waktu <span className="text-rose-500">*</span>
@@ -1161,20 +1023,15 @@ export const DeadlineModule: React.FC = () => {
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
 
-              {/* Critical toggle */}
               <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-rose-900 dark:text-rose-200">
                   <input type="checkbox" checked={manualIsCritical}
                     onChange={(e) => setManualIsCritical(e.target.checked)}
                     className="rounded border-rose-300 text-rose-500" />
-                  <span>★ Tandai sebagai <strong>Tugas Kritis</strong></span>
+                  <span>★ Tandai sebagai Tugas Kritis</span>
                 </label>
-                <p className="text-[10px] text-rose-700 dark:text-rose-300 mt-1 pl-6">
-                  Tugas kritis memengaruhi skor Tanggung Jawab lebih besar bila terlambat.
-                </p>
               </div>
 
-              {/* Target */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
                   Target Penerima <span className="text-rose-500">*</span>
@@ -1190,18 +1047,13 @@ export const DeadlineModule: React.FC = () => {
                   </div>
                   <div>
                     <p className="text-xs font-extrabold text-slate-900 dark:text-white">🎯 Semua Siswa</p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                      Kirim ke semua siswa kelas ini
-                    </p>
                   </div>
                 </button>
 
                 {!manualTargetAll && (
                   <>
                     <div className="mb-3">
-                      <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
-                        <User className="w-3 h-3" /> Per Peran
-                      </p>
+                      <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5">Per Peran</p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                         {ROLE_LIST.map(r => {
                           const sel = manualIsTargetSelected('PERAN', r);
@@ -1218,11 +1070,8 @@ export const DeadlineModule: React.FC = () => {
                         })}
                       </div>
                     </div>
-
                     <div>
-                      <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
-                        <Briefcase className="w-3 h-3" /> Per Divisi
-                      </p>
+                      <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1.5">Per Divisi</p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                         {DIVISION_LIST.map(d => {
                           const sel = manualIsTargetSelected('DIVISI', d);
@@ -1251,7 +1100,6 @@ export const DeadlineModule: React.FC = () => {
               </div>
             </div>
 
-            {/* Footer */}
             <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setIsManualOpen(false)}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
@@ -1267,9 +1115,6 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL: WIZARD TEMPLATE */}
-      {/* ============================================================ */}
       {isTemplateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] overflow-y-auto my-auto">
@@ -1298,10 +1143,7 @@ export const DeadlineModule: React.FC = () => {
             <div className="p-6 space-y-4">
               {wizardStep === 1 && (
                 <>
-                  <div className="flex items-center gap-2">
-                    <Target className="w-5 h-5 text-rose-600" />
-                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 1: Pilih Tahap Produksi</h4>
-                  </div>
+                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 1: Pilih Tahap</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {STAGES.map(s => {
                       const info = STAGE_INFO[s.id];
@@ -1310,7 +1152,6 @@ export const DeadlineModule: React.FC = () => {
                         <button key={s.id} onClick={() => { setSelectedStage(s.id); setSelectedTemplateIds([]); setWizardStep(2); }}
                           className={`p-4 rounded-2xl border-2 text-left transition hover:scale-[1.02] bg-gradient-to-br ${info.gradient} text-white border-transparent shadow-md`}>
                           <p className="text-xs font-black uppercase tracking-wider">{s.id}</p>
-                          <p className="text-[10px] mt-1 opacity-90">{info.desc}</p>
                           <p className="text-[10px] mt-2 font-bold bg-white/20 px-2 py-0.5 rounded-md inline-block">{tplCount} template</p>
                         </button>
                       );
@@ -1322,20 +1163,17 @@ export const DeadlineModule: React.FC = () => {
               {wizardStep === 2 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <ListChecks className="w-5 h-5 text-rose-600" />
-                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                        Langkah 2: Pilih Template ({STAGE_INFO[selectedStage].label})
-                      </h4>
-                    </div>
+                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      Langkah 2: Pilih Template
+                    </h4>
                     <button onClick={() => setWizardStep(1)} className="text-[11px] font-bold text-blue-600 hover:underline">← Ganti Tahap</button>
                   </div>
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      <strong>{currentTemplates.length} template</strong> — terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
+                      <strong>{currentTemplates.length}</strong> — terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
                     </p>
                     <div className="flex items-center gap-2">
-                      <button onClick={selectAllTemplates} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
+                      <button onClick={selectAllTemplates} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Semua</button>
                       <span className="text-slate-300">|</span>
                       <button onClick={deselectAllTemplates} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus</button>
                     </div>
@@ -1344,13 +1182,10 @@ export const DeadlineModule: React.FC = () => {
                     {currentTemplates.map(tpl => {
                       const prio = getPriorityConfig(tpl.priority);
                       const isSelected = selectedTemplateIds.includes(tpl.id);
-                      const tRole = tpl.targetRole;
-                      const tDiv = tpl.targetDivision;
-                      const label = tRole ? `👤 ${tRole}` : tDiv ? `👥 ${tDiv}` : '🌐 Semua';
                       return (
                         <button key={tpl.id} onClick={() => toggleTemplate(tpl.id)}
                           className={`p-4 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
-                            isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-rose-400'
+                            isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
                           }`}>
                           <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
                             {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
@@ -1361,10 +1196,8 @@ export const DeadlineModule: React.FC = () => {
                                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">★ KRITIS</span>
                               )}
                               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>{prio.label}</span>
-                              <span className="text-[9px] text-slate-600 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-md">{label}</span>
                             </div>
                             <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{tpl.title}</p>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{tpl.description}</p>
                           </div>
                         </button>
                       );
@@ -1376,10 +1209,7 @@ export const DeadlineModule: React.FC = () => {
               {wizardStep === 3 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <Users className="w-5 h-5 text-rose-600" />
-                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 3: Pilih Target Penerima</h4>
-                    </div>
+                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 3: Target Penerima</h4>
                     <button onClick={() => setWizardStep(2)} className="text-[11px] font-bold text-blue-600 hover:underline">← Ganti Template</button>
                   </div>
 
@@ -1392,16 +1222,13 @@ export const DeadlineModule: React.FC = () => {
                     </div>
                     <div>
                       <p className="text-sm font-extrabold text-slate-900 dark:text-white">🎯 Semua Siswa</p>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">Kirim ke semua siswa kelas ini</p>
                     </div>
                   </button>
 
                   {!targetAll && (
                     <>
                       <div>
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
-                          <User className="w-3.5 h-3.5" /> Per Peran
-                        </p>
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Per Peran</p>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                           {ROLE_LIST.map(r => {
                             const sel = isTargetSelected('PERAN', r);
@@ -1418,11 +1245,8 @@ export const DeadlineModule: React.FC = () => {
                           })}
                         </div>
                       </div>
-
                       <div>
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
-                          <Briefcase className="w-3.5 h-3.5" /> Per Divisi
-                        </p>
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Per Divisi</p>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                           {DIVISION_LIST.map(d => {
                             const sel = isTargetSelected('DIVISI', d);
@@ -1455,30 +1279,19 @@ export const DeadlineModule: React.FC = () => {
 
               {wizardStep === 4 && (
                 <>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5 text-emerald-600" />
-                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 4: Konfirmasi & Kirim</h4>
-                  </div>
-
+                  <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 4: Konfirmasi</h4>
                   <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-3">
                     <div>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Tahap</p>
-                      <p className={`text-xs font-bold bg-gradient-to-r ${STAGE_INFO[selectedStage].gradient} bg-clip-text text-transparent`}>
-                        {STAGE_INFO[selectedStage].label}
-                      </p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Tahap</p>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">{STAGE_INFO[selectedStage].label}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Template Terpilih</p>
-                      <p className="text-xs font-bold text-slate-900 dark:text-white">{selectedTemplateIds.length} template</p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Template</p>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">{selectedTemplateIds.length}</p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Target Penerima</p>
-                      <p className="text-xs font-bold text-slate-900 dark:text-white">
-                        {targetAll ? '🎯 Semua Siswa' : selectedTargets.map(t => `${t.type === 'PERAN' ? '👤' : '👥'} ${t.name}`).join(', ')}
-                      </p>
-                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-                        <strong>{recipientCount} siswa</strong> akan menerima notifikasi
-                      </p>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Penerima</p>
+                      <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{recipientCount} siswa</p>
                     </div>
                   </div>
                 </>
@@ -1517,9 +1330,6 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL SUBMIT PROOF */}
-      {/* ============================================================ */}
       {isSubmitOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
@@ -1575,9 +1385,6 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL REVIEW */}
-      {/* ============================================================ */}
       {isReviewOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 max-h-[92vh] overflow-y-auto">
@@ -1604,12 +1411,6 @@ export const DeadlineModule: React.FC = () => {
                             sub.status === 'TERLAMBAT' ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300' :
                             'bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
                           }`}>{sub.status}</span>
-                          {sub.extensionRequested && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3" /> Minta Perpanjangan
-                              {sub.extensionApproved && <Check className="w-3 h-3" />}
-                            </span>
-                          )}
                         </div>
                         {sub.proofNote && <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 italic">"{sub.proofNote}"</p>}
                         {sub.proofUrl && (
@@ -1625,13 +1426,10 @@ export const DeadlineModule: React.FC = () => {
                         placeholder="Beri feedback..."
                         className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white" />
                       <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">Rating:</span>
-                          <select value={feedbackRating} onChange={(e) => setFeedbackRating(parseInt(e.target.value))}
-                            className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white">
-                            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} bintang</option>)}
-                          </select>
-                        </div>
+                        <select value={feedbackRating} onChange={(e) => setFeedbackRating(parseInt(e.target.value))}
+                          className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white">
+                          {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} bintang</option>)}
+                        </select>
                         {sub.extensionRequested && !sub.extensionApproved && (
                           <label className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 cursor-pointer">
                             <input type="checkbox" checked={approveExt} onChange={(e) => setApproveExt(e.target.checked)}
@@ -1653,9 +1451,6 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL SALIN */}
-      {/* ============================================================ */}
       {isCopyOpen && (
         <DeadlineCopyModal
           allClasses={classes || []}
@@ -1663,7 +1458,7 @@ export const DeadlineModule: React.FC = () => {
           deadlines={deadlines}
           onClose={() => setIsCopyOpen(false)}
           onSuccess={() => {
-            showToast('Deadline berhasil disalin ke kelas lain!', 'success');
+            showToast('Deadline disalin ke kelas lain!', 'success');
           }}
         />
       )}
