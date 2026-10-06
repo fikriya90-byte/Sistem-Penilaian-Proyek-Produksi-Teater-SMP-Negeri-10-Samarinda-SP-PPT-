@@ -21,9 +21,6 @@ interface DashboardModuleProps {
   onNavigate: (module: string) => void;
 }
 
-// =====================================================
-// HOOK: Dashboard Data
-// =====================================================
 function useDashboardData() {
   const { activeClass } = useAuth();
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -45,9 +42,6 @@ function useDashboardData() {
   return { tasks, schedules, sessions, assessments, users };
 }
 
-// =====================================================
-// Komponen: StatCard
-// =====================================================
 const StatCard: React.FC<{
   icon: any; label: string; value: string | number; sub?: string;
   color?: 'amber' | 'blue' | 'emerald' | 'rose' | 'purple' | 'cyan' | 'indigo';
@@ -75,9 +69,6 @@ const StatCard: React.FC<{
   );
 };
 
-// =====================================================
-// Komponen: SectionTitle
-// =====================================================
 const SectionTitle: React.FC<{ icon: any; title: string; subtitle?: string }> =
   ({ icon: Icon, title, subtitle }) => (
     <div className="flex items-center gap-2 mb-3">
@@ -89,9 +80,6 @@ const SectionTitle: React.FC<{ icon: any; title: string; subtitle?: string }> =
     </div>
   );
 
-// =====================================================
-// Komponen: QuickAction
-// =====================================================
 const QuickAction: React.FC<{
   icon: any; label: string; sub: string; onClick: () => void;
 }> = ({ icon: Icon, label, sub, onClick }) => (
@@ -105,9 +93,6 @@ const QuickAction: React.FC<{
   </button>
 );
 
-// =====================================================
-// Komponen: TemplateCard (untuk Template Deadline)
-// =====================================================
 const TemplateCard: React.FC<{
   icon: any; label: string; sub: string; onClick: () => void;
   color?: 'blue' | 'amber' | 'purple' | 'rose' | 'emerald' | 'indigo';
@@ -132,14 +117,10 @@ const TemplateCard: React.FC<{
   );
 };
 
-// =====================================================
-// Universal Header
-// =====================================================
 const UniversalHeader: React.FC = () => {
   const { user, activeClass } = useAuth();
   return (
     <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-slate-900 via-slate-800 to-amber-950 text-white p-6 sm:p-8 shadow-xl border border-amber-500/20 mb-5">
-      <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-radial from-amber-500/10 to-transparent pointer-events-none" />
       <div className="relative z-10">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
@@ -168,7 +149,7 @@ const UniversalHeader: React.FC = () => {
 };
 
 // =====================================================
-// 1. GURU PENGAMPU DASHBOARD
+// GURU PENGAMPU DASHBOARD
 // =====================================================
 const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { user, activeClass } = useAuth();
@@ -177,18 +158,17 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const [templateLoading, setTemplateLoading] = useState(false);
 
   const totalUsers = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
 
   const completedTasks = tasks.filter(t => t.status === 'APPROVED').length;
   const taskProgress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
   const overdueTasks = tasks.filter(t => t.status === 'OVERDUE');
   const usersWithoutAssessment = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin' &&
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin' &&
     !assessments.find(a => a.studentId === u.uid)
   );
 
-  // Fungsi buat deadline dari template
   const createDeadlineFromTemplate = async (
     title: string,
     description: string,
@@ -196,7 +176,8 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
     priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
     target: 'SEMUA' | 'DIVISI' | 'PERAN',
     targetDivision?: DivisionType,
-    targetRole?: UserRole
+    targetRole?: UserRole,
+    isCritical: boolean = false,
   ) => {
     if (!user || !activeClass) return;
     setTemplateLoading(true);
@@ -216,6 +197,7 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         targetScope: target,
         targetDivision,
         targetRole,
+        isCritical,
         createdBy: user.uid,
         creatorName: user.displayName,
         creatorRole: user.role,
@@ -229,11 +211,11 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         action: 'CREATE',
         targetType: 'Deadline',
         targetId: newRef.id,
-        details: `Buat deadline template: ${title}`,
+        details: `Buat deadline template: ${title}${isCritical ? ' (★ kritis)' : ''}`,
       });
 
       showToast(`Deadline "${title}" berhasil dibuat! Cek di menu Deadline.`, 'success');
-      setTimeout(() => onNavigate('deadline'), 800);
+      setTimeout(() => onNavigate('tugas'), 800);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     } finally {
@@ -243,7 +225,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-5">
-      {/* Hero Guru */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-700 via-amber-800 to-orange-900 text-white shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
           Dashboard Guru Pengampu
@@ -254,7 +235,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </p>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Users} label="Total Siswa" value={totalUsers} color="blue" />
         <StatCard icon={CheckCircle} label="Tugas Selesai" value={`${completedTasks}/${tasks.length}`} color="emerald" sub={`${taskProgress}% selesai`} />
@@ -262,7 +242,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <StatCard icon={Award} label="Belum Dinilai" value={usersWithoutAssessment.length} color="amber" sub="Siswa tanpa nilai" />
       </div>
 
-      {/* Progress Tahapan */}
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Layers} title="Progres Tahapan Produksi" subtitle="Status 4 tahap utama" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -276,7 +255,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* Alert Penilaian */}
       {usersWithoutAssessment.length > 0 && (
         <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
           <div className="flex items-center gap-2 mb-2">
@@ -301,7 +279,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* Template Deadline Cepat */}
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Timer} title="Template Deadline Cepat" subtitle="Klik untuk buat deadline otomatis - langsung terkirim ke siswa" />
         {templateLoading && (
@@ -319,24 +296,24 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
             onClick={() => createDeadlineFromTemplate(
               'Rapat Pleno Koordinasi',
               'Rapat pleno seluruh tim produksi teater. Wajib hadir tepat waktu.',
-              1, 'CRITICAL', 'SEMUA'
+              1, 'CRITICAL', 'SEMUA', undefined, undefined, true
             )}
           />
           <TemplateCard
             icon={Mic}
             label="Latihan Rutin"
-            sub="Pemain & Musik - 3 hari - Prioritas Tinggi"
+            sub="Pemeran & Musik - 3 hari"
             color="amber"
             onClick={() => createDeadlineFromTemplate(
               'Latihan Rutin Blocking',
-              'Latihan rutin blocking dan dialog untuk seluruh pemain.',
-              3, 'HIGH', 'DIVISI', 'Pemeran'
+              'Latihan rutin blocking dan dialog untuk seluruh pemeran.',
+              3, 'HIGH', 'DIVISI', 'Pemeran', undefined, false
             )}
           />
           <TemplateCard
             icon={Palette}
             label="Produksi Divisi"
-            sub="Semua divisi - 7 hari - Prioritas Sedang"
+            sub="Semua divisi - 7 hari"
             color="purple"
             onClick={() => createDeadlineFromTemplate(
               'Produksi Internal Divisi',
@@ -347,18 +324,18 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           <TemplateCard
             icon={Camera}
             label="Fitting & Rias"
-            sub="Pemain - 5 hari - Prioritas Tinggi"
+            sub="Pemeran - 5 hari - Prioritas Tinggi"
             color="rose"
             onClick={() => createDeadlineFromTemplate(
               'Fitting Kostum & Rias',
-              'Fitting kostum dan uji coba rias untuk seluruh pemain.',
-              5, 'HIGH', 'PERAN', undefined, 'Pemain'
+              'Fitting kostum dan uji coba rias untuk seluruh pemeran.',
+              5, 'HIGH', 'PERAN', undefined, 'Pemeran'
             )}
           />
           <TemplateCard
             icon={Scissors}
             label="Desain Kostum"
-            sub="Divisi Busana - 14 hari - Prioritas Sedang"
+            sub="Divisi Busana - 14 hari"
             color="emerald"
             onClick={() => createDeadlineFromTemplate(
               'Desain & Jahit Kostum',
@@ -369,41 +346,38 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           <TemplateCard
             icon={Flag}
             label="Gladi Resik"
-            sub="Semua - 2 hari - Prioritas Kritis"
+            sub="Semua - 2 hari - Kritis"
             color="indigo"
             onClick={() => createDeadlineFromTemplate(
               'Gladi Resik Panggung Penuh',
               'Gladi resik lengkap dengan kostum, properti, dan tata panggung. Wajib hadir.',
-              2, 'CRITICAL', 'SEMUA'
+              2, 'CRITICAL', 'SEMUA', undefined, undefined, true
             )}
           />
         </div>
       </div>
-{/* WIDGET PROGRESS TUGAS */}
-<div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shadow-lg">
-  <div className="flex items-center justify-between mb-2">
-    <div className="flex items-center gap-2">
-      <TrendingUp className="w-5 h-5" />
-      <span className="text-sm font-bold">Progress Tugas Saya</span>
-    </div>
-    <span className="text-2xl font-black">
-      {tasks.length > 0 ? Math.round((tasks.filter((t: any) => t.status === 'APPROVED').length / tasks.length) * 100) : 0}%
-    </span>
-  </div>
-  <div className="w-full bg-white/20 rounded-full h-2.5 overflow-hidden">
-    <div className="h-full bg-white rounded-full transition-all"
-      style={{ width: `${tasks.length > 0 ? Math.round((tasks.filter((t: any) => t.status === 'APPROVED').length / tasks.length) * 100) : 0}%` }} />
-  </div>
-  <button onClick={() => onNavigate('tugas')}
-    className="mt-3 w-full py-2 rounded-xl bg-white/20 hover:bg-white/30 font-bold text-xs">
-    Lihat Detail Tugas →
-  </button>
-</div>
-      {/* Aksi Cepat */}
+
+      <div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shadow-lg">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5" />
+            <span className="text-sm font-bold">Progress Tugas Keseluruhan</span>
+          </div>
+          <span className="text-2xl font-black">{taskProgress}%</span>
+        </div>
+        <div className="w-full bg-white/20 rounded-full h-2.5 overflow-hidden">
+          <div className="h-full bg-white rounded-full transition-all" style={{ width: `${taskProgress}%` }} />
+        </div>
+        <button onClick={() => onNavigate('progress-tugas')}
+          className="mt-3 w-full py-2 rounded-xl bg-white/20 hover:bg-white/30 font-bold text-xs">
+          Lihat Detail Progress →
+        </button>
+      </div>
+
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Sparkles} title="Aksi Cepat" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Beri Nilai" sub="Semua siswa" onClick={() => onNavigate('nilai')} />
+          <QuickAction icon={Award} label="Beri Nilai" sub="Pimprod & Sutradara" onClick={() => onNavigate('nilai')} />
           <QuickAction icon={Bell} label="Moderasi" sub="Cek anomali" onClick={() => onNavigate('moderasi')} />
           <QuickAction icon={BarChart3} label="Statistik" sub="Absensi & nilai" onClick={() => onNavigate('statistik-absensi')} />
           <QuickAction icon={BookOpen} label="Kelola Kelas" sub="Siswa & kode" onClick={() => onNavigate('kelola-kelas')} />
@@ -418,18 +392,19 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// 2. PIMPINAN PRODUKSI DASHBOARD
+// PIMPINAN PRODUKSI DASHBOARD
 // =====================================================
 const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { tasks, sessions, users } = useDashboardData();
 
   const totalUsers = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
 
   const completedTasks = tasks.filter(t => t.status === 'APPROVED').length;
   const progress = tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
   const overdueTasks = tasks.filter(t => t.status === 'OVERDUE');
+  const criticalTasks = tasks.filter(t => (t as any).isCritical && t.status !== 'APPROVED');
 
   const divProgress = DIVISIONS.slice(1).map(d => {
     const dTasks = tasks.filter(t => t.divisionName === d.id);
@@ -469,6 +444,35 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* ALERT KRITIS ★ */}
+      {criticalTasks.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 animate-pulse" />
+            <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
+              🚨 ALERT KRITIS ★ — {criticalTasks.length} Tugas Kritis Belum Selesai
+            </h3>
+          </div>
+          <p className="text-[11px] text-rose-700 dark:text-rose-300 mb-2">
+            Tugas bertanda ★ (tenggat berantai) membuat teman/divisi lain tertunda jika tidak selesai.
+          </p>
+          <div className="space-y-1.5 max-h-40 overflow-y-auto">
+            {criticalTasks.slice(0, 5).map(t => (
+              <div key={t.id} className="text-xs text-rose-800 dark:text-rose-200 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg flex items-center justify-between border border-rose-200 dark:border-rose-500/30">
+                <span className="truncate">
+                  <strong className="text-rose-600 dark:text-rose-400">★</strong> {t.title}
+                  <span className="text-rose-500 dark:text-rose-400 ml-1">({t.divisionName || t.role})</span>
+                </span>
+                <button onClick={() => onNavigate('tugas')}
+                  className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline shrink-0">
+                  Lihat
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Users} label="Total Anggota" value={totalUsers} color="blue" />
         <StatCard icon={CheckCircle} label="Tugas Selesai" value={`${completedTasks}/${tasks.length}`} color="emerald" />
@@ -476,7 +480,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <StatCard icon={ClipboardList} label="Presensi Tim" value={sessions.length} color="cyan" sub="Sesi total" />
       </div>
 
-      {/* Timeline */}
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Flag} title="Timeline Produksi" subtitle="4 tahapan utama produksi teater" />
         <div className="relative">
@@ -503,7 +506,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* Progress Divisi */}
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Layers} title="Progress 6 Divisi Produksi" subtitle="Pantau divisi yang tertinggal" />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -524,7 +526,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* Alert Kritis */}
       {overdueTasks.length > 0 && (
         <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
           <div className="flex items-center gap-2 mb-2">
@@ -560,11 +561,11 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// 3. SUTRADARA DASHBOARD
+// SUTRADARA DASHBOARD
 // =====================================================
 const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { tasks, assessments, users, sessions } = useDashboardData();
-  const actors = users.filter(u => u.role === 'Pemain');
+  const actors = users.filter(u => u.role === 'Pemeran');
 
   const actorScores = actors.map(a => {
     const recs = assessments.filter(r => r.studentId === a.uid);
@@ -582,24 +583,24 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
     <div className="space-y-5">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-800 to-rose-950 text-white shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Sutradara</span>
-        <h2 className="text-2xl font-black mt-1">Latihan & Evaluasi Pemain</h2>
+        <h2 className="text-2xl font-black mt-1">Latihan & Evaluasi Pemeran</h2>
         <p className="text-xs opacity-90 mt-1">
-          {actors.length} pemain - {rehearsalDone}/{rehearsalTasks.length} tugas latihan selesai
+          {actors.length} pemeran - {rehearsalDone}/{rehearsalTasks.length} tugas latihan selesai
         </p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Users} label="Total Pemain" value={actors.length} color="rose" />
+        <StatCard icon={Users} label="Total Pemeran" value={actors.length} color="rose" />
         <StatCard icon={Mic} label="Progres Latihan" value={`${rehearsalPct}%`} color="amber" sub={`${rehearsalDone}/${rehearsalTasks.length} tugas`} />
         <StatCard icon={AlertTriangle} label="Perlu Perhatian" value={needAttention.length} color="rose" />
-        <StatCard icon={ClipboardList} label="Absensi Pemain" value={attendanceSessions.length} color="blue" />
+        <StatCard icon={ClipboardList} label="Absensi Pemeran" value={attendanceSessions.length} color="blue" />
       </div>
 
       <div className="p-5 rounded-3xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 shadow-sm">
-        <SectionTitle icon={AlertTriangle} title="Pemain Perlu Perhatian Khusus" subtitle="Nilai < 70 atau belum ada nilai" />
+        <SectionTitle icon={AlertTriangle} title="Pemeran Perlu Perhatian Khusus" subtitle="Nilai < 70 atau belum ada nilai" />
         {needAttention.length === 0 ? (
           <p className="text-xs text-emerald-700 dark:text-emerald-300 italic text-center py-4 bg-emerald-50 dark:bg-emerald-500/10 rounded-xl">
-            Semua pemain dalam kondisi baik
+            Semua pemeran dalam kondisi baik
           </p>
         ) : (
           <div className="space-y-2">
@@ -611,7 +612,7 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{a.user.displayName}</p>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                    {a.hasScore ? `Nilai: ${a.avg.toFixed(1)} - perlu bimbingan` : 'Belum ada nilai - segera evaluasi'}
+                    {a.hasScore ? `Nilai: ${a.avg.toFixed(1)} - perlu bimbingan` : 'Belum ada nilai'}
                   </p>
                 </div>
                 <button onClick={() => onNavigate('nilai')}
@@ -627,8 +628,8 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Sparkles} title="Aksi Cepat" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Nilai Pemain" sub="6 kriteria akting" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Absensi Latihan" sub="Pemain + Musik" onClick={() => onNavigate('absensi')} />
+          <QuickAction icon={Award} label="Nilai Pemeran" sub="6 kriteria akting" onClick={() => onNavigate('nilai')} />
+          <QuickAction icon={ClipboardList} label="Absensi Latihan" sub="Pemeran + Musik" onClick={() => onNavigate('absensi')} />
           <QuickAction icon={Calendar} label="Jadwal Latihan" sub="Agenda akting" onClick={() => onNavigate('jadwal')} />
           <QuickAction icon={Sparkles} label="Prompt Book" sub="Blocking + Cue" onClick={() => onNavigate('studio')} />
         </div>
@@ -638,11 +639,11 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// 4. ASISTEN SUTRADARA DASHBOARD
+// ASISTEN SUTRADARA
 // =====================================================
 const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { tasks, schedules, users, sessions } = useDashboardData();
-  const actors = users.filter(u => u.role === 'Pemain');
+  const actors = users.filter(u => u.role === 'Pemeran');
   const upcoming = schedules
     .filter(s => new Date(s.startAt).getTime() > Date.now())
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
@@ -660,27 +661,27 @@ const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Play} label="Prompt Book" value="Aktif" color="purple" sub="Editor blocking 3x3" />
         <StatCard icon={FileText} label="Catatan Latihan" value={tasks.length} color="amber" sub="Update harian" />
-        <StatCard icon={ClipboardList} label="Absensi Pemain" value={pemainSessions.length} color="blue" />
-        <StatCard icon={Users} label="Status Pemain" value={actors.length} color="emerald" />
+        <StatCard icon={ClipboardList} label="Absensi Pemeran" value={pemainSessions.length} color="blue" />
+        <StatCard icon={Users} label="Status Pemeran" value={actors.length} color="emerald" />
       </div>
 
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Sparkles} title="Prompt Book & Blocking" subtitle="Editor posisi panggung 3x3" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">
             Blocking Grid
           </button>
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">
             Cue Sheet
           </button>
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">
             Standby Cue
           </button>
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">
             Naskah
           </button>
         </div>
@@ -711,8 +712,8 @@ const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <SectionTitle icon={Sparkles} title="Aksi Cepat" />
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
           <QuickAction icon={Sparkles} label="Prompt Book" sub="Editor blocking" onClick={() => onNavigate('studio')} />
-          <QuickAction icon={Award} label="Nilai Pemain" sub="Aspek teknis" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Absensi Pemain" sub="Pemain + Musik" onClick={() => onNavigate('absensi')} />
+          <QuickAction icon={Award} label="Nilai Pemeran" sub="Aspek teknis" onClick={() => onNavigate('nilai')} />
+          <QuickAction icon={ClipboardList} label="Absensi Pemeran" sub="Pemeran + Musik" onClick={() => onNavigate('absensi')} />
           <QuickAction icon={FileText} label="Catatan" sub="Upload evaluasi" onClick={() => onNavigate('dokumen')} />
         </div>
       </div>
@@ -721,7 +722,7 @@ const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// 5. SEKRETARIS DASHBOARD
+// SEKRETARIS DASHBOARD
 // =====================================================
 const SekretarisDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { schedules, sessions, users } = useDashboardData();
@@ -729,7 +730,7 @@ const SekretarisDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => 
   const todaySchedules = schedules.filter(s => new Date(s.startAt).toISOString().slice(0, 10) === today);
   const openSessions = sessions.filter(s => s.isOpen);
   const totalStudents = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   ).length;
 
   return (
@@ -797,7 +798,7 @@ const SekretarisDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => 
 };
 
 // =====================================================
-// 6. BENDAHARA DASHBOARD
+// BENDAHARA DASHBOARD
 // =====================================================
 const BendaharaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   return (
@@ -838,7 +839,7 @@ const BendaharaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// 7. KOORDINATOR DASHBOARD (Generic)
+// KOORDINATOR DASHBOARD
 // =====================================================
 const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }> =
   ({ onNavigate, division }) => {
@@ -849,8 +850,8 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
   const pct = divTasks.length > 0 ? Math.round((divDone.length / divTasks.length) * 100) : 0;
   const members = users.filter(u => u.divisionName === division && !u.role.startsWith('Koordinator'));
   const divSchedules = schedules.filter(s => s.divisionName === division);
-  const divSessions = sessions.filter(s => s.targetDivisionName === division || s.targetScope === 'DIVISI');
   const overdue = divTasks.filter(t => t.status === 'OVERDUE');
+  const criticalDivTasks = divTasks.filter(t => (t as any).isCritical && t.status !== 'APPROVED');
 
   const memberScores = members.map(m => {
     const recs = assessments.filter(r => r.studentId === m.uid);
@@ -885,6 +886,24 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
         <StatCard icon={Calendar} label="Jadwal Internal" value={divSchedules.length} color="purple" />
         <StatCard icon={AlertTriangle} label="Terlambat" value={overdue.length} color="rose" />
       </div>
+
+      {criticalDivTasks.length > 0 && (
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="w-5 h-5 text-rose-600 animate-pulse" />
+            <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
+              🚨 {criticalDivTasks.length} Tugas Kritis ★ Divisi {division}
+            </h3>
+          </div>
+          <div className="space-y-1">
+            {criticalDivTasks.slice(0, 3).map(t => (
+              <div key={t.id} className="text-xs text-rose-800 dark:text-rose-200 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg">
+                <strong>★</strong> {t.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <div className="flex items-center justify-between mb-3">
@@ -940,7 +959,7 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
 };
 
 // =====================================================
-// 8. ANGGOTA DASHBOARD (Generic)
+// ANGGOTA DASHBOARD
 // =====================================================
 const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { user } = useAuth();
@@ -1014,7 +1033,9 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
               }`}>
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{t.title}</p>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                      {(t as any).isCritical && <span className="text-rose-500">★ </span>}{t.title}
+                    </p>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400">
                       Deadline: {new Date(t.dueDate).toLocaleDateString('id-ID')}
                     </p>
@@ -1044,9 +1065,9 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// 9. PEMAIN DASHBOARD
+// PEMERAN DASHBOARD
 // =====================================================
-const PemainDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
+const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { user } = useAuth();
   const { tasks, schedules, assessments } = useDashboardData();
 
@@ -1063,8 +1084,8 @@ const PemainDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 
   const upcomingRehearsals = schedules
     .filter(s => new Date(s.startAt).getTime() > Date.now() &&
-      (s.participants.toLowerCase().includes('pemain') ||
-       s.participants.toLowerCase().includes('pemeran') ||
+      (s.participants.toLowerCase().includes('pemeran') ||
+       s.participants.toLowerCase().includes('pemain') ||
        s.type === 'Latihan' || s.type === 'Gladi'))
     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
     .slice(0, 3);
@@ -1072,7 +1093,7 @@ const PemainDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   return (
     <div className="space-y-5">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-700 to-pink-900 text-white shadow-lg">
-        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Pemain</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Pemeran</span>
         <h2 className="text-2xl font-black mt-1">Naskah, Blocking & Latihan</h2>
         <p className="text-xs opacity-90 mt-1">
           Progres latihan: <strong>{rehearsalPct}%</strong> - {rehearsalDone}/{rehearsalTasks.length} tugas selesai
@@ -1090,19 +1111,19 @@ const PemainDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <SectionTitle icon={BookOpen} title="Latihan Dialog & Blocking" subtitle="10 langkah dialog + rekam suara" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">
             Naskah Digital
           </button>
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 dark:hover:bg-purple-500/20 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">
             Blocking 3x3
           </button>
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">
             Rekam Suara
           </button>
           <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">
+            className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">
             10 Langkah
           </button>
         </div>
@@ -1154,7 +1175,7 @@ const PemainDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           <QuickAction icon={Award} label="Nilai Saya" sub="Rapor lengkap" onClick={() => onNavigate('nilai-saya')} />
           <QuickAction icon={Star} label="Nilai Rekan" sub="Penilaian sejawat" onClick={() => onNavigate('nilai')} />
           <QuickAction icon={ClipboardList} label="Presensi" sub="Kehadiran" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={Timer} label="Deadline" sub="Tenggat waktu" onClick={() => onNavigate('deadline')} />
+          <QuickAction icon={Timer} label="Deadline" sub="Tenggat waktu" onClick={() => onNavigate('tugas')} />
         </div>
       </div>
     </div>
@@ -1195,14 +1216,14 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({ onNavigate }) 
       case 'Anggota Tata Musik':
         return <AnggotaDashboard onNavigate={onNavigate} />;
 
-      case 'Pemain': return <PemainDashboard onNavigate={onNavigate} />;
+      case 'Pemeran': return <PemeranDashboard onNavigate={onNavigate} />;
 
       default: return <GuruDashboard onNavigate={onNavigate} />;
     }
   };
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-300">
+    <div className="space-y-5">
       <UniversalHeader />
       {renderRoleDashboard()}
     </div>
