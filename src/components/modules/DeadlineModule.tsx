@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
   AlertTriangle, Check, BookOpen, Flag, Palette, Star, ChevronRight,
-  Sparkles, Target, ListChecks,
+  Sparkles, Target, ListChecks, Square, CheckSquare, User, Briefcase,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -13,14 +13,12 @@ import {
 } from '../../core/types';
 import {
   collection, query, where, onSnapshot, doc, setDoc, updateDoc, getDocs,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-import { recordAuditLog, fetchUsersByClass, notifyTeachers } from '../../services/firestoreService';
+import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { DEADLINE_TEMPLATES, STAGE_INFO, DeadlineTemplate } from '../../core/deadlineTemplates';
 
-// =====================================================
-// PRIORITY CONFIG
-// =====================================================
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   LOW: { label: 'Rendah', color: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' },
   MEDIUM: { label: 'Sedang', color: 'bg-blue-100 text-blue-800 border-blue-300', dot: 'bg-blue-500' },
@@ -29,18 +27,29 @@ const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: strin
 };
 
 function getPriorityConfig(priority?: string) {
-  if (!priority) return PRIORITY_CONFIG.MEDIUM;
-  return PRIORITY_CONFIG[priority] || PRIORITY_CONFIG.MEDIUM;
+  return PRIORITY_CONFIG[priority || 'MEDIUM'] || PRIORITY_CONFIG.MEDIUM;
 }
 
-// =====================================================
-// HANYA GURU PENGAMPU YANG BISA BUAT DEADLINE
-// =====================================================
-const CAN_CREATE_DEADLINE_ROLES = ['Guru Pengampu', 'Guru Pembina'];
+const CAN_CREATE_DEADLINE_ROLES = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'];
 
-// =====================================================
-// MAIN COMPONENT
-// =====================================================
+const ROLE_LIST: UserRole[] = [
+  'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemain',
+  'Koordinator Perlengkapan', 'Koordinator Publikasi', 'Koordinator Tata Panggung',
+  'Koordinator Tata Rias', 'Koordinator Tata Busana', 'Koordinator Tata Musik',
+  'Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung',
+  'Anggota Tata Rias', 'Anggota Tata Busana', 'Anggota Tata Musik',
+];
+
+const DIVISION_LIST: DivisionType[] = [
+  'Pengurus Inti', 'Pemeran', 'Perlengkapan', 'Publikasi & Dokumentasi',
+  'Tata Panggung', 'Tata Rias', 'Tata Busana', 'Tata Musik & Suara',
+];
+
+interface TargetItem {
+  type: 'PERAN' | 'DIVISI';
+  name: string;
+}
+
 export const DeadlineModule: React.FC = () => {
   const { user, activeClass, isGuruPengampu } = useAuth();
   const { showToast } = useToast();
@@ -55,31 +64,24 @@ export const DeadlineModule: React.FC = () => {
   const [submissions, setSubmissions] = useState<DeadlineSubmission[]>([]);
   const [filterStage, setFilterStage] = useState<'ALL' | ProductionStage>('ALL');
   const [now, setNow] = useState(new Date());
-
-  // Wizard states
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
-  const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
-  const [selectedTemplate, setSelectedTemplate] = useState<DeadlineTemplate | null>(null);
-
-  // Form final
-  const [newTitle, setNewTitle] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newDue, setNewDue] = useState('');
-  const [newPriority, setNewPriority] = useState<'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('MEDIUM');
-  const [newTarget, setNewTarget] = useState<'SEMUA' | 'DIVISI' | 'PERAN' | 'CUSTOM'>('SEMUA');
-  const [newDivision, setNewDivision] = useState<DivisionType>('Perlengkapan');
-  const [newRole, setNewRole] = useState<UserRole>('Pemain');
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  // Submit proof
+  // ========== WIZARD STATE ==========
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+  const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [selectedTargets, setSelectedTargets] = useState<TargetItem[]>([]);
+  const [targetAll, setTargetAll] = useState(false);
+  const [dueDateOverride, setDueDateOverride] = useState('');
+
+  // ========== SUBMIT PROOF ==========
   const [proofUrl, setProofUrl] = useState('');
   const [proofNote, setProofNote] = useState('');
   const [progress, setProgress] = useState(50);
   const [askExtension, setAskExtension] = useState(false);
   const [extensionReason, setExtensionReason] = useState('');
 
-  // Review
+  // ========== REVIEW ==========
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [approveExt, setApproveExt] = useState(false);
@@ -121,131 +123,160 @@ export const DeadlineModule: React.FC = () => {
     return () => unsub();
   }, [activeClass, user]);
 
-  // ==========================================
-  // COUNTDOWN
-  // ==========================================
   const getCountdown = (dueDate?: string) => {
     if (!dueDate) return { text: 'Tanpa deadline', color: 'text-slate-700 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700' };
     const diff = new Date(dueDate).getTime() - now.getTime();
-    if (isNaN(diff)) return { text: 'Format salah', color: 'text-slate-700 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700' };
+    if (isNaN(diff)) return { text: 'Format salah', color: 'text-slate-700 bg-slate-50 border-slate-200' };
     if (diff <= 0) {
-      const lateDays = Math.floor(Math.abs(diff) / (1000 * 60 * 60 * 24));
-      return { text: `Terlambat ${lateDays} hari`, color: 'text-rose-700 bg-rose-100 border-rose-300 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40' };
+      const lateDays = Math.floor(Math.abs(diff) / 86400000);
+      return { text: `Terlambat ${lateDays} hari`, color: 'text-rose-700 bg-rose-100 border-rose-300' };
     }
-    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const hours = Math.floor(diff / 3600000);
     const days = Math.floor(hours / 24);
-    if (hours < 24) return { text: `${hours} jam lagi`, color: 'text-rose-700 bg-rose-50 border-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40 animate-pulse font-bold' };
-    if (hours <= 72) return { text: `${days} hari lagi`, color: 'text-amber-700 bg-amber-50 border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40' };
+    if (hours < 24) return { text: `${hours} jam lagi`, color: 'text-rose-700 bg-rose-50 border-rose-200 animate-pulse font-bold' };
+    if (hours <= 72) return { text: `${days} hari lagi`, color: 'text-amber-700 bg-amber-50 border-amber-200' };
     return { text: `${days} hari lagi`, color: 'text-slate-700 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700' };
   };
 
-  // ==========================================
-  // WIZARD: RESET & OPEN
-  // ==========================================
+  // ========== RESET WIZARD ==========
   const handleOpenCreate = () => {
     setWizardStep(1);
     setSelectedStage('PELAKSANAAN');
-    setSelectedTemplate(null);
-    setNewTitle('');
-    setNewDesc('');
-    setNewDue('');
-    setNewPriority('MEDIUM');
-    setNewTarget('SEMUA');
-    setSelectedUserIds([]);
+    setSelectedTemplateIds([]);
+    setSelectedTargets([]);
+    setTargetAll(false);
+    setDueDateOverride('');
     setIsCreateOpen(true);
   };
 
-  // ==========================================
-  // WIZARD STEP 2: PILIH TEMPLATE
-  // ==========================================
-  const handleSelectTemplate = (tpl: DeadlineTemplate) => {
-    setSelectedTemplate(tpl);
-    setNewTitle(tpl.title);
-    setNewDesc(tpl.description);
-    setNewPriority(tpl.priority);
-    setNewTarget(tpl.targetType);
-    if (tpl.targetDivision) setNewDivision(tpl.targetDivision);
-    if (tpl.targetRole) setNewRole(tpl.targetRole);
+  const currentTemplates = DEADLINE_TEMPLATES[selectedStage];
 
-    const due = new Date();
-    due.setDate(due.getDate() + tpl.daysFromNow);
-    due.setHours(23, 59, 0, 0);
-    setNewDue(due.toISOString().slice(0, 16));
-    setWizardStep(3);
+  const toggleTemplate = (id: string) => {
+    setSelectedTemplateIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  const selectAllTemplates = () => setSelectedTemplateIds(currentTemplates.map(t => t.id));
+  const deselectAllTemplates = () => setSelectedTemplateIds([]);
+
+  const toggleTarget = (type: 'PERAN' | 'DIVISI', name: string) => {
+    setSelectedTargets(prev => {
+      const exists = prev.find(t => t.type === type && t.name === name);
+      if (exists) return prev.filter(t => !(t.type === type && t.name === name));
+      return [...prev, { type, name }];
+    });
   };
 
-  // ==========================================
-  // WIZARD STEP 4: SUBMIT
-  // ==========================================
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !activeClass) return;
-    if (!newTitle.trim() || !newDue) {
-      showToast('Lengkapi judul dan deadline.', 'warning');
-      return;
+  const isTargetSelected = (type: 'PERAN' | 'DIVISI', name: string) =>
+    selectedTargets.some(t => t.type === type && t.name === name);
+
+  // Hitung siapa saja yang akan menerima
+  const recipientCount = (() => {
+    if (targetAll) {
+      return users.filter(u =>
+        u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
+        u.role !== 'Admin' && u.role !== 'Super Admin'
+      ).length;
     }
+    const matched = new Set<string>();
+    selectedTargets.forEach(t => {
+      users.forEach(u => {
+        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+        if (u.role === 'Admin' || u.role === 'Super Admin') return;
+        if (t.type === 'PERAN' && u.role === t.name) matched.add(u.uid);
+        if (t.type === 'DIVISI' && u.divisionName === t.name) matched.add(u.uid);
+      });
+    });
+    return matched.size;
+  })();
+
+  // ========== SUBMIT ==========
+  const handleCreate = async () => {
+    if (!user || !activeClass) return;
+    if (selectedTemplateIds.length === 0) { showToast('Pilih minimal 1 template.', 'warning'); return; }
+    if (!targetAll && selectedTargets.length === 0) { showToast('Pilih minimal 1 target penerima.', 'warning'); return; }
+
     setSubmitting(true);
+    let success = 0;
+
     try {
-      const newRef = doc(collection(db, 'deadlines'));
-      const newDeadline: DeadlineItem = {
-        id: newRef.id,
-        classId: activeClass.id,
-        title: newTitle.trim(),
-        description: newDesc.trim(),
-        dueDate: new Date(newDue).toISOString(),
-        priority: newPriority,
-        targetScope: newTarget === 'CUSTOM' ? 'CUSTOM' : newTarget,
-        targetDivision: newTarget === 'DIVISI' ? newDivision : undefined,
-        targetRole: newTarget === 'PERAN' ? newRole : undefined,
-        targetUserIds: newTarget === 'CUSTOM' ? selectedUserIds : undefined,
-        stage: selectedStage,
-        createdBy: user.uid,
-        creatorName: user.displayName,
-        creatorRole: user.role,
-        createdAt: new Date().toISOString(),
-        templateReference: selectedTemplate?.reference,
-      } as any;
-      await setDoc(newRef, newDeadline);
-
-      // Kirim notifikasi ke target
-      try {
-        const allUsers = await fetchUsersByClass(activeClass.id);
-        const recipients = allUsers.filter(u => {
-          if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return false;
-          if (u.role === 'Admin' || u.role === 'Super Admin') return false;
-          if (newTarget === 'SEMUA') return true;
-          if (newTarget === 'DIVISI') return u.divisionName === newDivision;
-          if (newTarget === 'PERAN') return u.role === newRole;
-          if (newTarget === 'CUSTOM') return selectedUserIds.includes(u.uid);
-          return false;
+      // Kumpulkan semua user target (unique)
+      const recipientIds = new Set<string>();
+      users.forEach(u => {
+        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+        if (u.role === 'Admin' || u.role === 'Super Admin') return;
+        if (targetAll) { recipientIds.add(u.uid); return; }
+        selectedTargets.forEach(t => {
+          if (t.type === 'PERAN' && u.role === t.name) recipientIds.add(u.uid);
+          if (t.type === 'DIVISI' && u.divisionName === t.name) recipientIds.add(u.uid);
         });
+      });
 
-        const { writeBatch } = await import('firebase/firestore');
+      for (const tplId of selectedTemplateIds) {
+        const tpl = currentTemplates.find(t => t.id === tplId);
+        if (!tpl) continue;
+
+        let dueIso: string;
+        if (dueDateOverride) {
+          dueIso = new Date(dueDateOverride).toISOString();
+        } else {
+          const d = new Date();
+          d.setDate(d.getDate() + tpl.daysFromNow);
+          d.setHours(23, 59, 0, 0);
+          dueIso = d.toISOString();
+        }
+
+        const newRef = doc(collection(db, 'deadlines'));
+        const newDeadline: any = {
+          id: newRef.id,
+          classId: activeClass.id,
+          title: tpl.title,
+          description: tpl.description,
+          dueDate: dueIso,
+          priority: tpl.priority,
+          targetScope: targetAll ? 'SEMUA' : 'CUSTOM',
+          targetUserIds: Array.from(recipientIds),
+          stage: selectedStage,
+          createdBy: user.uid,
+          creatorName: user.displayName,
+          creatorRole: user.role,
+          createdAt: new Date().toISOString(),
+          templateReference: tpl.reference,
+        };
+        await setDoc(newRef, newDeadline);
+        success++;
+      }
+
+      // ============ KIRIM NOTIFIKASI KE SEMUA PENERIMA ============
+      if (recipientIds.size > 0) {
         const batch = writeBatch(db);
-        recipients.forEach(r => {
+        const now = new Date().toISOString();
+        const label = targetAll
+          ? 'Semua Siswa'
+          : selectedTargets.map(t => t.name).join(', ');
+
+        recipientIds.forEach(uid => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
             id: notifRef.id,
-            userId: r.uid,
+            userId: uid,
             classId: activeClass.id,
-            title: 'Deadline Baru',
-            message: `${user.displayName}: "${newTitle.trim()}" (${selectedStage})`,
-            category: 'Reminder',
+            title: `📌 ${success} Deadline Baru`,
+            message: `${user.displayName} mengirim ${success} deadline untuk ${label} (${selectedStage}). Cek menu Tugas & Deadline.`,
+            category: 'Tugas',
             read: false,
             link: 'deadline',
-            createdAt: new Date().toISOString(),
+            createdAt: now,
           });
         });
         await batch.commit();
-      } catch { /* non-fatal */ }
+      }
 
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'Deadline', targetId: newRef.id,
-        details: `Buat deadline [${selectedStage}]: ${newTitle}`,
+        action: 'CREATE', targetType: 'DeadlineBatch', targetId: 'batch',
+        details: `Kirim ${success} deadline ke ${recipientCount} siswa (${selectedStage})`,
       });
 
-      showToast('Deadline berhasil dikirim!', 'success');
+      showToast(`✅ ${success} deadline berhasil dikirim ke ${recipientCount} siswa!`, 'success');
       setIsCreateOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
@@ -254,9 +285,7 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
-  // ==========================================
-  // SUBMIT PROOF
-  // ==========================================
+  // ========== SUBMIT PROOF ==========
   const handleSubmitProof = async () => {
     if (!user || !activeClass || !selectedDeadline) return;
     setSubmitting(true);
@@ -279,15 +308,25 @@ export const DeadlineModule: React.FC = () => {
         updatedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
       });
+
+      // Notif ke guru
       try {
-        await notifyTeachers(activeClass.id, {
-          title: askExtension ? 'Permintaan Perpanjangan Deadline' : 'Bukti Deadline Dikirim',
-          message: `${user.displayName} (${user.role}) - "${selectedDeadline.title}"${askExtension ? ' (minta perpanjangan)' : ''}`,
-          category: 'Tugas',
-          link: 'deadline',
-          senderName: user.displayName,
+        const batch = writeBatch(db);
+        users.filter(u => u.role === 'Guru Pengampu' || u.role === 'Guru Pembina').forEach(g => {
+          const notifRef = doc(collection(db, 'notifications'));
+          batch.set(notifRef, {
+            id: notifRef.id,
+            userId: g.uid,
+            classId: activeClass.id,
+            title: askExtension ? '📝 Permintaan Perpanjangan' : '📤 Bukti Deadline Dikirim',
+            message: `${user.displayName} (${user.role}) — "${selectedDeadline.title}"`,
+            category: 'Tugas', read: false, link: 'deadline',
+            createdAt: new Date().toISOString(),
+          });
         });
+        await batch.commit();
       } catch { /* non-fatal */ }
+
       showToast('Bukti berhasil dikirim!', 'success');
       setIsSubmitOpen(false);
       setSelectedDeadline(null);
@@ -302,9 +341,7 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
-  // ==========================================
-  // REVIEW (Guru)
-  // ==========================================
+  // ========== REVIEW ==========
   const handleOpenReview = async (d: DeadlineItem) => {
     setSelectedDeadline(d);
     try {
@@ -332,11 +369,9 @@ export const DeadlineModule: React.FC = () => {
         id: notifRef.id,
         userId: sub.studentId,
         classId: sub.classId,
-        title: 'Feedback Deadline',
-        message: `${user.displayName} memberi feedback`,
-        category: 'Feedback',
-        read: false,
-        link: 'deadline',
+        title: '💬 Feedback Deadline',
+        message: `${user.displayName} memberi feedback untuk "${selectedDeadline?.title}"`,
+        category: 'Feedback', read: false, link: 'deadline',
         createdAt: new Date().toISOString(),
       });
 
@@ -355,20 +390,19 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
-  // ==========================================
-  // FILTER
-  // ==========================================
   const visibleDeadlines = deadlines.filter(d => {
     if (filterStage !== 'ALL') {
       const dStage = (d as any).stage;
       if (dStage && dStage !== filterStage) return false;
     }
+    // Untuk siswa: hanya tampilkan yang target-nya include user
+    if (!canCreate && user) {
+      const tu: string[] = (d as any).targetUserIds || [];
+      if (d.targetScope === 'CUSTOM' && tu.length > 0 && !tu.includes(user.uid)) return false;
+    }
     return true;
   });
 
-  // ==========================================
-  // RENDER
-  // ==========================================
   return (
     <div className="space-y-6">
       {/* HEADER */}
@@ -384,7 +418,7 @@ export const DeadlineModule: React.FC = () => {
               </span>
               <h2 className="text-xl font-black text-white mt-1">Tenggat Waktu & Pengumpulan</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Template dari 12 peran resmi — 4 tahap produksi
+                Multi-template × Multi-target — Notifikasi otomatis ke siswa
               </p>
             </div>
           </div>
@@ -401,8 +435,7 @@ export const DeadlineModule: React.FC = () => {
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         <button onClick={() => setFilterStage('ALL')}
           className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-            filterStage === 'ALL'
-              ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm'
+            filterStage === 'ALL' ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm'
               : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
           }`}>
           Semua ({deadlines.length})
@@ -413,8 +446,7 @@ export const DeadlineModule: React.FC = () => {
           return (
             <button key={s.id} onClick={() => setFilterStage(s.id)}
               className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                isActive
-                  ? `bg-gradient-to-r ${STAGE_INFO[s.id].gradient} text-white shadow-md`
+                isActive ? `bg-gradient-to-r ${STAGE_INFO[s.id].gradient} text-white shadow-md`
                   : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
               }`}>
               {s.id} ({count})
@@ -429,7 +461,7 @@ export const DeadlineModule: React.FC = () => {
           <Timer className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
           <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Deadline</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {canCreate ? 'Klik "Kirim Deadline" untuk buat dari template.' : 'Tunggu instruksi Guru Pengampu.'}
+            {canCreate ? 'Klik "Kirim Deadline" untuk mulai dari template.' : 'Tunggu instruksi Guru Pengampu.'}
           </p>
         </div>
       ) : (
@@ -441,6 +473,7 @@ export const DeadlineModule: React.FC = () => {
             const dStage = (d as any).stage as ProductionStage | undefined;
             const stageInfo = dStage ? STAGE_INFO[dStage] : null;
             const tplRef = (d as any).templateReference;
+            const targetCount = ((d as any).targetUserIds || []).length;
 
             return (
               <div key={d.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-rose-300 transition shadow-sm space-y-3">
@@ -455,9 +488,7 @@ export const DeadlineModule: React.FC = () => {
                     {priority.label}
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
-                    {d.targetScope === 'DIVISI' ? d.targetDivision :
-                     d.targetScope === 'PERAN' ? d.targetRole :
-                     d.targetScope === 'CUSTOM' ? 'Custom' : 'Semua'}
+                    {d.targetScope === 'SEMUA' ? 'Semua Siswa' : `${targetCount} penerima`}
                   </span>
                 </div>
 
@@ -476,7 +507,7 @@ export const DeadlineModule: React.FC = () => {
 
                 <p className="text-[11px] text-slate-400 dark:text-slate-500">
                   Dibuat <strong className="text-slate-600 dark:text-slate-300">{d.creatorName || 'Guru'}</strong>
-                  {d.dueDate ? ` — Deadline: ${new Date(d.dueDate).toLocaleString('id-ID')}` : ''}
+                  {d.dueDate ? ` — ${new Date(d.dueDate).toLocaleString('id-ID')}` : ''}
                 </p>
 
                 {!canCreate && (
@@ -496,27 +527,23 @@ export const DeadlineModule: React.FC = () => {
                             <strong>Feedback:</strong> {mySub.feedback}
                           </div>
                         )}
-                        <button
-                          onClick={() => {
-                            setSelectedDeadline(d);
-                            setProofUrl(mySub.proofUrl || '');
-                            setProofNote(mySub.proofNote || '');
-                            setProgress(mySub.progress || 50);
-                            setIsSubmitOpen(true);
-                          }}
+                        <button onClick={() => {
+                          setSelectedDeadline(d);
+                          setProofUrl(mySub.proofUrl || '');
+                          setProofNote(mySub.proofNote || '');
+                          setProgress(mySub.progress || 50);
+                          setIsSubmitOpen(true);
+                        }}
                           className="w-full py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs">
                           <Upload className="w-3.5 h-3.5 inline mr-1" /> Update Bukti
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => {
-                          setSelectedDeadline(d);
-                          setProofUrl('');
-                          setProofNote('');
-                          setProgress(50);
-                          setIsSubmitOpen(true);
-                        }}
+                      <button onClick={() => {
+                        setSelectedDeadline(d);
+                        setProofUrl(''); setProofNote(''); setProgress(50);
+                        setIsSubmitOpen(true);
+                      }}
                         className="w-full py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs">
                         <Upload className="w-3.5 h-3.5 inline mr-1" /> Submit Bukti
                       </button>
@@ -527,7 +554,7 @@ export const DeadlineModule: React.FC = () => {
                 {canCreate && (
                   <button onClick={() => handleOpenReview(d)}
                     className="w-full py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-xs flex items-center justify-center gap-1">
-                    <Users className="w-3.5 h-3.5" /> Lihat & Review Submisi
+                    <Users className="w-3.5 h-3.5" /> Lihat Submisi ({targetCount} target)
                   </button>
                 )}
               </div>
@@ -536,12 +563,12 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* MODAL WIZARD: KIRIM DEADLINE (4 LANGKAH) */}
-      {/* ============================================ */}
+      {/* ============================================================ */}
+      {/* MODAL WIZARD 4 STEP */}
+      {/* ============================================================ */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] overflow-y-auto my-auto">
+          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] overflow-y-auto my-auto">
 
             {/* HEADER */}
             <div className="p-6 border-b border-slate-100 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-900 z-10">
@@ -551,26 +578,17 @@ export const DeadlineModule: React.FC = () => {
                     <Send className="w-5 h-5" />
                   </span>
                   <div>
-                    <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                      Kirim Deadline Baru
-                    </h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Langkah {wizardStep} dari 4
-                    </p>
+                    <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Kirim Deadline Baru</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Langkah {wizardStep} dari 4</p>
                   </div>
                 </div>
                 <button onClick={() => setIsCreateOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-
-              {/* Progress Bar */}
               <div className="flex items-center gap-2 mt-4">
-                {[1, 2, 3, 4].map(step => (
-                  <div key={step}
-                    className={`flex-1 h-1.5 rounded-full transition ${
-                      step <= wizardStep ? 'bg-rose-500' : 'bg-slate-200 dark:bg-slate-700'
-                    }`} />
+                {[1, 2, 3, 4].map(s => (
+                  <div key={s} className={`flex-1 h-1.5 rounded-full transition ${s <= wizardStep ? 'bg-rose-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
                 ))}
               </div>
             </div>
@@ -578,24 +596,20 @@ export const DeadlineModule: React.FC = () => {
             {/* BODY */}
             <div className="p-6 space-y-4">
 
-              {/* STEP 1: PILIH TAHAP */}
+              {/* === STEP 1: PILIH TAHAP === */}
               {wizardStep === 1 && (
                 <>
                   <div className="flex items-center gap-2">
                     <Target className="w-5 h-5 text-rose-600" />
-                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      Langkah 1: Pilih Tahap Produksi
-                    </h4>
+                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 1: Pilih Tahap Produksi</h4>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {STAGES.map(s => {
                       const info = STAGE_INFO[s.id];
                       const tplCount = DEADLINE_TEMPLATES[s.id].length;
                       return (
-                        <button key={s.id} onClick={() => { setSelectedStage(s.id); setWizardStep(2); }}
-                          className={`p-4 rounded-2xl border-2 text-left transition hover:scale-[1.02] ${
-                            `bg-gradient-to-br ${info.gradient} text-white border-transparent shadow-md`
-                          }`}>
+                        <button key={s.id} onClick={() => { setSelectedStage(s.id); setSelectedTemplateIds([]); setWizardStep(2); }}
+                          className={`p-4 rounded-2xl border-2 text-left transition hover:scale-[1.02] bg-gradient-to-br ${info.gradient} text-white border-transparent shadow-md`}>
                           <p className="text-xs font-black uppercase tracking-wider">{s.id}</p>
                           <p className="text-[10px] mt-1 opacity-90">{info.desc}</p>
                           <p className="text-[10px] mt-2 font-bold bg-white/20 px-2 py-0.5 rounded-md inline-block">
@@ -608,7 +622,7 @@ export const DeadlineModule: React.FC = () => {
                 </>
               )}
 
-              {/* STEP 2: PILIH TEMPLATE */}
+              {/* === STEP 2: PILIH TEMPLATE (MULTI) === */}
               {wizardStep === 2 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -618,35 +632,51 @@ export const DeadlineModule: React.FC = () => {
                         Langkah 2: Pilih Template ({STAGE_INFO[selectedStage].label})
                       </h4>
                     </div>
-                    <button onClick={() => setWizardStep(1)}
-                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline">
+                    <button onClick={() => setWizardStep(1)} className="text-[11px] font-bold text-blue-600 hover:underline">
                       ← Ganti Tahap
                     </button>
                   </div>
 
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      <strong>{currentTemplates.length} template</strong> tersedia — terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={selectAllTemplates} className="text-[11px] font-bold text-blue-600 hover:underline">
+                        ✓ Pilih Semua
+                      </button>
+                      <span className="text-slate-300">|</span>
+                      <button onClick={deselectAllTemplates} className="text-[11px] font-bold text-rose-600 hover:underline">
+                        ✕ Hapus Pilihan
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
-                    {DEADLINE_TEMPLATES[selectedStage].map(tpl => {
+                    {currentTemplates.map(tpl => {
                       const prio = getPriorityConfig(tpl.priority);
+                      const isSelected = selectedTemplateIds.includes(tpl.id);
+                      const tRole = tpl.targetRole;
+                      const tDiv = tpl.targetDivision;
+                      const label = tRole ? `👤 ${tRole}` : tDiv ? `👥 ${tDiv}` : '🌐 Semua';
                       return (
-                        <button key={tpl.id} onClick={() => handleSelectTemplate(tpl)}
-                          className="p-4 rounded-2xl border-2 text-left transition hover:border-rose-400 hover:bg-rose-50/50 dark:hover:bg-rose-500/10 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-                          <div className="flex items-start gap-2 mb-2">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>
-                              {prio.label}
-                            </span>
-                            <span className="text-[9px] text-slate-500 dark:text-slate-400 ml-auto">
-                              +{tpl.daysFromNow} hari
-                            </span>
+                        <button key={tpl.id} onClick={() => toggleTemplate(tpl.id)}
+                          className={`p-4 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
+                            isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-rose-400'
+                          }`}>
+                          <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
+                            {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
                           </div>
-                          <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">
-                            {tpl.title}
-                          </p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
-                            {tpl.description}
-                          </p>
-                          <p className="text-[9px] text-blue-600 dark:text-blue-400 mt-2 italic">
-                            📎 {tpl.reference}
-                          </p>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>{prio.label}</span>
+                              <span className="text-[9px] text-slate-600 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-md">{label}</span>
+                              <span className="text-[9px] text-slate-500 ml-auto">+{tpl.daysFromNow}h</span>
+                            </div>
+                            <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{tpl.title}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{tpl.description}</p>
+                            <p className="text-[9px] text-blue-600 dark:text-blue-400 mt-1 italic">📎 {tpl.reference}</p>
+                          </div>
                         </button>
                       );
                     })}
@@ -654,151 +684,104 @@ export const DeadlineModule: React.FC = () => {
                 </>
               )}
 
-              {/* STEP 3: PILIH TARGET + EDIT DETAIL */}
+              {/* === STEP 3: PILIH TARGET (MULTI) === */}
               {wizardStep === 3 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <Users className="w-5 h-5 text-rose-600" />
-                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                        Langkah 3: Target Penerima & Detail
-                      </h4>
+                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 3: Pilih Target Penerima (Multi)</h4>
                     </div>
-                    <button onClick={() => setWizardStep(2)}
-                      className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline">
+                    <button onClick={() => setWizardStep(2)} className="text-[11px] font-bold text-blue-600 hover:underline">
                       ← Ganti Template
                     </button>
                   </div>
 
-                  <div className="space-y-4">
-                    {/* Judul */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Judul Deadline
-                      </label>
-                      <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
-                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                  {/* Toggle "Semua Siswa" */}
+                  <button onClick={() => { setTargetAll(!targetAll); setSelectedTargets([]); }}
+                    className={`w-full p-4 rounded-2xl border-2 text-left flex items-center gap-3 transition ${
+                      targetAll ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700'
+                    }`}>
+                    <div className={`p-0.5 rounded-md shrink-0 ${targetAll ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'}`}>
+                      {targetAll ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-transparent" />}
                     </div>
-
-                    {/* Deskripsi */}
                     <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                        Deskripsi
-                      </label>
-                      <textarea rows={3} value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
-                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+                      <p className="text-sm font-extrabold text-slate-900 dark:text-white">🎯 Semua Siswa</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        Kirim ke semua siswa kelas ini kecuali guru/admin
+                      </p>
                     </div>
+                  </button>
 
-                    {/* Tanggal + Prioritas */}
-                    <div className="grid grid-cols-2 gap-3">
+                  {!targetAll && (
+                    <>
+                      {/* Peran */}
                       <div>
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Deadline
-                        </label>
-                        <input type="datetime-local" value={newDue} onChange={(e) => setNewDue(e.target.value)}
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                          Prioritas
-                        </label>
-                        <select value={newPriority} onChange={(e) => setNewPriority(e.target.value as any)}
-                          className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                          <option value="LOW">Rendah</option>
-                          <option value="MEDIUM">Sedang</option>
-                          <option value="HIGH">Tinggi</option>
-                          <option value="CRITICAL">Kritis</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {/* Target Penerima */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
-                        Target Penerima
-                      </label>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                        {[
-                          { val: 'SEMUA', label: 'Semua Siswa' },
-                          { val: 'DIVISI', label: 'Per Divisi' },
-                          { val: 'PERAN', label: 'Per Peran' },
-                          { val: 'CUSTOM', label: 'Pilih Manual' },
-                        ].map(opt => (
-                          <button key={opt.val} type="button" onClick={() => setNewTarget(opt.val as any)}
-                            className={`p-2.5 rounded-xl border-2 text-xs font-bold transition ${
-                              newTarget === opt.val
-                                ? 'border-rose-500 bg-rose-50 dark:bg-rose-500/10 text-rose-800 dark:text-rose-300'
-                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                            }`}>
-                            {opt.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Sub-pilihan: DIVISI */}
-                      {newTarget === 'DIVISI' && (
-                        <select value={newDivision} onChange={(e) => setNewDivision(e.target.value as DivisionType)}
-                          className="w-full mt-3 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                          {DIVISIONS.map(d => <option key={d.id} value={d.id}>{d.id}</option>)}
-                        </select>
-                      )}
-
-                      {/* Sub-pilihan: PERAN */}
-                      {newTarget === 'PERAN' && (
-                        <select value={newRole} onChange={(e) => setNewRole(e.target.value as UserRole)}
-                          className="w-full mt-3 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                          <option value="Pimpinan Produksi">Pimpinan Produksi</option>
-                          <option value="Sekretaris">Sekretaris</option>
-                          <option value="Bendahara">Bendahara</option>
-                          <option value="Sutradara">Sutradara</option>
-                          <option value="Asisten Sutradara">Asisten Sutradara</option>
-                          <option value="Pemain">Pemain</option>
-                          <option value="Koordinator Perlengkapan">Koordinator Perlengkapan</option>
-                          <option value="Anggota Perlengkapan">Anggota Perlengkapan</option>
-                          <option value="Koordinator Publikasi">Koordinator Publikasi</option>
-                          <option value="Anggota Publikasi">Anggota Publikasi</option>
-                          <option value="Koordinator Tata Panggung">Koordinator Tata Panggung</option>
-                          <option value="Anggota Tata Panggung">Anggota Tata Panggung</option>
-                          <option value="Koordinator Tata Rias">Koordinator Tata Rias</option>
-                          <option value="Anggota Tata Rias">Anggota Tata Rias</option>
-                          <option value="Koordinator Tata Busana">Koordinator Tata Busana</option>
-                          <option value="Anggota Tata Busana">Anggota Tata Busana</option>
-                          <option value="Koordinator Tata Musik">Koordinator Tata Musik</option>
-                          <option value="Anggota Tata Musik">Anggota Tata Musik</option>
-                        </select>
-                      )}
-
-                      {/* Sub-pilihan: CUSTOM */}
-                      {newTarget === 'CUSTOM' && (
-                        <div className="mt-3 max-h-48 overflow-y-auto p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
-                          {users.filter(u => u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin').map(u => (
-                            <label key={u.uid} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-white dark:hover:bg-slate-700 cursor-pointer">
-                              <input type="checkbox"
-                                checked={selectedUserIds.includes(u.uid)}
-                                onChange={(e) => {
-                                  if (e.target.checked) setSelectedUserIds(prev => [...prev, u.uid]);
-                                  else setSelectedUserIds(prev => prev.filter(id => id !== u.uid));
-                                }}
-                                className="rounded border-slate-300 text-rose-500" />
-                              <span className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">{u.displayName}</span>
-                              <span className="text-[9px] text-slate-400 ml-auto">{u.role}</span>
-                            </label>
-                          ))}
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5" /> Per Peran
+                        </p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {ROLE_LIST.map(r => {
+                            const sel = isTargetSelected('PERAN', r);
+                            return (
+                              <button key={r} onClick={() => toggleTarget('PERAN', r)}
+                                className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
+                                  sel ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-300'
+                                }`}>
+                                {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                <span className="truncate">{r}</span>
+                              </button>
+                            );
+                          })}
                         </div>
-                      )}
-                    </div>
+                      </div>
+
+                      {/* Divisi */}
+                      <div>
+                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                          <Briefcase className="w-3.5 h-3.5" /> Per Divisi
+                        </p>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          {DIVISION_LIST.map(d => {
+                            const sel = isTargetSelected('DIVISI', d);
+                            return (
+                              <button key={d} onClick={() => toggleTarget('DIVISI', d)}
+                                className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
+                                  sel ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300'
+                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-purple-300'
+                                }`}>
+                                {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                <span className="truncate">{d}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Override deadline */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Override Deadline (Opsional)
+                    </label>
+                    <input type="datetime-local" value={dueDateOverride}
+                      onChange={(e) => setDueDateOverride(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Kosongkan untuk pakai deadline default masing-masing template.
+                    </p>
                   </div>
                 </>
               )}
 
-              {/* STEP 4: REVIEW */}
+              {/* === STEP 4: REVIEW === */}
               {wizardStep === 4 && (
                 <>
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-5 h-5 text-emerald-600" />
-                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      Langkah 4: Konfirmasi & Kirim
-                    </h4>
+                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Langkah 4: Konfirmasi & Kirim</h4>
                   </div>
 
                   <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-3">
@@ -809,30 +792,38 @@ export const DeadlineModule: React.FC = () => {
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Judul</p>
-                      <p className="text-xs font-bold text-slate-900 dark:text-white">{newTitle}</p>
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Template Terpilih</p>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">{selectedTemplateIds.length} template</p>
+                      <ul className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 space-y-0.5 pl-4 list-disc">
+                        {selectedTemplateIds.map(id => {
+                          const tpl = currentTemplates.find(t => t.id === id);
+                          return tpl ? <li key={id}>{tpl.title}</li> : null;
+                        })}
+                      </ul>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Deadline</p>
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Target Penerima</p>
                       <p className="text-xs font-bold text-slate-900 dark:text-white">
-                        {newDue ? new Date(newDue).toLocaleString('id-ID') : '-'}
+                        {targetAll ? '🎯 Semua Siswa' : selectedTargets.map(t => `${t.type === 'PERAN' ? '👤' : '👥'} ${t.name}`).join(', ')}
+                      </p>
+                      <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+                        <strong>{recipientCount} siswa</strong> akan menerima notifikasi
                       </p>
                     </div>
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Target</p>
-                      <p className="text-xs font-bold text-slate-900 dark:text-white">
-                        {newTarget === 'SEMUA' ? 'Semua Siswa' :
-                         newTarget === 'DIVISI' ? `Divisi ${newDivision}` :
-                         newTarget === 'PERAN' ? `Peran ${newRole}` :
-                         `${selectedUserIds.length} siswa terpilih`}
-                      </p>
-                    </div>
+                    {dueDateOverride && (
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Override Deadline</p>
+                        <p className="text-xs font-bold text-slate-900 dark:text-white">
+                          {new Date(dueDateOverride).toLocaleString('id-ID')}
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-rose-900 dark:text-rose-200">
-                      Notifikasi akan otomatis dikirim ke semua penerima yang dipilih.
+                  <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-emerald-900 dark:text-emerald-200">
+                      Notifikasi akan otomatis dikirim ke semua penerima yang dipilih setelah Anda klik <strong>Kirim</strong>.
                     </p>
                   </div>
                 </>
@@ -846,15 +837,18 @@ export const DeadlineModule: React.FC = () => {
                 Batal
               </button>
               <div className="flex items-center gap-2">
-                {wizardStep > 1 && wizardStep < 4 && (
+                {wizardStep > 1 && (
                   <button onClick={() => setWizardStep((wizardStep - 1) as any)}
                     className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700">
                     ← Kembali
                   </button>
                 )}
-                {wizardStep < 4 && wizardStep > 1 && (
+                {wizardStep < 4 && wizardStep >= 2 && (
                   <button onClick={() => setWizardStep((wizardStep + 1) as any)}
-                    disabled={wizardStep === 2 && !selectedTemplate}
+                    disabled={
+                      (wizardStep === 2 && selectedTemplateIds.length === 0) ||
+                      (wizardStep === 3 && !targetAll && selectedTargets.length === 0)
+                    }
                     className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                     Lanjut <ChevronRight className="w-3.5 h-3.5" />
                   </button>
@@ -862,7 +856,8 @@ export const DeadlineModule: React.FC = () => {
                 {wizardStep === 4 && (
                   <button onClick={handleCreate} disabled={submitting}
                     className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                    <Send className="w-3.5 h-3.5" /> {submitting ? 'Mengirim...' : 'Kirim Deadline'}
+                    <Send className="w-3.5 h-3.5" />
+                    {submitting ? 'Mengirim...' : `Kirim ke ${recipientCount} Siswa`}
                   </button>
                 )}
               </div>
@@ -871,9 +866,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* MODAL SUBMIT PROOF */}
-      {/* ============================================ */}
+      {/* ==================== MODAL SUBMIT PROOF ==================== */}
       {isSubmitOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
@@ -929,9 +922,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================ */}
-      {/* MODAL REVIEW (GURU) */}
-      {/* ============================================ */}
+      {/* ==================== MODAL REVIEW ==================== */}
       {isReviewOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 max-h-[92vh] overflow-y-auto">
