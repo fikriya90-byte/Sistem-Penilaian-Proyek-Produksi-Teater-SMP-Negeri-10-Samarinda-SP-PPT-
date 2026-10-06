@@ -4,6 +4,7 @@ import {
   Database, FileText, HelpCircle, MessageSquare, Music, Activity,
   Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
   Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
+  GraduationCap,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -43,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
+        { id: 'kelola-kelas', label: 'Kelola Kelas', icon: GraduationCap },  // ← MENU BARU
         { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
         { id: 'master-timeline', label: 'Master Timeline', icon: Film },
         { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
@@ -209,8 +211,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ PEMERAN ============
-    if (role === 'Pemeran') {
+    // ============ PEMAIN / PEMERAN ============
+    if (role === 'Pemain' || role === 'Pemeran') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
