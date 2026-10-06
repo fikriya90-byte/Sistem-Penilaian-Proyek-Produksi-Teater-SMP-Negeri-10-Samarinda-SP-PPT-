@@ -268,3 +268,4 @@ export function getAssessorWeights(targetRole: string): AssessorWeightConfig {
 export function getAssessmentMatrix(targetRole: string): AssessorRelationship[] {
   return ASSESSMENT_MATRIX[targetRole] || [];
 }
+export const ACTOR_CRITERIA = PEMERAN_CRITERIA;
