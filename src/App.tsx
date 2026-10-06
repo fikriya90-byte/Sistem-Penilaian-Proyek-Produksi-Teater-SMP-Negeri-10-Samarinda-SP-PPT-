@@ -11,6 +11,8 @@ import { LoginModal } from './components/auth/LoginModal';
 import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
 import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 import { DashboardReminder } from './components/common/DashboardReminder';
+
+// ==================== MODULES ====================
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
 import { MyGradeModule } from './components/modules/MyGradeModule';
@@ -18,6 +20,7 @@ import { AttendanceModule } from './components/modules/AttendanceModule';
 import { ScheduleModule } from './components/modules/ScheduleModule';
 import { TaskDeadlineModule } from './components/modules/TaskDeadlineModule';
 import { TaskProgressModule } from './components/modules/TaskProgressModule';
+import { DeadlineModule } from './components/modules/DeadlineModule';
 import { StructureModule } from './components/modules/StructureModule';
 import { StudioModule } from './components/modules/StudioModule';
 import { BroadcastModule } from './components/modules/BroadcastModule';
@@ -148,6 +151,7 @@ const MainLayout: React.FC = () => {
       case 'jadwal': return <ScheduleModule />;
       case 'absensi': return <AttendanceModule />;
       case 'tugas': return <DeadlineModule />;
+      case 'deadline': return <DeadlineModule />;
       case 'progress-tugas': return <TaskProgressModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
