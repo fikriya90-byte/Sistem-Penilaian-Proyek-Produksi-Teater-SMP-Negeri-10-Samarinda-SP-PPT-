@@ -3,7 +3,7 @@ import {
   Award, BarChart3, Bell, Calendar, CheckSquare, ClipboardList,
   Database, FileText, HelpCircle, MessageSquare, Music, Activity,
   Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
-  Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp,
+  Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -31,12 +31,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
         { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
         { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
         { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'rab', label: 'RAB Digital', icon: Calculator },
         { id: 'backup', label: 'Backup & Restore', icon: Database },
         { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
       ];
     }
 
-    // ============ GURU ============
+    // ============ GURU PENGAMPU ============
+    // Guru melihat saja (tanpa menu Kas & RAB — fokus pengawasan)
     if (isGuruPengampu) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -60,6 +62,83 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
         { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
         { id: 'backup', label: 'Backup & Restore', icon: Database },
         { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
+      ];
+    }
+
+    // ============ BENDAHARA (menu lengkap + Kas & Buku Kas + RAB) ============
+    if (role === 'Bendahara') {
+      return [
+        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
+        { id: 'kas', label: 'Kas & Buku Kas', icon: Wallet },
+        { id: 'rab', label: 'RAB Digital', icon: Calculator },
+        { id: 'master-timeline', label: 'Master Timeline', icon: Film },
+        { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
+        { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
+        { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
+        { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+        { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
+        { id: 'absensi', label: 'Presensi', icon: ClipboardList },
+        { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
+        { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
+        { id: 'broadcast', label: 'Broadcast', icon: Radio },
+        { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+        { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
+        { id: 'panduan', label: 'Panduan', icon: HelpCircle },
+        { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
+      ];
+    }
+
+    // ============ PIMPINAN PRODUKSI (lihat saja — tanpa Kas & RAB) ============
+    if (role === 'Pimpinan Produksi') {
+      return [
+        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
+        { id: 'master-timeline', label: 'Master Timeline', icon: Film },
+        { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
+        { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
+        { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
+        { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+        { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
+        { id: 'absensi', label: 'Presensi', icon: ClipboardList },
+        { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
+        { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
+        { id: 'broadcast', label: 'Broadcast', icon: Radio },
+        { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+        { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
+        { id: 'panduan', label: 'Panduan', icon: HelpCircle },
+        { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
+      ];
+    }
+
+    // ============ SEKRETARIS / SUTRADARA / ASISTEN (lihat saja) ============
+    if (['Sekretaris', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
+      return [
+        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
+        { id: 'master-timeline', label: 'Master Timeline', icon: Film },
+        { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
+        { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
+        { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
+        { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+        { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
+        { id: 'absensi', label: 'Presensi', icon: ClipboardList },
+        { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
+        { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
+        { id: 'broadcast', label: 'Broadcast', icon: Radio },
+        { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+        { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
+        { id: 'panduan', label: 'Panduan', icon: HelpCircle },
+        { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
       ];
     }
 
@@ -99,7 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       return [...base, ...extras, ...tail];
     }
 
-    // ============ ANGGOTA ============
+    // ============ ANGGOTA DIVISI ============
     if (role.startsWith('Anggota ')) {
       const specific: Record<string, any[]> = {
         'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
@@ -153,47 +232,19 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ PENGURUS INTI ============
-    if (['Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
-      return [
-        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-        { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-        { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-        { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-        { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
-        { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-        { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-        { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-        { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-        { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-        { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-        { id: 'kas', label: 'Kas Produksi', icon: Wallet },
-        { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-        { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-        { id: 'broadcast', label: 'Broadcast', icon: Radio },
-        { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
-        { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-        { id: 'panduan', label: 'Panduan', icon: HelpCircle },
-        { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-      ];
-    }
-
-    // ============ DEFAULT ============
+    // ============ DEFAULT (fallback) ============
     return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
       { id: 'master-timeline', label: 'Master Timeline', icon: Film },
       { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
       { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-      { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+      { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
       { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
       { id: 'absensi', label: 'Presensi', icon: ClipboardList },
       { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
       { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-      { id: 'broadcast', label: 'Broadcast', icon: Radio },
-      { id: 'dokumen', label: 'Dokumen', icon: FileText },
-      { id: 'kas', label: 'Kas', icon: Wallet },
+      { id: 'kas', label: 'Kas Saya', icon: Wallet },
       { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
       { id: 'panduan', label: 'Panduan', icon: HelpCircle },
       { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
