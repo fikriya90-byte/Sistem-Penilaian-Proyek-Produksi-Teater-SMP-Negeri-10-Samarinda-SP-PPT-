@@ -11,7 +11,6 @@ import { LoginModal } from './components/auth/LoginModal';
 import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
 import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 import { DashboardReminder } from './components/common/DashboardReminder';
-
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
 import { MyGradeModule } from './components/modules/MyGradeModule';
@@ -148,7 +147,7 @@ const MainLayout: React.FC = () => {
       case 'backup': return <BackupModule />;
       case 'jadwal': return <ScheduleModule />;
       case 'absensi': return <AttendanceModule />;
-      case 'tugas': return <TaskDeadlineModule />;
+      case 'tugas': return <DeadlineModule />;
       case 'progress-tugas': return <TaskProgressModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
