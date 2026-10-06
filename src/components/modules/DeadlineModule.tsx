@@ -616,6 +616,12 @@ export const DeadlineModule: React.FC = () => {
         await batch.commit();
       }
 
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'CREATE', targetType: 'DeadlineBatch', targetId: 'batch',
+        details: `Kirim ${success} deadline ke ${recipientCount} siswa (${selectedStage})`,
+      });
+
       showToast(`✅ ${success} deadline dikirim ke ${recipientCount} siswa!`, 'success');
       setIsTemplateOpen(false);
     } catch (err: any) {
@@ -1126,7 +1132,10 @@ export const DeadlineModule: React.FC = () => {
                   </span>
                   <div>
                     <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Kirim dari Template</h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400">Langkah {wizardStep} dari 4</p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Langkah {wizardStep} dari 4
+                      {wizardStep === 2 && ` — ${STAGE_INFO[selectedStage].label}`}
+                    </p>
                   </div>
                 </div>
                 <button onClick={() => setIsTemplateOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -1135,7 +1144,11 @@ export const DeadlineModule: React.FC = () => {
               </div>
               <div className="flex items-center gap-2 mt-4">
                 {[1, 2, 3, 4].map(s => (
-                  <div key={s} className={`flex-1 h-1.5 rounded-full transition ${s <= wizardStep ? 'bg-rose-500' : 'bg-slate-200 dark:bg-slate-700'}`} />
+                  <div key={s} className={`flex-1 h-1.5 rounded-full transition ${
+                    s <= wizardStep
+                      ? `bg-gradient-to-r ${STAGE_INFO[selectedStage].gradient}`
+                      : 'bg-slate-200 dark:bg-slate-700'
+                  }`} />
                 ))}
               </div>
             </div>
@@ -1148,10 +1161,14 @@ export const DeadlineModule: React.FC = () => {
                     {STAGES.map(s => {
                       const info = STAGE_INFO[s.id];
                       const tplCount = DEADLINE_TEMPLATES[s.id].length;
+                      const isSelected = selectedStage === s.id;
                       return (
                         <button key={s.id} onClick={() => { setSelectedStage(s.id); setSelectedTemplateIds([]); setWizardStep(2); }}
-                          className={`p-4 rounded-2xl border-2 text-left transition hover:scale-[1.02] bg-gradient-to-br ${info.gradient} text-white border-transparent shadow-md`}>
+                          className={`p-4 rounded-2xl border-2 text-left transition hover:scale-[1.02] bg-gradient-to-br ${info.gradient} text-white border-transparent shadow-md ${
+                            isSelected ? 'ring-4 ring-amber-400/50' : ''
+                          }`}>
                           <p className="text-xs font-black uppercase tracking-wider">{s.id}</p>
+                          <p className="text-[10px] mt-1 opacity-90">{info.desc}</p>
                           <p className="text-[10px] mt-2 font-bold bg-white/20 px-2 py-0.5 rounded-md inline-block">{tplCount} template</p>
                         </button>
                       );
@@ -1162,15 +1179,19 @@ export const DeadlineModule: React.FC = () => {
 
               {wizardStep === 2 && (
                 <>
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                      Langkah 2: Pilih Template
-                    </h4>
+                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Target className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Tahap: <span className={`bg-gradient-to-r ${STAGE_INFO[selectedStage].gradient} bg-clip-text text-transparent font-black`}>{STAGE_INFO[selectedStage].label}</span>
+                      </span>
+                    </div>
                     <button onClick={() => setWizardStep(1)} className="text-[11px] font-bold text-blue-600 hover:underline">← Ganti Tahap</button>
                   </div>
+
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      <strong>{currentTemplates.length}</strong> — terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
+                      <strong>{currentTemplates.length} template</strong> — terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
                     </p>
                     <div className="flex items-center gap-2">
                       <button onClick={selectAllTemplates} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Semua</button>
@@ -1178,6 +1199,7 @@ export const DeadlineModule: React.FC = () => {
                       <button onClick={deselectAllTemplates} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus</button>
                     </div>
                   </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
                     {currentTemplates.map(tpl => {
                       const prio = getPriorityConfig(tpl.priority);
@@ -1185,19 +1207,28 @@ export const DeadlineModule: React.FC = () => {
                       return (
                         <button key={tpl.id} onClick={() => toggleTemplate(tpl.id)}
                           className={`p-4 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
-                            isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                            isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-rose-400'
                           }`}>
                           <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
                             {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                               {tpl.isCritical && (
-                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">★ KRITIS</span>
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">
+                                  ★ KRITIS
+                                </span>
                               )}
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>{prio.label}</span>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>
+                                {prio.label}
+                              </span>
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-500/40 flex items-center gap-0.5">
+                                {tpl.targetRole ? `👤 ${tpl.targetRole}` : tpl.targetDivision ? `👥 ${tpl.targetDivision}` : '🌐 Semua'}
+                              </span>
                             </div>
                             <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{tpl.title}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{tpl.description}</p>
+                            <p className="text-[9px] text-blue-600 dark:text-blue-400 mt-1 italic">📎 {tpl.reference}</p>
                           </div>
                         </button>
                       );
@@ -1283,7 +1314,9 @@ export const DeadlineModule: React.FC = () => {
                   <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-3">
                     <div>
                       <p className="text-[10px] font-bold text-slate-500 uppercase">Tahap</p>
-                      <p className="text-xs font-bold text-slate-900 dark:text-white">{STAGE_INFO[selectedStage].label}</p>
+                      <p className={`text-xs font-bold bg-gradient-to-r ${STAGE_INFO[selectedStage].gradient} bg-clip-text text-transparent`}>
+                        {STAGE_INFO[selectedStage].label}
+                      </p>
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-500 uppercase">Template</p>
