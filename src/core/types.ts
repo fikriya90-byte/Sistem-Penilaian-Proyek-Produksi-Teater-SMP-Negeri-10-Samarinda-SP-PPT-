@@ -17,7 +17,7 @@ export type UserRole =
   | 'Anggota Tata Rias'
   | 'Anggota Tata Busana'
   | 'Anggota Tata Musik'
-  | 'Pemain'
+  | 'Pemeran'
   | 'Admin'
   | 'Super Admin';
 
@@ -46,14 +46,13 @@ export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 export type AttendanceStatus = 'Hadir' | 'Izin' | 'Sakit' | 'Alpa';
 
 export type ScheduleType =
-  | 'Rapat'
-  | 'Latihan'
-  | 'Gladi'
-  | 'Pementasan'
-  | 'Evaluasi'
-  | 'Produksi'
-  | 'Fitting'
-  | 'Briefing';
+  | 'Rapat' | 'Latihan' | 'Gladi' | 'Pementasan'
+  | 'Evaluasi' | 'Produksi' | 'Fitting' | 'Briefing';
+
+// =====================================================
+// KATEGORI PENILAI (untuk 360°)
+// =====================================================
+export type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
 export interface UserProfile {
   uid: string;
@@ -82,6 +81,7 @@ export interface ClassRoom {
   teacherName: string;
   totalStudents?: number;
   kerabatKerja?: string;
+  kerabatLogo?: string;
   students?: any[];
   createdAt?: string;
 }
@@ -124,6 +124,10 @@ export interface TaskItem {
   proofNote?: string;
   feedback?: string;
   rating?: number;
+  // BARU: penanda tugas kritis (★)
+  isCritical?: boolean;
+  // BARU: untuk menyimpan status ketepatan
+  completionStatus?: 'AWAL' | 'TEPAT' | 'TELAT_RINGAN' | 'TELAT_BERAT' | 'BELUM';
   createdBy: string;
   creatorName?: string;
   createdAt?: string;
@@ -133,7 +137,7 @@ export interface TaskItem {
 export interface AssessmentRecord {
   id: string;
   classId: string;
-  productionId: string;
+  productionId?: string;
   studentId: string;
   studentName: string;
   studentRole: UserRole;
@@ -141,10 +145,18 @@ export interface AssessmentRecord {
   assessorId: string;
   assessorName: string;
   assessorRole: UserRole;
-  assessorType: 'GURU' | 'KETUA' | 'REKAN';
+  // BARU: 4 kategori penilai
+  assessorCategory: AssessorCategory;
   stage: ProductionStage;
-  scores: Record<string, number>; // 1-4 scale
-  totalScore: number; // 0-100 converted
+  // scores: { kerja_sama: 3, kreativitas: 4, teknis: 3 } untuk manual
+  scores: Record<string, number>;
+  // BARU: skor otomatis dari sistem
+  autoScores?: {
+    tanggung_jawab?: number;   // 1-4
+    kehadiran?: number;        // 1-4
+    kedisiplinan?: number;     // 1-4 (Pemeran)
+  };
+  totalScore: number;
   comment?: string;
   isFinal: boolean;
   version?: number;
@@ -209,7 +221,7 @@ export interface SystemNotification {
   classId?: string;
   title: string;
   message: string;
-  category: 'Tugas' | 'Nilai' | 'Pengumuman' | 'Urgent' | 'Reminder' | 'Feedback' | 'Sistem';
+  category: 'Tugas' | 'Nilai' | 'Pengumuman' | 'Urgent' | 'Reminder' | 'Feedback' | 'Sistem' | 'Keuangan';
   read: boolean;
   link?: string;
   createdAt: string;
@@ -234,14 +246,8 @@ export interface ProductionDocument {
   classId: string;
   title: string;
   category:
-    | 'Proposal'
-    | 'Surat Izin'
-    | 'Naskah Drama'
-    | 'Notulen Rapat'
-    | 'Dokumentasi'
-    | 'Laporan Keuangan'
-    | 'Laporan Divisi'
-    | 'LPJ';
+    | 'Proposal' | 'Surat Izin' | 'Naskah Drama' | 'Notulen Rapat'
+    | 'Dokumentasi' | 'Laporan Keuangan' | 'Laporan Divisi' | 'LPJ';
   fileUrl: string;
   fileSize?: string;
   fileType?: string;
@@ -271,7 +277,7 @@ export interface PromptBookScene {
   id: string;
   classId: string;
   scene: string;
-  gridPositions: Record<string, string>; // actorId -> zone 'UL'|'UC'|'UR'|'CL'|'C'|'CR'|'DL'|'DC'|'DR'
+  gridPositions: Record<string, string>;
   notes?: string;
   cues?: Array<{
     code: string;
@@ -294,9 +300,7 @@ export interface AuditLogItem {
   details: string;
   timestamp: string;
 }
-// ==========================================
-// DEADLINE SYSTEM
-// ==========================================
+
 export interface DeadlineItem {
   id: string;
   classId: string;
@@ -308,6 +312,8 @@ export interface DeadlineItem {
   targetDivision?: DivisionType;
   targetRole?: UserRole;
   targetUserIds?: string[];
+  stage?: ProductionStage;
+  isCritical?: boolean;
   attachmentUrl?: string;
   createdBy: string;
   creatorName: string;
@@ -335,9 +341,6 @@ export interface DeadlineSubmission {
   updatedAt: string;
 }
 
-// ==========================================
-// STAGE CONFIG
-// ==========================================
 export interface StageConfig {
   stageId: ProductionStage;
   startDate: string;
