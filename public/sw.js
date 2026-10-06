@@ -1,94 +1,45 @@
 // ===================================================
-// SERVICE WORKER — SP-PPT (v6)
+// SERVICE WORKER — SELF DESTRUCT
 // ===================================================
-// Setiap update: naikkan CACHE_VERSION
-
-const CACHE_VERSION = 'spppt-v6';
-const STATIC_ASSETS = [
-  './',
-  './index.html',
-  './manifest.webmanifest',
-];
+// File ini sengaja dibuat untuk MENGHAPUS DIRINYA SENDIRI
+// dan membersihkan semua cache. SP-PPT tidak butuh SW.
+//
+// Cara kerja:
+// 1. Unregister dirinya sendiri
+// 2. Hapus semua cache spppt-*
+// 3. Reload semua tab user
+// ===================================================
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_VERSION)
-      .then((cache) => cache.addAll(STATIC_ASSETS))
-      .catch(() => {})
-  );
+  // Skip waiting — langsung aktif
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))
-      )
-    )
-  );
-  self.clients.claim();
-});
+self.addEventListener('activate', async (event) => {
+  event.waitUntil((async () => {
+    try {
+      // Hapus semua cache
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map(name => caches.delete(name)));
 
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
-});
+      // Unregister diri sendiri
+      const registration = await self.registration.unregister();
+      console.log('Service Worker self-destruct:', registration);
 
-self.addEventListener('fetch', (event) => {
-  const { request } = event;
-  if (request.method !== 'GET') return;
-
-  const url = new URL(request.url);
-
-  // Skip Firebase, Google APIs, dan semua yang bukan same-origin
-  if (url.origin !== self.location.origin) return;
-
-  if (
-    url.hostname.includes('firestore.googleapis.com') ||
-    url.hostname.includes('identitytoolkit.googleapis.com') ||
-    url.hostname.includes('firebaseio.com') ||
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('gstatic.com')
-  ) {
-    return;
-  }
-
-  // HTML: SELALU dari network (bypass cache sepenuhnya)
-  if (request.mode === 'navigate' || url.pathname.endsWith('.html') || url.pathname === '/') {
-    event.respondWith(
-      fetch(request, { cache: 'no-store' })
-        .catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
-
-  // Untuk JS/CSS bundle: network-first juga (agar tidak stuck versi lama)
-  if (url.pathname.match(/\.(js|css)$/)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
-    return;
-  }
-
-  // Aset statis lain (gambar, font): cache-first
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        if (response.status === 200) {
-          const copy = response.clone();
-          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+      // Reload semua client (tab) yang dikontrol SW ini
+      const clients = await self.clients.matchAll({ type: 'window' });
+      clients.forEach(client => {
+        try {
+          client.navigate(client.url);
+        } catch (e) {
+          // fallback: postMessage
+          client.postMessage({ type: 'SW_CLEANED' });
         }
-        return response;
-      }).catch(() => cached);
-    })
-  );
+      });
+    } catch (err) {
+      console.warn('SW self-destruct error:', err);
+    }
+  })());
 });
+
+// Tidak ada fetch handler — biarkan browser ambil langsung dari server
