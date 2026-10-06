@@ -396,9 +396,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
-  // =========================================================
-  // MATRIKS PENILAIAN 360°
-  // =========================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
     if (target.uid === user.uid) return false;
