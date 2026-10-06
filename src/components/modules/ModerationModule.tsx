@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Shield, AlertTriangle, CheckCircle, XCircle, Eye, History,
-  Search, User, MessageSquare, Clock, TrendingDown, TrendingUp,
-  Bot, Users, Sparkles,
+  Search, User, MessageSquare, Clock, Bot, Users, Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -34,93 +33,79 @@ export const ModerationModule: React.FC = () => {
     return () => { unsub1(); unsub2(); };
   }, [activeClass]);
 
-  // =========================================================
-  // DETEKSI ANOMALI (termasuk aturan baru: skor tinggi padahal auto rendah)
-  // =========================================================
   const detectAnomalies = (rec: AssessmentRecord): Anomaly[] => {
     const anomalies: Anomaly[] = [];
     const scores = Object.values(rec.scores || {});
     if (scores.length === 0) return anomalies;
 
-    // 1. Nilai ekstrem (semua 4)
     const allHigh = scores.every(s => s === 4);
     if (allHigh) {
       anomalies.push({
         type: 'Nilai Ekstrem Tinggi',
         severity: 'medium',
-        description: 'Semua kriteria manual diberi nilai 4 (Sangat Baik)',
+        description: 'Semua kriteria manual diberi nilai 4',
       });
     }
 
-    // 2. Nilai ekstrem (semua 1)
     const allLow = scores.every(s => s === 1);
     if (allLow) {
       anomalies.push({
         type: 'Nilai Ekstrem Rendah',
         severity: 'high',
-        description: 'Semua kriteria diberi nilai 1 (Kurang)',
+        description: 'Semua kriteria diberi nilai 1',
       });
     }
 
-    // 3. Pola semua sama (flat)
     const allSame = scores.every(s => s === scores[0]);
     if (allSame && scores.length > 2 && scores[0] !== 1 && scores[0] !== 4) {
       anomalies.push({
         type: 'Pola Mencurigakan',
         severity: 'low',
-        description: 'Semua kriteria diberi nilai yang sama (tanpa variasi)',
+        description: 'Semua kriteria diberi nilai sama',
       });
     }
 
-    // 4. Komentar wajib jika ada nilai ≤ 2
     const hasLowScore = scores.some(s => s <= 2);
     if (hasLowScore && (!rec.comment || rec.comment.trim().length < 5)) {
       anomalies.push({
         type: 'Komentar Hilang',
         severity: 'high',
-        description: 'Ada nilai ≤ 2 tapi tidak ada komentar pembinaan',
+        description: 'Ada nilai ≤ 2 tapi tidak ada komentar',
       });
     }
 
-    // 5. ATURAN BARU (Bagian 7 point 7):
-    // Skor penilai sangat tinggi padahal data otomatis di bawah ambang skor 3
     const autoScores = (rec as any).autoScores || {};
     const autoTJ = autoScores.tanggung_jawab;
     const autoHadir = autoScores.kehadiran;
 
-    const manualAvg = scores.length > 0
-      ? scores.reduce((s, x) => s + x, 0) / scores.length
-      : 0;
+    const manualAvg = scores.length > 0 ? scores.reduce((s, x) => s + x, 0) / scores.length : 0;
 
-    // Jika manual rata-rata ≥ 3.5 (sangat baik) tapi auto score < 3
     if (manualAvg >= 3.5) {
       if ((autoTJ !== undefined && autoTJ < 3) || (autoHadir !== undefined && autoHadir < 3)) {
         anomalies.push({
           type: 'Ketidaksesuaian Data',
           severity: 'high',
-          description: `Skor manual tinggi (rata-rata ${manualAvg.toFixed(1)}) padahal skor otomatis rendah (TJ: ${autoTJ ?? '-'}, Kehadiran: ${autoHadir ?? '-'}). Mohon dicek.`,
+          description: `Manual tinggi (${manualAvg.toFixed(1)}) padahal auto rendah (TJ: ${autoTJ ?? '-'}, Hadir: ${autoHadir ?? '-'})`,
         });
       }
     }
 
-    // 6. Skor manual sangat jauh berbeda dengan auto score (gap ≥ 2)
     if (autoTJ !== undefined && manualAvg > 0) {
       const gap = Math.abs(manualAvg - autoTJ);
       if (gap >= 2) {
         anomalies.push({
-          type: 'Gap Skor Manual vs Auto',
+          type: 'Gap Manual vs Auto',
           severity: 'medium',
-          description: `Manual (avg ${manualAvg.toFixed(1)}) vs Auto Tanggung Jawab (${autoTJ}). Selisih ≥ 2 poin.`,
+          description: `Manual (avg ${manualAvg.toFixed(1)}) vs Auto TJ (${autoTJ}). Selisih ≥ 2.`,
         });
       }
     }
 
-    // 7. Skor rendah tanpa penjelasan (nilai 1 di semua kriteria manual)
     if (allLow && (!rec.comment || rec.comment.trim().length < 20)) {
       anomalies.push({
         type: 'Skor Rendah Tanpa Alasan',
         severity: 'high',
-        description: 'Nilai 1 untuk semua kriteria tapi komentar kurang dari 20 karakter',
+        description: 'Nilai 1 semua tapi komentar < 20 karakter',
       });
     }
 
@@ -154,7 +139,7 @@ export const ModerationModule: React.FC = () => {
       action: 'UPDATE',
       targetType: 'AssessmentModeration',
       targetId: rec.id,
-      details: `Validasi penilaian ${rec.assessorName} → ${rec.studentName}`,
+      details: `Validasi: ${rec.assessorName} → ${rec.studentName}`,
     });
     showToast(`Penilaian ${rec.studentName} divalidasi.`, 'success');
   };
@@ -165,7 +150,7 @@ export const ModerationModule: React.FC = () => {
         <Shield className="w-12 h-12 mx-auto text-slate-300 mb-3" />
         <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Akses Terbatas</h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          Hanya Guru Pengampu yang dapat mengakses moderasi penilaian.
+          Hanya Guru Pengampu yang dapat mengakses moderasi.
         </p>
       </div>
     );
@@ -186,7 +171,6 @@ export const ModerationModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl border border-indigo-500/20">
         <div className="flex items-center gap-3">
           <span className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -198,13 +182,12 @@ export const ModerationModule: React.FC = () => {
             </span>
             <h2 className="text-xl font-black text-white mt-1">Validasi & Deteksi Anomali</h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Sistem otomatis mendeteksi penilaian tidak wajar + gap dengan skor otomatis
+              Deteksi otomatis + gap dengan skor otomatis
             </p>
           </div>
         </div>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
           <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">Total Penilaian</p>
@@ -224,7 +207,6 @@ export const ModerationModule: React.FC = () => {
         </div>
       </div>
 
-      {/* Tab */}
       <div className="flex items-center gap-2 flex-wrap">
         <button onClick={() => setActiveTab('anomali')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
@@ -253,7 +235,6 @@ export const ModerationModule: React.FC = () => {
         </div>
       </div>
 
-      {/* List */}
       {(activeTab === 'anomali' || activeTab === 'semua') && (
         <>
           {filteredAssessments.length === 0 ? (
@@ -287,7 +268,7 @@ export const ModerationModule: React.FC = () => {
                             {pred.predikat} • {assessment.totalScore}
                           </span>
                           {anomalies.length > 0 && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300">
                               ⚠️ {anomalies.length} Anomali
                             </span>
                           )}
@@ -299,7 +280,6 @@ export const ModerationModule: React.FC = () => {
                           </span>
                         </p>
 
-                        {/* Auto scores display */}
                         {(autoScores.tanggung_jawab || autoScores.kehadiran) && (
                           <div className="flex items-center gap-2 mt-2 flex-wrap">
                             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
@@ -328,7 +308,7 @@ export const ModerationModule: React.FC = () => {
                         )}
                       </div>
                       <button onClick={() => handleValidate(assessment)}
-                        className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 font-bold text-[11px] flex items-center gap-1">
+                        className="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 font-bold text-[11px] flex items-center gap-1">
                         <CheckCircle className="w-3.5 h-3.5" /> Validasi
                       </button>
                     </div>
@@ -337,9 +317,9 @@ export const ModerationModule: React.FC = () => {
                       <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-500/30 space-y-1.5">
                         {anomalies.map((a, i) => (
                           <div key={i} className={`flex items-start gap-2 text-[11px] p-2 rounded-lg ${
-                            a.severity === 'high' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-500/30' :
-                            a.severity === 'medium' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-500/30' :
-                            'bg-blue-50 dark:bg-blue-500/10 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-500/30'
+                            a.severity === 'high' ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-800 dark:text-rose-200 border border-rose-200' :
+                            a.severity === 'medium' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-200 border border-amber-200' :
+                            'bg-blue-50 dark:bg-blue-500/10 text-blue-800 dark:text-blue-200 border border-blue-200'
                           }`}>
                             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                             <span><strong>{a.type}:</strong> {a.description}</span>
@@ -355,7 +335,6 @@ export const ModerationModule: React.FC = () => {
         </>
       )}
 
-      {/* History */}
       {activeTab === 'history' && (
         <>
           {history.length === 0 ? (
