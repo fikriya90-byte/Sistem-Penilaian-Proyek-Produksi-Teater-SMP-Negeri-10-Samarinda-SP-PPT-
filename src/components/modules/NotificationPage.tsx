@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Bell, Search, CheckCheck, Trash2, Eye, Clock, Tag, Filter,
-  CheckSquare, MessageSquare, Award, Radio, AlertTriangle,
-  Wallet, Megaphone, User, Sparkles, RefreshCw, Building2, X,
+  Bell, Search, CheckCheck, Trash2, Clock, Filter, CheckSquare,
+  MessageSquare, Award, AlertTriangle, Wallet, Megaphone, RefreshCw,
+  Building2, X,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -18,7 +18,7 @@ import { db } from '../../core/firebase';
 type FilterType = 'ALL' | 'UNREAD' | 'Tugas' | 'Reminder' | 'Pengumuman' | 'Nilai' | 'Urgent' | 'Sistem' | 'Keuangan';
 
 export const NotificationPage: React.FC = () => {
-  const { user, activeClass, classes } = useAuth();
+  const { user, classes } = useAuth();
   const { showToast } = useToast();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [filter, setFilter] = useState<FilterType>('ALL');
@@ -37,14 +37,12 @@ export const NotificationPage: React.FC = () => {
     return () => unsub();
   }, [user]);
 
-  // Nama kelas dari classId
   const getClassName = (classId?: string) => {
     if (!classId) return null;
     const c = classes.find(x => x.id === classId);
     return c?.name || null;
   };
 
-  // Daftar kelas unik dari notifikasi user
   const availableClasses = (() => {
     const map: Record<string, string> = {};
     notifications.forEach(n => {
@@ -59,12 +57,9 @@ export const NotificationPage: React.FC = () => {
   const filtered = notifications.filter(n => {
     if (filter === 'UNREAD' && n.read) return false;
     if (filter !== 'ALL' && filter !== 'UNREAD' && n.category !== filter) return false;
-
-    // Filter kelas
     if (classFilter !== 'ALL') {
       if (n.classId !== classFilter) return false;
     }
-
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -76,7 +71,6 @@ export const NotificationPage: React.FC = () => {
     return true;
   });
 
-  // Stats
   const unreadCount = notifications.filter(n => !n.read).length;
   const classUnreadCount = (cid: string) =>
     notifications.filter(n => !n.read && n.classId === cid).length;
@@ -182,19 +176,14 @@ export const NotificationPage: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={handleMarkAllRead}
+            <button onClick={handleMarkAllRead}
               disabled={markingAll || unreadCount === 0}
-              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
               <CheckCheck className="w-4 h-4" />
               {markingAll ? 'Memproses...' : 'Tandai Semua Dibaca'}
             </button>
-            <button
-              onClick={handleClearRead}
-              disabled={clearing}
-              className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50"
-            >
+            <button onClick={handleClearRead} disabled={clearing}
+              className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50">
               <Trash2 className="w-4 h-4" />
               {clearing ? 'Membersihkan...' : 'Hapus Yang Dibaca'}
             </button>
@@ -202,10 +191,10 @@ export const NotificationPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Kelas (jika ada kelas di notifikasi) */}
+      {/* FILTER KELAS */}
       {availableClasses.length > 0 && (
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Filter Kelas:</span>
             {classFilter !== 'ALL' && (
@@ -216,34 +205,27 @@ export const NotificationPage: React.FC = () => {
             )}
           </div>
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-            <button
-              onClick={() => setClassFilter('ALL')}
+            <button onClick={() => setClassFilter('ALL')}
               className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
                 classFilter === 'ALL'
                   ? 'bg-purple-600 text-white shadow-sm'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-              }`}
-            >
+              }`}>
               Semua Kelas ({notifications.length})
             </button>
             {availableClasses.map(c => {
               const count = notifications.filter(n => n.classId === c.id).length;
               const unread = classUnreadCount(c.id);
               return (
-                <button
-                  key={c.id}
-                  onClick={() => setClassFilter(c.id)}
+                <button key={c.id} onClick={() => setClassFilter(c.id)}
                   className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
                     classFilter === c.id
                       ? 'bg-purple-600 text-white shadow-sm'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                  }`}
-                >
+                  }`}>
                   <span>{c.name}</span>
                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                    classFilter === c.id
-                      ? 'bg-white/20'
-                      : 'bg-slate-200 dark:bg-slate-700'
+                    classFilter === c.id ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'
                   }`}>
                     {count}
                   </span>
@@ -263,33 +245,26 @@ export const NotificationPage: React.FC = () => {
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Cari notifikasi..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white"
-          />
+          <input type="text" placeholder="Cari notifikasi..."
+            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           {filterOptions.map(opt => (
-            <button
-              key={opt.val}
-              onClick={() => setFilter(opt.val)}
+            <button key={opt.val} onClick={() => setFilter(opt.val)}
               className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
                 filter === opt.val
                   ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm'
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-              }`}
-            >
+              }`}>
               {opt.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Counter aktif */}
+      {/* Counter */}
       {(classFilter !== 'ALL' || filter !== 'ALL' || searchQuery) && (
         <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 flex items-center justify-between text-xs">
           <span className="font-semibold text-purple-800 dark:text-purple-200 flex items-center gap-2">
@@ -307,21 +282,17 @@ export const NotificationPage: React.FC = () => {
       {/* List */}
       {loading ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-          <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300 dark:text-slate-600" />
-          <p className="text-xs text-slate-400 dark:text-slate-500">Memuat notifikasi...</p>
+          <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
+          <p className="text-xs text-slate-400">Memuat notifikasi...</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-          <Bell className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+          <Bell className="w-12 h-12 mx-auto text-slate-300 mb-3" />
           <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
             {filter === 'UNREAD' ? 'Tidak Ada Notifikasi Belum Dibaca' :
              searchQuery ? 'Tidak Ada Hasil Pencarian' :
              'Belum Ada Notifikasi'}
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {filter === 'UNREAD' ? 'Semua notifikasi sudah dibaca.' :
-             'Notifikasi akan muncul di sini saat ada aktivitas baru.'}
-          </p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -330,14 +301,12 @@ export const NotificationPage: React.FC = () => {
             const Icon = style.Icon;
             const cName = getClassName(n.classId);
             return (
-              <div
-                key={n.id}
-                className={`p-4 rounded-2xl border-2 transition group ${
+              <div key={n.id}
+                className={`p-4 rounded-2xl border-2 transition ${
                   n.read
                     ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
                     : 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-500/40 shadow-sm'
-                }`}
-              >
+                }`}>
                 <div className="flex items-start gap-3">
                   <span className={`p-2 rounded-xl border ${style.bg} ${style.text} ${style.border} shrink-0`}>
                     <Icon className="w-4 h-4" />
@@ -359,7 +328,7 @@ export const NotificationPage: React.FC = () => {
                           BARU
                         </span>
                       )}
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 ml-auto">
+                      <span className="text-[10px] text-slate-400 ml-auto">
                         {new Date(n.createdAt).toLocaleString('id-ID', {
                           day: 'numeric', month: 'short', year: 'numeric',
                           hour: '2-digit', minute: '2-digit',
@@ -368,9 +337,7 @@ export const NotificationPage: React.FC = () => {
                     </div>
 
                     <h4 className={`text-sm leading-snug ${
-                      n.read
-                        ? 'font-semibold text-slate-700 dark:text-slate-300'
-                        : 'font-extrabold text-slate-900 dark:text-white'
+                      n.read ? 'font-semibold text-slate-700 dark:text-slate-300' : 'font-extrabold text-slate-900 dark:text-white'
                     }`}>
                       {n.title}
                     </h4>
@@ -380,17 +347,13 @@ export const NotificationPage: React.FC = () => {
 
                     <div className="flex items-center gap-2 mt-3 flex-wrap">
                       {!n.read && (
-                        <button
-                          onClick={() => handleMarkRead(n)}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] flex items-center gap-1"
-                        >
+                        <button onClick={() => handleMarkRead(n)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] flex items-center gap-1">
                           <CheckCheck className="w-3 h-3" /> Tandai Dibaca
                         </button>
                       )}
-                      <button
-                        onClick={() => handleDeleteOne(n)}
-                        className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 font-bold text-[10px] flex items-center gap-1"
-                      >
+                      <button onClick={() => handleDeleteOne(n)}
+                        className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 font-bold text-[10px] flex items-center gap-1">
                         <Trash2 className="w-3 h-3" /> Hapus
                       </button>
                     </div>
