@@ -38,7 +38,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     }
 
     // ============ GURU PENGAMPU ============
-    // Guru melihat saja (tanpa menu Kas & RAB — fokus pengawasan)
     if (isGuruPengampu) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -65,7 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ BENDAHARA (menu lengkap + Kas & Buku Kas + RAB) ============
+    // ============ BENDAHARA ============
     if (role === 'Bendahara') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -92,7 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ PIMPINAN PRODUKSI (lihat saja — tanpa Kas & RAB) ============
+    // ============ PIMPINAN PRODUKSI ============
     if (role === 'Pimpinan Produksi') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -117,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ SEKRETARIS / SUTRADARA / ASISTEN (lihat saja) ============
+    // ============ SEKRETARIS / SUTRADARA / ASISTEN ============
     if (['Sekretaris', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -178,7 +177,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       return [...base, ...extras, ...tail];
     }
 
-    // ============ ANGGOTA DIVISI ============
+    // ============ ANGGOTA ============
     if (role.startsWith('Anggota ')) {
       const specific: Record<string, any[]> = {
         'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
@@ -210,8 +209,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ PEMAIN ============
-    if (role === 'Pemain') {
+    // ============ PEMERAN ============
+    if (role === 'Pemeran') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
@@ -232,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ DEFAULT (fallback) ============
+    // ============ DEFAULT ============
     return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
