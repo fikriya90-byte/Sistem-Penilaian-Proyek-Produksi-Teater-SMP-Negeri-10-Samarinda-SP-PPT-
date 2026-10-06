@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Award, CheckSquare, ClipboardList, Home, MessageSquare, Users, Star, Wallet,
-  Megaphone, Bell,
+  Megaphone, Bell, Calculator,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './core/authContext';
 import { ThemeProvider } from './core/themeContext';
@@ -10,6 +10,7 @@ import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
 import { LoginModal } from './components/auth/LoginModal';
 import { TeacherClassPicker } from './components/common/TeacherClassPicker';
+import { DashboardReminder } from './components/common/DashboardReminder';
 
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
@@ -31,6 +32,7 @@ import { StageManagerModule } from './components/modules/StageManagerModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
 import { KasModule } from './components/modules/KasModule';
+import { RABModule } from './components/modules/RABModule';
 import { PropertyModule } from './components/modules/PropertyModule';
 import { MusicCueModule } from './components/modules/MusicCueModule';
 import { FaceChartModule } from './components/modules/FaceChartModule';
@@ -65,6 +67,9 @@ const MainLayout: React.FC = () => {
 
   if (!user) return <LoginModal />;
 
+  // ============================================================
+  // ADMIN LAYOUT
+  // ============================================================
   if (isAdminRole) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
@@ -83,6 +88,7 @@ const MainLayout: React.FC = () => {
              currentModule === 'division-schedule' ? <DivisionScheduleModule /> :
              currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
              currentModule === 'progress-tugas' ? <TaskProgressModule /> :
+             currentModule === 'rab' ? <RABModule /> :
              <AdminModule />}
           </main>
         </div>
@@ -92,6 +98,9 @@ const MainLayout: React.FC = () => {
 
   if (isGuruPengampu && !activeClass) return <TeacherClassPicker />;
 
+  // ============================================================
+  // ROUTER MODULE
+  // ============================================================
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -100,6 +109,7 @@ const MainLayout: React.FC = () => {
       case 'moderasi': return <ModerationModule />;
       case 'statistik-absensi': return <AttendanceStatsModule />;
       case 'kas': return <KasModule />;
+      case 'rab': return <RABModule />;
       case 'properti': return <PropertyModule />;
       case 'musik': return <MusicCueModule />;
       case 'rias': return <FaceChartModule />;
@@ -129,6 +139,9 @@ const MainLayout: React.FC = () => {
     }
   };
 
+  // ============================================================
+  // MAIN LAYOUT (GURU & SISWA)
+  // ============================================================
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
       <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
@@ -141,7 +154,15 @@ const MainLayout: React.FC = () => {
         </main>
       </div>
 
-      {/* FAB */}
+      {/* ============================================================
+          REMINDER ON REFRESH/LOGIN — hanya muncul untuk siswa
+          Berisi: Tugas Pending, Tugas Selesai, Agenda 7 Hari, Kas
+          ============================================================ */}
+      <DashboardReminder onNavigate={setCurrentModule} />
+
+      {/* ============================================================
+          FAB (Floating Action Buttons)
+          ============================================================ */}
       <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
         <button
           onClick={() => setCurrentModule('informasi')}
@@ -166,27 +187,68 @@ const MainLayout: React.FC = () => {
         </button>
       </div>
 
-      {/* Bottom Nav */}
+      {/* ============================================================
+          BOTTOM NAV (Mobile)
+          ============================================================ */}
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
-        <button onClick={() => setCurrentModule('dashboard')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-          <Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span>
+        <button
+          onClick={() => setCurrentModule('dashboard')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${
+            currentModule === 'dashboard'
+              ? 'text-amber-600 dark:text-amber-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <Home className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Beranda</span>
         </button>
-        <button onClick={() => setCurrentModule('informasi')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-          <Megaphone className="w-5 h-5" /><span className="text-[10px] mt-0.5">Info</span>
+
+        <button
+          onClick={() => setCurrentModule('informasi')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${
+            currentModule === 'informasi'
+              ? 'text-amber-600 dark:text-amber-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <Megaphone className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Info</span>
         </button>
-        <button onClick={() => setCurrentModule('notifikasi')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-          <Bell className="w-5 h-5" /><span className="text-[10px] mt-0.5">Notif</span>
+
+        <button
+          onClick={() => setCurrentModule('notifikasi')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${
+            currentModule === 'notifikasi'
+              ? 'text-amber-600 dark:text-amber-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <Bell className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Notif</span>
         </button>
-        <button onClick={() => setCurrentModule('kas')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-          <Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span>
+
+        <button
+          onClick={() => setCurrentModule('kas')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${
+            currentModule === 'kas'
+              ? 'text-amber-600 dark:text-amber-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <Wallet className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Kas</span>
         </button>
-        <button onClick={() => setCurrentModule('tugas')}
-          className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-          <Star className="w-5 h-5" /><span className="text-[10px] mt-0.5">Tugas</span>
+
+        <button
+          onClick={() => setCurrentModule('rab')}
+          className={`flex flex-col items-center p-1 rounded-xl transition ${
+            currentModule === 'rab'
+              ? 'text-amber-600 dark:text-amber-400 font-bold'
+              : 'text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <Calculator className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">RAB</span>
         </button>
       </div>
     </div>
