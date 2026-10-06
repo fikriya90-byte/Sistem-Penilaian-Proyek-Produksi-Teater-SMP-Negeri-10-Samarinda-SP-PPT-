@@ -3,7 +3,7 @@ import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
   AlertTriangle, Check, BookOpen, ChevronRight, Sparkles, Target,
   ListChecks, Square, CheckSquare, User, Briefcase, Copy, FilePlus,
-  Wand2, Loader2, Trash2,
+  Wand2, Loader2, Trash2, Pencil, Pause, Play, Ban, XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -382,7 +382,15 @@ export const DeadlineModule: React.FC = () => {
   const [targetAll, setTargetAll] = useState(false);
   const [dueDateOverride, setDueDateOverride] = useState('');
   const [useTemplateTarget, setUseTemplateTarget] = useState(true);
-
+  // State untuk Edit Deadline
+  const [editingDeadline, setEditingDeadline] = useState<DeadlineItem | null>(null);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editPriority, setEditPriority] = useState<TaskPriority>('MEDIUM');
+  const [editIsCritical, setEditIsCritical] = useState(false);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [manualTitle, setManualTitle] = useState('');
   const [manualDescription, setManualDescription] = useState('');
   const [manualDueDate, setManualDueDate] = useState('');
@@ -559,7 +567,121 @@ export const DeadlineModule: React.FC = () => {
     });
     return matched.size;
   })();
+  const handleOpenEdit = (d: DeadlineItem) => {
+    setEditingDeadline(d);
+    setEditTitle(d.title);
+    setEditDesc(d.description || '');
+    setEditDueDate(d.dueDate ? new Date(d.dueDate).toISOString().slice(0, 16) : '');
+    setEditPriority(d.priority || 'MEDIUM');
+    setEditIsCritical((d as any).isCritical || false);
+    setIsEditOpen(true);
+  };
 
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDeadline || !user) return;
+    setActionLoading(editingDeadline.id);
+    try {
+      await updateDoc(doc(db, 'deadlines', editingDeadline.id), {
+        title: editTitle.trim(),
+        description: editDesc.trim(),
+        dueDate: new Date(editDueDate).toISOString(),
+        priority: editPriority,
+        isCritical: editIsCritical,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.displayName,
+      });
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'Deadline', targetId: editingDeadline.id,
+        details: `Edit deadline: ${editTitle}`,
+      });
+      showToast('Deadline berhasil diperbarui!', 'success');
+      setIsEditOpen(false);
+      setEditingDeadline(null);
+    } catch (err: any) {
+      showToast('Gagal edit: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleToggleHold = async (d: DeadlineItem) => {
+    if (!user) return;
+    const isHeld = (d as any).status === 'HOLD';
+    const newStatus = isHeld ? 'ACTIVE' : 'HOLD';
+    if (!confirm(
+      isHeld
+        ? `Aktifkan kembali deadline "${d.title}"?\n\nCountdown akan berjalan lagi.`
+        : `Tahan deadline "${d.title}"?\n\nCountdown akan di-pause — tidak dihitung overdue sementara.`
+    )) return;
+
+    setActionLoading(d.id);
+    try {
+      await updateDoc(doc(db, 'deadlines', d.id), {
+        status: newStatus,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.displayName,
+      });
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'Deadline', targetId: d.id,
+        details: `${isHeld ? 'Aktifkan' : 'Tahan'} deadline: ${d.title}`,
+      });
+      showToast(isHeld ? '✅ Deadline diaktifkan kembali.' : '⏸️ Deadline ditahan.', 'success');
+    } catch (err: any) {
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleCancelDeadline = async (d: DeadlineItem) => {
+    if (!user) return;
+    if (!confirm(
+      `BATALKAN deadline "${d.title}"?\n\n` +
+      `Deadline akan ditandai "DIBATALKAN" — siswa tidak perlu mengerjakan.\n` +
+      `Bisa diaktifkan kembali nanti bila perlu.`
+    )) return;
+
+    setActionLoading(d.id);
+    try {
+      await updateDoc(doc(db, 'deadlines', d.id), {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+        cancelledBy: user.displayName,
+        updatedAt: new Date().toISOString(),
+      });
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'Deadline', targetId: d.id,
+        details: `Batalkan deadline: ${d.title}`,
+      });
+      showToast('🚫 Deadline dibatalkan.', 'info');
+    } catch (err: any) {
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRestoreDeadline = async (d: DeadlineItem) => {
+    if (!user) return;
+    if (!confirm(`Aktifkan kembali deadline "${d.title}"?`)) return;
+    setActionLoading(d.id);
+    try {
+      await updateDoc(doc(db, 'deadlines', d.id), {
+        status: 'ACTIVE',
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.displayName,
+      });
+      showToast('✅ Deadline diaktifkan kembali.', 'success');
+    } catch (err: any) {
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
   const handleDeleteDeadline = async (d: DeadlineItem) => {
     if (!user) return;
     if (!confirm(`Hapus deadline "${d.title}"?\n\nTindakan ini tidak bisa dibatalkan.`)) return;
