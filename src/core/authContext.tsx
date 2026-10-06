@@ -407,26 +407,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
-  // =========================================================
-  // MATRIKS PENILAIAN
+    // =========================================================
+  // MATRIKS PENILAIAN — FINAL
   // =========================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
-    if (target.uid === user.uid) return false;
+    if (target.uid === user.uid) return false; // tidak bisa menilai diri sendiri
 
     const myRole = user.role;
     const targetRole = target.role;
 
-    // Guru & Admin: menilai semua kecuali sesama Guru/Admin
+    // ============ GURU & ADMIN: menilai SEMUA kecuali sesama Guru/Admin ============
     if (isTeacher) {
       return !(
         targetRole === 'Guru Pengampu' ||
+        targetRole === 'Guru Pembina' ||
         targetRole === 'Admin' ||
         targetRole === 'Super Admin'
       );
     }
 
-    // Pimpro: menilai Sekretaris, Bendahara, semua Koordinator
+    // ============ PIMPINAN PRODUKSI ============
+    // Menilai: Sekretaris, Bendahara, Semua Koordinator
     if (myRole === 'Pimpinan Produksi') {
       return (
         targetRole === 'Sekretaris' ||
@@ -435,14 +437,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Sekretaris & Bendahara: menilai Pimpro (atasan langsung)
+    // ============ SEKRETARIS & BENDAHARA ============
+    // Menilai: Pimpinan Produksi (atasan langsung)
     if (myRole === 'Sekretaris' || myRole === 'Bendahara') {
       return targetRole === 'Pimpinan Produksi';
     }
 
-    // Sutradara: menilai Asisten, semua Pemain, dan Koor artistik
+    // ============ SUTRADARA ============
+    // Menilai: Pimprod, Asisten, Semua Pemain, Koor artistik
     if (myRole === 'Sutradara') {
       return (
+        targetRole === 'Pimpinan Produksi' ||
         targetRole === 'Asisten Sutradara' ||
         targetRole === 'Pemain' ||
         targetRole === 'Koordinator Tata Panggung' ||
@@ -452,7 +457,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Asisten Sutradara: menilai Pemain, Sutradara (peer-level), dan koor artistik
+    // ============ ASISTEN SUTRADARA ============
+    // Menilai: Sutradara, Semua Pemain, Koor artistik
     if (myRole === 'Asisten Sutradara') {
       return (
         targetRole === 'Sutradara' ||
@@ -464,25 +470,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Koordinator: menilai Anggota divisinya saja
-    if (myRole.startsWith('Koordinator ')) {
-      const myDiv = user.divisionName || '';
-      const targetDiv = target.divisionName || '';
-      if (myDiv && targetDiv === myDiv && targetRole.startsWith('Anggota ')) return true;
-      return false;
+    // ============ KOORDINATOR DIVISI ============
+    if (myRole === 'Koordinator Perlengkapan') {
+      return targetRole === 'Anggota Perlengkapan' || targetRole === 'Pimpinan Produksi';
+    }
+    if (myRole === 'Koordinator Publikasi') {
+      return targetRole === 'Anggota Publikasi' || targetRole === 'Pimpinan Produksi';
+    }
+    if (myRole === 'Koordinator Tata Panggung') {
+      return targetRole === 'Anggota Tata Panggung' || targetRole === 'Sutradara';
+    }
+    if (myRole === 'Koordinator Tata Busana') {
+      return targetRole === 'Anggota Tata Busana' || targetRole === 'Sutradara';
+    }
+    if (myRole === 'Koordinator Tata Rias') {
+      return targetRole === 'Anggota Tata Rias' || targetRole === 'Sutradara';
+    }
+    if (myRole === 'Koordinator Tata Musik') {
+      return targetRole === 'Anggota Tata Musik' || targetRole === 'Sutradara';
     }
 
-    // Anggota: menilai Koordinator dan sesama Anggota di divisi yang sama
+    // ============ ANGGOTA DIVISI ============
+    // Menilai: Koordinator divisinya + sesama Anggota di divisi yang sama
     if (myRole.startsWith('Anggota ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
       if (!myDiv || targetDiv !== myDiv) return false;
-      return targetRole.startsWith('Koordinator ') || targetRole.startsWith('Anggota ');
+      return (
+        targetRole.startsWith('Koordinator ') ||
+        targetRole.startsWith('Anggota ')
+      );
     }
 
-    // Pemain: menilai Sutradara & Asisten (pengarah langsung)
+    // ============ PEMAIN ============
+    // Menilai: Sutradara, Asisten, DAN sesama Pemain (peer assessment)
     if (myRole === 'Pemain') {
-      return targetRole === 'Sutradara' || targetRole === 'Asisten Sutradara';
+      return (
+        targetRole === 'Sutradara' ||
+        targetRole === 'Asisten Sutradara' ||
+        targetRole === 'Pemain'
+      );
     }
 
     return false;
