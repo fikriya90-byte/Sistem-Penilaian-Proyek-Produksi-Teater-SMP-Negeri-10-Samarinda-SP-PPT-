@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ExternalLink, MessageCircle, Phone, Search, Share2, Sparkles,
-  Users, Camera, Upload,
+  Users, Camera, Upload, Pencil, Check, X, Lock,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS } from '../../core/constants';
@@ -13,7 +13,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
 export const StructureModule: React.FC = () => {
-  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole } = useAuth();
+  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole, isPimprod, canEditKerabatKerja, updateKerabatKerja } = useAuth();
   const { showToast } = useToast();
 
   const [members, setMembers] = useState<UserProfile[]>([]);
@@ -24,9 +24,13 @@ export const StructureModule: React.FC = () => {
   const [kerabatLogo, setKerabatLogo] = useState<string>('');
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
 
+  // Edit nama kerabat kerja
+  const [isEditingKerabat, setIsEditingKerabat] = useState(false);
+  const [kerabatDraft, setKerabatDraft] = useState('');
+  const [savingKerabat, setSavingKerabat] = useState(false);
+
   const canEditPhotos =
-    isTeacher || isGuruPengampu || isAdminRole ||
-    user?.role === 'Pimpinan Produksi' ||
+    isTeacher || isGuruPengampu || isAdminRole || isPimprod ||
     user?.role === 'Sutradara' ||
     (user?.role ? user.role.startsWith('Koordinator ') : false);
 
@@ -34,6 +38,7 @@ export const StructureModule: React.FC = () => {
     if (!activeClass) return;
     fetchUsersByClass(activeClass.id).then(setMembers);
     loadKerabatLogo();
+    setKerabatDraft(activeClass.kerabatKerja || '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClass]);
 
@@ -47,6 +52,22 @@ export const StructureModule: React.FC = () => {
       }
     } catch (err) {
       console.warn('Gagal load logo:', err);
+    }
+  };
+
+  const handleSaveKerabatName = async () => {
+    if (!kerabatDraft.trim()) {
+      showToast('Nama kerabat kerja tidak boleh kosong.', 'warning');
+      return;
+    }
+    setSavingKerabat(true);
+    const res = await updateKerabatKerja(kerabatDraft.trim());
+    setSavingKerabat(false);
+    if (res.success) {
+      showToast(res.message, 'success');
+      setIsEditingKerabat(false);
+    } else {
+      showToast(res.message, 'error');
     }
   };
 
@@ -144,7 +165,7 @@ export const StructureModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header dengan Logo */}
+      {/* Header dengan Logo & Nama Kerabat */}
       <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -167,14 +188,61 @@ export const StructureModule: React.FC = () => {
               )}
             </div>
 
-            <div>
+            <div className="flex-1 min-w-0">
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-500/30">
                 Kerabat Kerja
               </span>
-              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white mt-1">
-                {activeClass?.kerabatKerja || `Struktur ${activeClass?.name || ''}`}
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+
+              {/* Edit nama kerabat — hanya Guru/Pimprod */}
+              {isEditingKerabat && canEditKerabatKerja ? (
+                <div className="flex items-center gap-2 mt-1">
+                  <input
+                    type="text"
+                    value={kerabatDraft}
+                    onChange={(e) => setKerabatDraft(e.target.value)}
+                    placeholder="Contoh: Gema Senandika Production"
+                    autoFocus
+                    className="flex-1 px-3 py-1.5 rounded-xl border-2 border-amber-400 bg-white dark:bg-slate-800 text-sm font-extrabold text-slate-900 dark:text-white"
+                  />
+                  <button
+                    onClick={handleSaveKerabatName}
+                    disabled={savingKerabat}
+                    className="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white disabled:opacity-50"
+                    title="Simpan"
+                  >
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => { setIsEditingKerabat(false); setKerabatDraft(activeClass?.kerabatKerja || ''); }}
+                    className="p-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700"
+                    title="Batal"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+                    {activeClass?.kerabatKerja || `Struktur ${activeClass?.name || ''}`}
+                  </h2>
+                  {canEditKerabatKerja && (
+                    <button
+                      onClick={() => setIsEditingKerabat(true)}
+                      className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-500/20 transition"
+                      title="Ubah nama kerabat kerja"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                  )}
+                  {!canEditKerabatKerja && (
+                    <span className="p-1 text-slate-300" title="Hanya Guru dan Pimpinan Produksi yang dapat mengubah">
+                      <Lock className="w-3.5 h-3.5" />
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
                 {members.length} anggota terdaftar
               </p>
             </div>
@@ -254,6 +322,7 @@ export const StructureModule: React.FC = () => {
         {filteredMembers.map(member => {
           const isMe = member.uid === user?.uid;
           const waLink = getWhatsAppLink(member.phone, member.displayName);
+          const canEditThisPhoto = isMe || canEditPhotos;
 
           return (
             <div
@@ -278,7 +347,7 @@ export const StructureModule: React.FC = () => {
                         {member.displayName.charAt(0).toUpperCase()}
                       </div>
                     )}
-                    {(canEditPhotos || isMe) && (
+                    {canEditThisPhoto && (
                       <button
                         onClick={() => setPhotoModalMember(member)}
                         className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600 transition"
