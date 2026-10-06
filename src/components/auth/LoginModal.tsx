@@ -130,6 +130,9 @@ export const LoginModal: React.FC = () => {
       return;
     }
 
+    // === FIX: Set flag agar modal konfirmasi muncul di dashboard ===
+    try { sessionStorage.setItem('spppt-just-logged-in', '1'); } catch { /* ignore */ }
+
     showToast('Login berhasil! Selamat datang di SP-PPT.', 'success');
   };
 
@@ -139,7 +142,6 @@ export const LoginModal: React.FC = () => {
     if (!regClassCode.trim()) { showToast('Harap isi Kode Kelas.', 'warning'); return; }
     if (!regName.trim() || !regEmail.trim()) { showToast('Nama dan Email wajib diisi.', 'warning'); return; }
 
-    // === VALIDASI WAJIB: WhatsApp ===
     const cleanPhone = regPhone.replace(/\D/g, '');
     if (!regPhone.trim()) {
       showToast('Nomor WhatsApp wajib diisi untuk komunikasi koordinasi produksi.', 'warning');
