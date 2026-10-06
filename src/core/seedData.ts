@@ -12,6 +12,12 @@ import {
   UserProfile,
 } from './types';
 
+// ============================================================
+// FLAG SEED — v5
+// Naikkan versi ini kalau mau seed ulang dari awal
+// ============================================================
+const SEED_FLAG_KEY = 'spppt_seed_done_v5';
+
 export const DEMO_CLASSES: ClassRoom[] = [
   {
     id: 'id_34n2rdaofmuhz74a4',
@@ -95,7 +101,7 @@ export const DEMO_USERS: UserProfile[] = [
     email: 'fikriya90@gmail.com',
     secondaryEmail: 'fikri.yassaar15@guru.smp.belajar.id',
     displayName: 'Fikri Yassaar Arrazaq, S.Sn.',
-    role: 'Guru Pengampu',
+    role: 'Guru Pembina',
     classId: 'id_34n2rdaofmuhz74a4',
     className: 'IX-C',
     phone: '081255558899',
@@ -148,7 +154,7 @@ export const DEMO_USERS: UserProfile[] = [
     role: 'Sutradara',
     classId: 'id_34n2rdaofmuhz74a4',
     className: 'IX-C',
-    divisionId: 'div-pemeran',
+    divisionId: 'div-pemain',
     divisionName: 'Pemeran',
     phone: '081266778899',
     photoURL: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
@@ -161,7 +167,7 @@ export const DEMO_USERS: UserProfile[] = [
     role: 'Asisten Sutradara',
     classId: 'id_34n2rdaofmuhz74a4',
     className: 'IX-C',
-    divisionId: 'div-pemeran',
+    divisionId: 'div-pemain',
     divisionName: 'Pemeran',
     phone: '085288990011',
     photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
@@ -252,7 +258,7 @@ export const DEMO_USERS: UserProfile[] = [
     role: 'Pemeran',
     classId: 'id_34n2rdaofmuhz74a4',
     className: 'IX-C',
-    divisionId: 'div-pemeran',
+    divisionId: 'div-pemain',
     divisionName: 'Pemeran',
     phone: '081388776655',
     photoURL: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
@@ -300,16 +306,14 @@ export const DEMO_USERS: UserProfile[] = [
 ];
 
 // ============================================================
-// FIX: JANGAN auto-seed ulang kalau sudah pernah seed.
-// Ini mencegah kelas lama muncul kembali setelah dihapus.
+// CHECK & SEED — dengan flag anti-seed-ulang
 // ============================================================
-const SEED_FLAGS = ['spppt_seed_done_v4', 'spppt_seed_done_v3', 'spppt_seed_done_v2'];
-
 export async function checkAndSeedDatabase() {
   try {
     const flagRef = doc(db, 'systemConfig', 'seedStatus');
     let alreadySeeded = false;
 
+    // 1. Cek flag di Firestore
     try {
       const flagSnap = await getDoc(flagRef);
       if (flagSnap.exists() && flagSnap.data()?.seeded === true) {
@@ -319,35 +323,35 @@ export async function checkAndSeedDatabase() {
       console.warn('Gagal baca seed flag Firestore:', err);
     }
 
+    // 2. Fallback localStorage
     if (!alreadySeeded) {
-      for (const key of SEED_FLAGS) {
-        try {
-          if (localStorage.getItem(key) === 'done') {
-            alreadySeeded = true;
-            break;
-          }
-        } catch { /* ignore */ }
-      }
+      try {
+        if (localStorage.getItem(SEED_FLAG_KEY) === 'done') alreadySeeded = true;
+      } catch { /* ignore */ }
     }
 
-    if (alreadySeeded) return;
+    // 3. Kalau sudah pernah seed → LANGSUNG RETURN
+    if (alreadySeeded) {
+      return;
+    }
 
+    // 4. Cek apakah classes sudah ada isinya
     const classesSnap = await getDocs(collection(db, 'classes'));
     if (classesSnap.size > 0) {
+      // Sudah ada kelas → tandai sudah seed, JANGAN timpa
       try {
         await setDoc(flagRef, {
           seeded: true,
           seededAt: new Date().toISOString(),
-          reason: 'kelas sudah ada',
+          reason: 'kelas sudah ada sebelumnya',
         }, { merge: true });
       } catch { /* ignore */ }
-      for (const key of SEED_FLAGS) {
-        try { localStorage.setItem(key, 'done'); } catch { /* ignore */ }
-      }
+      try { localStorage.setItem(SEED_FLAG_KEY, 'done'); } catch { /* ignore */ }
       return;
     }
 
-    console.log('🌱 First-time seed...');
+    // 5. Benar-benar kosong & belum pernah seed → seed
+    console.log('🌱 First-time seed: membuat data awal...');
     await forceSeedDatabase();
 
     try {
@@ -357,28 +361,31 @@ export async function checkAndSeedDatabase() {
         reason: 'initial seed',
       }, { merge: true });
     } catch { /* ignore */ }
-    for (const key of SEED_FLAGS) {
-      try { localStorage.setItem(key, 'done'); } catch { /* ignore */ }
-    }
-    console.log('✅ Seed selesai — tidak akan seed ulang.');
+    try { localStorage.setItem(SEED_FLAG_KEY, 'done'); } catch { /* ignore */ }
+
+    console.log('✅ Seed selesai. Flag tersimpan.');
   } catch (error) {
-    console.error('Seed error:', error);
+    console.error('Error during database check/seed:', error);
   }
 }
 
+// ============================================================
+// FORCE SEED — dijalankan hanya saat init atau reset manual
+// ============================================================
 export async function forceSeedDatabase() {
   const batch = writeBatch(db);
 
+  // 1. Classes
   for (const c of DEMO_CLASSES) {
     batch.set(doc(db, 'classes', c.id), c);
   }
+
+  // 2. Productions
   for (const p of DEMO_PRODUCTIONS) {
     batch.set(doc(db, 'productions', p.id), p);
   }
-  for (const u of DEMO_USERS) {
-    batch.set(doc(db, 'users', u.uid), u);
-  }
 
+  // 3. Tasks
   const now = new Date();
   const sampleTasks: TaskItem[] = [
     {
@@ -386,20 +393,19 @@ export async function forceSeedDatabase() {
       classId: 'id_34n2rdaofmuhz74a4',
       productionId: 'prod-ix-c',
       stageId: 'PELAKSANAAN',
-      divisionId: 'div-pemeran',
+      divisionId: 'div-pemain',
       divisionName: 'Pemeran',
       role: 'Pemeran',
       assigneeId: 'student-alpine',
       assigneeName: 'alpine alfarizi',
-      title: '★ Hafalan Penuh Dialog Babak 2 (Adegan Penolakan Lamaran)',
-      description: 'Menghafal 3 halaman monolog dan dialog emosional dengan utusan saudagar tanpa membaca naskah.',
+      title: 'Hafalan Penuh Dialog Babak 2',
+      description: 'Menghafal 3 halaman monolog dan dialog emosional.',
       priority: 'CRITICAL',
       status: 'IN_PROGRESS',
       progress: 75,
       dueDate: new Date(now.getTime() + 18 * 60 * 60 * 1000).toISOString(),
-      isCritical: true,
       createdBy: 'student-nur-kasih',
-      creatorName: 'Nur Kasih Oktavia (Sutradara)',
+      creatorName: 'Nur Kasih Oktavia',
       createdAt: new Date(now.getTime() - 2 * 86400000).toISOString(),
     },
     {
@@ -412,18 +418,17 @@ export async function forceSeedDatabase() {
       role: 'Koordinator Perlengkapan',
       assigneeId: 'student-jelita',
       assigneeName: 'Jelita Ramadhani Khotim',
-      title: '★ Pembuatan Keris Pusaka & Mahkota Ratu Aji',
-      description: 'Membuat properti simbol kebesaran istana kerajaan Kutai kuno sesuai sketsa artistik.',
+      title: 'Pembuatan Keris Pusaka & Mahkota Ratu Aji',
+      description: 'Membuat properti simbol kebesaran istana kerajaan Kutai kuno.',
       priority: 'HIGH',
       status: 'APPROVED',
       progress: 100,
       dueDate: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
-      isCritical: true,
-      proofUrl: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=600',
-      proofNote: 'Keris selesai dicat emas dan mahkota dilapisi batu imitasi.',
-      feedback: 'Sangat rapi dan kokoh untuk digunakan di atas panggung.',
+      proofUrl: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=600&auto=format&fit=crop&q=80',
+      proofNote: 'Keris selesai dicat emas.',
+      feedback: 'Sangat rapi dan kokoh.',
       createdBy: 'student-dude',
-      creatorName: 'Dude Masyud Tualeka (Pimprod)',
+      creatorName: 'Dude Masyud Tualeka',
       createdAt: new Date(now.getTime() - 5 * 86400000).toISOString(),
     },
     {
@@ -436,14 +441,14 @@ export async function forceSeedDatabase() {
       role: 'Koordinator Tata Busana',
       assigneeId: 'student-chika',
       assigneeName: 'Al Chika Imeydita Mustika',
-      title: 'Fitting Perdana Gaun Kebesaran Putih & Jubah Panglima',
-      description: 'Pengukuran dan penyesuaian kelenturan jahitan agar pemeran leluasa bergerak saat adegan silat.',
+      title: 'Fitting Perdana Gaun Kebesaran Putih',
+      description: 'Pengukuran dan penyesuaian kelenturan jahitan.',
       priority: 'HIGH',
       status: 'IN_PROGRESS',
       progress: 60,
       dueDate: new Date(now.getTime() + 3 * 86400000).toISOString(),
       createdBy: 'student-dude',
-      creatorName: 'Dude Masyud Tualeka (Pimprod)',
+      creatorName: 'Dude Masyud Tualeka',
       createdAt: new Date(now.getTime() - 3 * 86400000).toISOString(),
     },
     {
@@ -456,17 +461,16 @@ export async function forceSeedDatabase() {
       role: 'Koordinator Publikasi',
       assigneeId: 'student-rivana',
       assigneeName: 'Rivana Adelia Rusdi',
-      title: '★ Peluncuran Poster Resmi Produksi Teater H-30',
-      description: 'Cetak poster A3 untuk mading sekolah dan rilis teaser visual feed Instagram.',
-      priority: 'CRITICAL',
+      title: 'Peluncuran Poster Resmi Produksi H-30',
+      description: 'Cetak poster A3 untuk mading sekolah.',
+      priority: 'MEDIUM',
       status: 'SUBMITTED',
       progress: 90,
       dueDate: new Date(now.getTime() + 12 * 60 * 60 * 1000).toISOString(),
-      isCritical: true,
-      proofUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600',
-      proofNote: 'Poster digital selesai dan sudah di-review tim guru seni.',
+      proofUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600&auto=format&fit=crop&q=80',
+      proofNote: 'Poster digital selesai.',
       createdBy: 'student-dude',
-      creatorName: 'Dude Masyud Tualeka (Pimprod)',
+      creatorName: 'Dude Masyud Tualeka',
       createdAt: new Date(now.getTime() - 4 * 86400000).toISOString(),
     },
     {
@@ -479,15 +483,14 @@ export async function forceSeedDatabase() {
       role: 'Koordinator Tata Musik',
       assigneeId: 'student-naufal',
       assigneeName: 'Muhammad Naufal Nizar Farraas',
-      title: '★ Kompilasi Sound Cue Sheet & Perekaman Sape Pengiring Perang',
-      description: 'Menyusun daftar 10 track audio latar dan efek suara gemuruh ombak dan teriakan prajurit.',
-      priority: 'CRITICAL',
+      title: 'Kompilasi Sound Cue Sheet & Perekaman Sape',
+      description: 'Menyusun daftar 10 track audio latar.',
+      priority: 'HIGH',
       status: 'OVERDUE',
       progress: 40,
       dueDate: new Date(now.getTime() - 10 * 60 * 60 * 1000).toISOString(),
-      isCritical: true,
       createdBy: 'student-nur-kasih',
-      creatorName: 'Nur Kasih Oktavia (Sutradara)',
+      creatorName: 'Nur Kasih Oktavia',
       createdAt: new Date(now.getTime() - 6 * 86400000).toISOString(),
     },
   ];
@@ -496,6 +499,7 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'tasks', t.id), t);
   }
 
+  // 4. Attendance Sessions
   const sampleSessions: AttendanceSession[] = [
     {
       id: 'att-session-1',
@@ -505,29 +509,29 @@ export async function forceSeedDatabase() {
       date: new Date().toISOString().slice(0, 10),
       startTime: '14:30',
       endTime: '16:00',
-      location: 'Ruang Teater / Aula Lantai 2 SMPN 10',
+      location: 'Ruang Teater / Aula Lantai 2',
       targetScope: 'SEMUA',
       createdBy: 'student-dude',
       creatorRole: 'Pimpinan Produksi',
       creatorName: 'Dude Masyud Tualeka',
-      agenda: 'Evaluasi progres pekan ke-3 tahap pelaksanaan.',
+      agenda: 'Evaluasi progres pekan ke-3.',
       isOpen: true,
       createdAt: new Date().toISOString(),
     },
     {
       id: 'att-session-2',
-      title: 'Latihan Rutin Blocking Babak 2 & Sound Cue',
+      title: 'Latihan Rutin Blocking Babak 2',
       classId: 'id_34n2rdaofmuhz74a4',
       activityType: 'Latihan',
       date: new Date().toISOString().slice(0, 10),
       startTime: '16:15',
       endTime: '17:45',
-      location: 'Panggung Terbuka SMPN 10 Samarinda',
+      location: 'Panggung Terbuka SMPN 10',
       targetScope: 'PEMAIN_MUSIK',
       createdBy: 'student-nur-kasih',
       creatorRole: 'Sutradara',
       creatorName: 'Nur Kasih Oktavia',
-      agenda: 'Latihan transisi pemeran dan sinkronisasi tempo sape.',
+      agenda: 'Latihan transisi pemain.',
       isOpen: true,
       createdAt: new Date().toISOString(),
     },
@@ -537,6 +541,7 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'attendanceSessions', s.id), s);
   }
 
+  // 5. Schedules
   const sampleSchedules: ScheduleEvent[] = [
     {
       id: 'sch-1',
@@ -545,27 +550,27 @@ export async function forceSeedDatabase() {
       type: 'Gladi',
       startAt: new Date(now.getTime() + 2 * 86400000).toISOString(),
       endAt: new Date(now.getTime() + 2 * 86400000 + 7200000).toISOString(),
-      location: 'Gedung Kesenian SMPN 10 Samarinda',
-      participants: 'Semua Pemeran, Musik, Busana, dan Panggung',
-      pic: 'Nur Kasih Oktavia (Sutradara)',
-      description: 'Uji coba transisi babak dan pergantian kostum cepat kurang dari 2 menit.',
+      location: 'Gedung Kesenian SMPN 10',
+      participants: 'Semua Pemeran, Musik, Busana, Panggung',
+      pic: 'Nur Kasih Oktavia',
+      description: 'Uji coba transisi babak.',
       createdBy: 'student-nur-kasih',
       creatorName: 'Nur Kasih Oktavia',
       createdAt: new Date().toISOString(),
     },
     {
       id: 'sch-2',
-      title: 'Fitting Busana Final & Uji Tata Rias Karakter',
+      title: 'Fitting Busana Final & Uji Tata Rias',
       classId: 'id_34n2rdaofmuhz74a4',
       type: 'Fitting',
       startAt: new Date(now.getTime() + 4 * 86400000).toISOString(),
       endAt: new Date(now.getTime() + 4 * 86400000 + 5400000).toISOString(),
       location: 'Ruang Rias & Ganti Panggung',
-      participants: 'Divisi Tata Rias, Tata Busana, dan Semua Pemeran',
-      pic: 'Al Chika & Shaqinah',
-      description: 'Face chart test dan pengecekan ketahanan rias terhadap lampu sorot panggung.',
+      participants: 'Tata Rias, Tata Busana, Semua Pemeran',
+      pic: 'Al Chika Imeydita Mustika',
+      description: 'Face chart test.',
       createdBy: 'student-chika',
-      creatorName: 'Al Chika Imeydita',
+      creatorName: 'Al Chika Imeydita Mustika',
       createdAt: new Date().toISOString(),
     },
   ];
@@ -574,11 +579,12 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'schedules', sc.id), sc);
   }
 
+  // 6. Documents
   const sampleDocs: ProductionDocument[] = [
     {
       id: 'doc-1',
       classId: 'id_34n2rdaofmuhz74a4',
-      title: 'Naskah Resmi: Titah Ratu Aji Bidara Putih (Edisi Revisi 3)',
+      title: 'Naskah Resmi: Titah Ratu Aji Bidara Putih',
       category: 'Naskah Drama',
       fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
       fileSize: '1.8 MB',
@@ -591,7 +597,7 @@ export async function forceSeedDatabase() {
     {
       id: 'doc-2',
       classId: 'id_34n2rdaofmuhz74a4',
-      title: 'Proposal Proyek Produksi Seni Teater Kelas IX-C',
+      title: 'Proposal Proyek Produksi Seni Teater',
       category: 'Proposal',
       fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
       fileSize: '3.4 MB',
@@ -607,13 +613,14 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'documents', d.id), d);
   }
 
+  // 7. Notifications
   const sampleNotifications: SystemNotification[] = [
     {
       id: 'notif-1',
       userId: 'student-dude',
       classId: 'id_34n2rdaofmuhz74a4',
-      title: 'Tenggat Waktu Kritis (< 24 Jam)',
-      message: 'Tugas "Hafalan Penuh Dialog Babak 2" tersisa kurang dari 18 jam.',
+      title: 'Tenggat Waktu Kritis',
+      message: 'Tugas "Hafalan Dialog Babak 2" tersisa kurang dari 18 jam.',
       category: 'Urgent',
       read: false,
       createdAt: new Date().toISOString(),
@@ -623,7 +630,7 @@ export async function forceSeedDatabase() {
       userId: 'student-dude',
       classId: 'id_34n2rdaofmuhz74a4',
       title: 'Pengingat Rapat Pleno Hari Ini',
-      message: 'Rapat Pleno Koordinasi Lintas Divisi dijadwalkan pukul 14:30.',
+      message: 'Rapat Pleno pukul 14:30 di Ruang Teater.',
       category: 'Reminder',
       read: false,
       createdAt: new Date(now.getTime() - 2 * 3600000).toISOString(),
@@ -632,8 +639,8 @@ export async function forceSeedDatabase() {
       id: 'notif-3',
       userId: 'teacher-fikri',
       classId: 'id_34n2rdaofmuhz74a4',
-      title: 'Bukti Tugas Dikirim untuk Verifikasi',
-      message: 'Koordinator Publikasi telah mengunggah bukti cetak poster promosi.',
+      title: 'Bukti Tugas Dikirim',
+      message: 'Koordinator Publikasi mengunggah bukti poster.',
       category: 'Tugas',
       read: false,
       createdAt: new Date(now.getTime() - 3600000).toISOString(),
@@ -644,19 +651,19 @@ export async function forceSeedDatabase() {
     batch.set(doc(db, 'notifications', n.id), n);
   }
 
+  // 8. Prompt Book
   const samplePromptBook: PromptBookScene = {
     id: 'pb-scene-1',
     classId: 'id_34n2rdaofmuhz74a4',
-    scene: 'Babak 2 Adegan 1: Penolakan Utusan Saudagar Tiongkok',
+    scene: 'Babak 2 Adegan 1: Penolakan Utusan Saudagar',
     gridPositions: {
       'student-nur-kasih': 'UC',
       'student-alpine': 'CR',
     },
-    notes: 'Ratu Aji tetap tegak tidak berdiri dari singgasana saat utusan masuk. Suasana hening mencekam.',
+    notes: 'Ratu Aji tetap tegak tidak berdiri dari singgasana.',
     cues: [
-      { code: 'CUE-01', action: 'Lampu utama menyorot singgasana putih', timing: '00:00:15', soundLight: 'Spotlight Emas' },
-      { code: 'CUE-02', action: 'Petikan lambat sape intro duka', timing: '00:01:10', soundLight: 'Audio Track 03 (Fade In)' },
-      { code: 'CUE-03', action: 'Gong istana berbunyi keras tanda penolakan', timing: '00:04:30', soundLight: 'Audio Track 07 (SFX)' },
+      { code: 'CUE-01', action: 'Lampu utama menyorot singgasana', timing: '00:00:15', soundLight: 'Spotlight Emas' },
+      { code: 'CUE-02', action: 'Petikan sape intro duka', timing: '00:01:10', soundLight: 'Audio Track 03' },
     ],
     updatedBy: 'student-gredy',
     updatedAt: new Date().toISOString(),
@@ -665,5 +672,5 @@ export async function forceSeedDatabase() {
   batch.set(doc(db, 'promptBooks', samplePromptBook.id), samplePromptBook);
 
   await batch.commit();
-  console.log('Database seeded successfully!');
+  console.log('✅ Database seeded successfully!');
 }
