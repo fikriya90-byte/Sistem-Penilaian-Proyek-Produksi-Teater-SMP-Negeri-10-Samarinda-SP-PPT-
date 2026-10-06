@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Bell, Search, CheckCheck, Trash2, Eye, Clock, Tag, Filter,
   CheckSquare, MessageSquare, Award, Radio, AlertTriangle,
-  Wallet, Megaphone, User, Sparkles, RefreshCw,
+  Wallet, Megaphone, User, Sparkles, RefreshCw, Building2, X,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -15,13 +15,14 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
-type FilterType = 'ALL' | 'UNREAD' | 'Tugas' | 'Reminder' | 'Pengumuman' | 'Nilai' | 'Urgent' | 'Sistem';
+type FilterType = 'ALL' | 'UNREAD' | 'Tugas' | 'Reminder' | 'Pengumuman' | 'Nilai' | 'Urgent' | 'Sistem' | 'Keuangan';
 
 export const NotificationPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, activeClass, classes } = useAuth();
   const { showToast } = useToast();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [filter, setFilter] = useState<FilterType>('ALL');
+  const [classFilter, setClassFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -36,9 +37,34 @@ export const NotificationPage: React.FC = () => {
     return () => unsub();
   }, [user]);
 
+  // Nama kelas dari classId
+  const getClassName = (classId?: string) => {
+    if (!classId) return null;
+    const c = classes.find(x => x.id === classId);
+    return c?.name || null;
+  };
+
+  // Daftar kelas unik dari notifikasi user
+  const availableClasses = (() => {
+    const map: Record<string, string> = {};
+    notifications.forEach(n => {
+      if (n.classId) {
+        const name = getClassName(n.classId);
+        if (name) map[n.classId] = name;
+      }
+    });
+    return Object.entries(map).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  })();
+
   const filtered = notifications.filter(n => {
     if (filter === 'UNREAD' && n.read) return false;
     if (filter !== 'ALL' && filter !== 'UNREAD' && n.category !== filter) return false;
+
+    // Filter kelas
+    if (classFilter !== 'ALL') {
+      if (n.classId !== classFilter) return false;
+    }
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
@@ -50,11 +76,14 @@ export const NotificationPage: React.FC = () => {
     return true;
   });
 
+  // Stats
+  const unreadCount = notifications.filter(n => !n.read).length;
+  const classUnreadCount = (cid: string) =>
+    notifications.filter(n => !n.read && n.classId === cid).length;
+
   const handleMarkRead = async (n: SystemNotification) => {
     if (n.read) return;
-    try {
-      await markNotificationAsRead(n.id);
-    } catch { /* silent */ }
+    try { await markNotificationAsRead(n.id); } catch { /* silent */ }
   };
 
   const handleMarkAllRead = async () => {
@@ -65,9 +94,7 @@ export const NotificationPage: React.FC = () => {
       showToast(count > 0 ? `${count} notifikasi ditandai dibaca.` : 'Tidak ada notifikasi baru.', 'success');
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    } finally {
-      setMarkingAll(false);
-    }
+    } finally { setMarkingAll(false); }
   };
 
   const handleDeleteOne = async (n: SystemNotification) => {
@@ -101,9 +128,7 @@ export const NotificationPage: React.FC = () => {
       showToast(`${snap.size} notifikasi dibersihkan.`, 'success');
     } catch (err: any) {
       showToast('Gagal: ' + err.message, 'error');
-    } finally {
-      setClearing(false);
-    }
+    } finally { setClearing(false); }
   };
 
   const getCategoryStyle = (cat: string) => {
@@ -119,8 +144,6 @@ export const NotificationPage: React.FC = () => {
     }
   };
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-
   const filterOptions: { val: FilterType; label: string }[] = [
     { val: 'ALL', label: `Semua (${notifications.length})` },
     { val: 'UNREAD', label: `Belum Dibaca (${unreadCount})` },
@@ -129,6 +152,7 @@ export const NotificationPage: React.FC = () => {
     { val: 'Pengumuman', label: 'Pengumuman' },
     { val: 'Nilai', label: 'Nilai' },
     { val: 'Urgent', label: 'Urgent' },
+    { val: 'Keuangan', label: 'Keuangan' },
     { val: 'Sistem', label: 'Sistem' },
   ];
 
@@ -178,7 +202,64 @@ export const NotificationPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Search + Filter */}
+      {/* Filter Kelas (jika ada kelas di notifikasi) */}
+      {availableClasses.length > 0 && (
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Filter Kelas:</span>
+            {classFilter !== 'ALL' && (
+              <button onClick={() => setClassFilter('ALL')}
+                className="text-[10px] font-bold text-rose-600 hover:underline flex items-center gap-1">
+                <X className="w-3 h-3" /> Reset
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <button
+              onClick={() => setClassFilter('ALL')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                classFilter === 'ALL'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+              }`}
+            >
+              Semua Kelas ({notifications.length})
+            </button>
+            {availableClasses.map(c => {
+              const count = notifications.filter(n => n.classId === c.id).length;
+              const unread = classUnreadCount(c.id);
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setClassFilter(c.id)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                    classFilter === c.id
+                      ? 'bg-purple-600 text-white shadow-sm'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                  }`}
+                >
+                  <span>{c.name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                    classFilter === c.id
+                      ? 'bg-white/20'
+                      : 'bg-slate-200 dark:bg-slate-700'
+                  }`}>
+                    {count}
+                  </span>
+                  {unread > 0 && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500 text-white">
+                      {unread}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Search + Filter Kategori */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
@@ -208,6 +289,21 @@ export const NotificationPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Counter aktif */}
+      {(classFilter !== 'ALL' || filter !== 'ALL' || searchQuery) && (
+        <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 flex items-center justify-between text-xs">
+          <span className="font-semibold text-purple-800 dark:text-purple-200 flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5" />
+            Menampilkan {filtered.length} dari {notifications.length} notifikasi
+            {classFilter !== 'ALL' && (
+              <span className="bg-purple-200 dark:bg-purple-500/30 text-purple-900 dark:text-purple-200 px-2 py-0.5 rounded-md">
+                Kelas: {availableClasses.find(c => c.id === classFilter)?.name}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* List */}
       {loading ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
@@ -232,6 +328,7 @@ export const NotificationPage: React.FC = () => {
           {filtered.map(n => {
             const style = getCategoryStyle(n.category);
             const Icon = style.Icon;
+            const cName = getClassName(n.classId);
             return (
               <div
                 key={n.id}
@@ -251,6 +348,12 @@ export const NotificationPage: React.FC = () => {
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${style.bg} ${style.text} ${style.border}`}>
                         {n.category}
                       </span>
+                      {cName && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/40 flex items-center gap-1">
+                          <Building2 className="w-2.5 h-2.5" />
+                          {cName}
+                        </span>
+                      )}
                       {!n.read && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40">
                           BARU
