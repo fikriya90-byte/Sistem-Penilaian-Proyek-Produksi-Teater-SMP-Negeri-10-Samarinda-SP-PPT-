@@ -46,7 +46,7 @@ interface AuthContextType {
   isAsisten: boolean;
   isKoordinator: boolean;
   isAnggota: boolean;
-  isPemain: boolean;
+  isPemeran: boolean;
   canEditKerabatKerja: boolean;
 
   canCreateGeneralAttendance: boolean;
@@ -64,6 +64,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const normalizeRole = (role: string): UserRole => {
   if (role === 'Guru Pembina') return 'Guru Pengampu';
+  if (role === 'Pemain') return 'Pemeran';
   return role as UserRole;
 };
 
@@ -90,7 +91,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (!isMounted) return;
 
-      // Safety timer agar loading tidak stuck
       const safetyTimer = setTimeout(() => {
         if (isMounted) setLoading(false);
       }, 6000);
@@ -104,7 +104,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             profile.role = normalizeRole(profile.role);
             setUser(profile);
           } else {
-            // User Firebase ada tapi profil Firestore tidak ada → sign out
             console.warn('Profil tidak ditemukan untuk UID:', fbUser.uid);
             try { await signOut(auth); } catch { /* ignore */ }
             setUser(null);
@@ -127,7 +126,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       isMounted = false;
-      clearTimeout(safetyTimer);
       unsubscribe();
     };
   }, []);
@@ -245,13 +243,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (_) { /* non-fatal */ }
 
       const { getDivisionFromRole } = await import('./constants');
-      const division = isTeacherReg ? null : getDivisionFromRole(data.role || 'Pemain');
+      const division = isTeacherReg ? null : getDivisionFromRole(data.role || 'Pemeran');
 
       const newProfile: UserProfile = {
         uid: res.user.uid,
         email: cleanEmail,
         displayName: data.displayName.trim(),
-        role: isTeacherReg ? 'Guru Pengampu' : (data.role || 'Pemain'),
+        role: isTeacherReg ? 'Guru Pengampu' : (data.role || 'Pemeran'),
         classId: isTeacherReg ? '' : validClass.id,
         className: isTeacherReg ? '' : validClass.name,
         phone: data.phone.trim(),
@@ -262,28 +260,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       await setDoc(doc(db, 'users', res.user.uid), newProfile);
 
-      // ============================================================
-      // SIMPAN CREDENTIALS — agar Guru bisa lihat password siswa
-      // Hanya untuk siswa (bukan guru yang registrasi)
-      // ============================================================
       if (!isTeacherReg) {
         try {
           await setDoc(doc(db, 'userCredentials', res.user.uid), {
             uid: res.user.uid,
             email: cleanEmail,
-            password: data.pass, // plaintext — akses dibatasi Firestore Rules
+            password: data.pass,
             displayName: data.displayName.trim(),
             createdAt: new Date().toISOString(),
           });
         } catch (err) {
           console.warn('Gagal simpan credentials:', err);
         }
-      }
 
-      // ============================================================
-      // INCREMENT totalStudents di class
-      // ============================================================
-      if (!isTeacherReg) {
         try {
           await updateDoc(doc(db, 'classes', validClass.id), {
             totalStudents: increment(1),
@@ -382,7 +371,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   };
 
-  const role = user?.role || 'Pemain';
+  const role = user?.role || 'Pemeran';
   const isGuruPengampu = role === 'Guru Pengampu';
   const isAdminRole = role === 'Admin' || role === 'Super Admin';
   const isTeacher = isGuruPengampu || isAdminRole;
@@ -394,7 +383,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAsisten = role === 'Asisten Sutradara';
   const isKoordinator = role.startsWith('Koordinator ');
   const isAnggota = role.startsWith('Anggota ');
-  const isPemain = role === 'Pemain';
+  const isPemeran = role === 'Pemeran';
 
   const canEditKerabatKerja = isTeacher || isPimprod;
 
@@ -408,8 +397,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
   // =========================================================
-  // MATRIKS PENILAIAN 360° (Section 2 Panduan)
-  // Guru hanya menilai Pimprod & Sutradara
+  // MATRIKS PENILAIAN 360°
   // =========================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
@@ -418,7 +406,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const myRole = user.role;
     const targetRole = target.role;
 
-    // Guru: hanya Pimprod & Sutradara
     if (isGuruPengampu) {
       return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
     }
@@ -426,7 +413,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
     }
 
-    // Pimpinan Produksi: menilai Sutradara (rekan), Sekretaris, Bendahara, Koor Publikasi, Koor Perlengkapan (bawahan)
     if (myRole === 'Pimpinan Produksi') {
       return (
         targetRole === 'Sutradara' ||
@@ -437,7 +423,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Sutradara: menilai Pimprod (rekan), Asisten, Koor artistik + Anggota, Pemeran
     if (myRole === 'Sutradara') {
       return (
         targetRole === 'Pimpinan Produksi' ||
@@ -454,48 +439,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Sekretaris ↔ Bendahara (rekan)
     if (myRole === 'Sekretaris') return targetRole === 'Bendahara';
     if (myRole === 'Bendahara') return targetRole === 'Sekretaris';
 
-    // Koor Publikasi & Koor Perlengkapan: dinilai Pimprod, nilai Anggota-nya
     if (myRole === 'Koordinator Publikasi' || myRole === 'Koordinator Perlengkapan') {
       const divPrefix = myRole === 'Koordinator Publikasi' ? 'Anggota Publikasi' : 'Anggota Perlengkapan';
       return targetRole === divPrefix;
     }
 
-    // Koor Artistik: dinilai Sutradara, nilai Anggota-nya
     if (myRole === 'Koordinator Tata Panggung') return targetRole === 'Anggota Tata Panggung';
     if (myRole === 'Koordinator Tata Rias') return targetRole === 'Anggota Tata Rias';
     if (myRole === 'Koordinator Tata Busana') return targetRole === 'Anggota Tata Busana';
     if (myRole === 'Koordinator Tata Musik') return targetRole === 'Anggota Tata Musik';
 
-    // Asisten Sutradara: dinilai Sutradara, menilai Pemeran
     if (myRole === 'Asisten Sutradara') {
       return targetRole === 'Pemeran';
     }
 
-    // Anggota Divisi: dinilai Koordinator, menilai Koordinator & sesama Anggota divisi
     if (myRole.startsWith('Anggota ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
       if (myDiv && targetDiv !== myDiv) return false;
 
-      // Anggota Tata Panggung/Busana/Rias/Musik menilai Sutradara (bawahan ke atasan)
       if (['Tata Panggung', 'Tata Busana', 'Tata Rias', 'Tata Musik & Suara'].includes(myDiv)) {
         if (targetRole === 'Sutradara') return true;
       }
 
-      // Anggota Publikasi/Perlengkapan TIDAK menilai Sutradara atau Pimprod
       if (['Publikasi & Dokumentasi', 'Perlengkapan'].includes(myDiv)) {
         if (targetRole === 'Sutradara' || targetRole === 'Pimpinan Produksi') return false;
       }
 
-      // Sesama anggota & koordinator divisi
       return targetRole.startsWith('Koordinator ') || targetRole.startsWith('Anggota ');
     }
 
-    // Pemeran: dinilai Sutradara + Asisten, menilai Sutradara (bawahan ke atasan) & sesama Pemeran
     if (myRole === 'Pemeran') {
       return (
         targetRole === 'Sutradara' ||
@@ -506,6 +482,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return false;
   };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        activeClass,
+        classes,
+        setActiveClass,
+        reloadClasses,
+        loginWithEmail,
+        registerUser,
+        logout,
+        resetDemoDatabase,
+        updateKerabatKerja,
+        isTeacher,
+        isGuruPengampu,
+        isAdminRole,
+        isPimprod,
+        isSekretaris,
+        isBendahara,
+        isSutradara,
+        isAsisten,
+        isKoordinator,
+        isAnggota,
+        isPemeran,
+        canEditKerabatKerja,
+        canCreateGeneralAttendance,
+        canCreateRehearsalAttendance,
+        canCreateDivisionAttendance,
+        canCreateGeneralSchedule,
+        canCreateInternalSchedule,
+        canCreateTask,
+        canCreateDeadline,
+        canCreateBroadcast,
+        canAssessTarget,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within an AuthProvider');
