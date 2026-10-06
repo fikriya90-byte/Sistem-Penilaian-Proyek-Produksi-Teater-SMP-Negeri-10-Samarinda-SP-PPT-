@@ -23,7 +23,7 @@ const STUDENT_ROLE_GROUPS: { label: string; roles: { value: UserRole; label: str
     roles: [
       { value: 'Sutradara', label: 'Sutradara' },
       { value: 'Asisten Sutradara', label: 'Asisten Sutradara' },
-      { value: 'Pemain', label: 'Pemain (Aktor / Aktris)' },
+      { value: 'Pemeran', label: 'Pemeran (Aktor / Aktris)' },
     ],
   },
   {
@@ -68,7 +68,7 @@ export const LoginModal: React.FC = () => {
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
-  const [regRole, setRegRole] = useState<UserRole>('Pemain');
+  const [regRole, setRegRole] = useState<UserRole>('Pemeran');
   const [submitting, setSubmitting] = useState(false);
 
   const [roleMismatch, setRoleMismatch] = useState<{
@@ -130,7 +130,6 @@ export const LoginModal: React.FC = () => {
       return;
     }
 
-    // === FIX: Set flag agar modal konfirmasi muncul di dashboard ===
     try { sessionStorage.setItem('spppt-just-logged-in', '1'); } catch { /* ignore */ }
 
     showToast('Login berhasil! Selamat datang di SP-PPT.', 'success');
