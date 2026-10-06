@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  CheckCircle, PlusCircle, Search, Trash2, X, Save, Wand2,
-  AlertTriangle, Square, CheckSquare, Send, UserCheck, RotateCcw,
+  CheckCircle, PlusCircle, Search, Trash2, X, Save,
+  AlertTriangle, Square, CheckSquare, Send, RotateCcw,
   TrendingUp, Users,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
@@ -17,6 +17,21 @@ import { useToast } from '../common/Toast';
 import { TASK_TEMPLATES, STAGE_INFO_TASK, TaskTemplate } from '../../core/taskTemplates';
 import { doc, setDoc, collection } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+
+// ============================================
+// HELPER: bersihkan nilai undefined sebelum setDoc
+// Firestore TIDAK menerima undefined
+// ============================================
+function sanitize<T extends Record<string, any>>(obj: T): T {
+  const result: any = {};
+  Object.keys(obj).forEach((key) => {
+    const val = obj[key];
+    if (val !== undefined) {
+      result[key] = val;
+    }
+  });
+  return result as T;
+}
 
 const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
   LOW: { label: 'Rendah', color: 'bg-slate-100 text-slate-700 border-slate-300' },
@@ -34,9 +49,6 @@ const CAN_SEND_TASKS = [
   'Pimpinan Produksi', 'Sutradara', 'Asisten Sutradara', 'Sekretaris',
 ];
 
-// ============================================
-// DAFTAR PERAN & DIVISI (untuk filter yang ketat)
-// ============================================
 const PERAN_LIST = [
   'Pimpinan Produksi',
   'Sekretaris',
@@ -126,16 +138,21 @@ export const TaskDeadlineModule: React.FC = () => {
     const newCompleted = !existing?.completed;
 
     try {
-      await setDoc(doc(db, 'taskCompletions', key), {
+      const payload: any = {
         id: key,
         taskId: task.id,
         classId: activeClass.id,
         studentId: user.uid,
         studentName: user.displayName,
         completed: newCompleted,
-        completedAt: newCompleted ? new Date().toISOString() : null,
         updatedAt: new Date().toISOString(),
-      });
+      };
+      if (newCompleted) {
+        payload.completedAt = new Date().toISOString();
+      } else {
+        payload.completedAt = null;
+      }
+      await setDoc(doc(db, 'taskCompletions', key), sanitize(payload), { merge: true });
       showToast(newCompleted ? `✅ "${task.title}" ditandai selesai!` : `Centang "${task.title}" dilepas`, newCompleted ? 'success' : 'info');
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Error'), 'error');
@@ -149,7 +166,7 @@ export const TaskDeadlineModule: React.FC = () => {
     try {
       const key = `${cancelTarget.taskId}_${cancelTarget.studentId}`;
       const existing = completions[key] || {};
-      await setDoc(doc(db, 'taskCompletions', key), {
+      const payload: any = {
         ...existing,
         id: key,
         taskId: cancelTarget.taskId,
@@ -162,7 +179,9 @@ export const TaskDeadlineModule: React.FC = () => {
         cancelReason: cancelReason.trim(),
         cancelledAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      };
+      await setDoc(doc(db, 'taskCompletions', key), sanitize(payload), { merge: true });
+
       try {
         const notifRef = doc(collection(db, 'notifications'));
         await setDoc(notifRef, {
@@ -171,15 +190,21 @@ export const TaskDeadlineModule: React.FC = () => {
           classId: activeClass.id,
           title: '⚠️ Centang Tugas Dibatalkan',
           message: `${user.displayName} membatalkan centang "${cancelTarget.taskTitle}": ${cancelReason.trim()}`,
-          category: 'Feedback', read: false, link: 'tugas',
+          category: 'Feedback',
+          read: false,
+          link: 'tugas',
           createdAt: new Date().toISOString(),
         });
-      } catch {}
+      } catch { /* ignore */ }
+
       showToast('Centang berhasil dibatalkan', 'success');
-      setCancelTarget(null); setCancelReason('');
+      setCancelTarget(null);
+      setCancelReason('');
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Error'), 'error');
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // ============================================
@@ -187,15 +212,11 @@ export const TaskDeadlineModule: React.FC = () => {
   // ============================================
   const getTemplatesForRole = (stage: ProductionStage, target: string) => {
     const all = TASK_TEMPLATES[stage];
-
-    // Kalau target adalah DIVISI
     if (DIVISI_LIST.includes(target)) {
       return all.filter(tpl =>
         tpl.targetType === 'DIVISI' && tpl.targetDivision === target
       );
     }
-
-    // Kalau target adalah PERAN
     return all.filter(tpl =>
       (tpl.targetType === 'PERAN' && tpl.targetRole === target) ||
       tpl.targetType === 'SEMUA'
@@ -227,14 +248,12 @@ export const TaskDeadlineModule: React.FC = () => {
         due.setHours(23, 59, 0, 0);
 
         const newRef = doc(collection(db, 'tasks'));
-        await setDoc(newRef, {
+        const taskData: any = {
           id: newRef.id,
           classId: activeClass.id,
           productionId: 'prod',
           stageId: sendStage,
           divisionName: isDivisi ? sendRole : 'Pengurus Inti',
-          targetRole: isDivisi ? undefined : sendRole,
-          targetDivision: isDivisi ? sendRole : undefined,
           assigneeName: isDivisi ? `Divisi ${sendRole}` : `Peran ${sendRole}`,
           title: tpl.title,
           description: tpl.description,
@@ -245,9 +264,20 @@ export const TaskDeadlineModule: React.FC = () => {
           createdBy: user.uid,
           creatorName: user.displayName,
           createdAt: new Date().toISOString(),
-        });
+        };
+
+        // Hanya tambahkan targetRole/targetDivision jika ada nilainya
+        if (isDivisi) {
+          taskData.targetDivision = sendRole;
+        } else {
+          taskData.targetRole = sendRole;
+        }
+
+        await setDoc(newRef, sanitize(taskData));
         success++;
-      } catch (err) { console.warn('Gagal:', tpl.title, err); }
+      } catch (err) {
+        console.warn('Gagal:', tpl.title, err);
+      }
     }
 
     // Notif ke siswa target
@@ -258,6 +288,7 @@ export const TaskDeadlineModule: React.FC = () => {
         if (isDivisi) return s.divisionName === sendRole;
         return s.role === sendRole;
       });
+
       const { writeBatch } = await import('firebase/firestore');
       const batch = writeBatch(db);
       recipients.forEach(r => {
@@ -268,16 +299,24 @@ export const TaskDeadlineModule: React.FC = () => {
           classId: activeClass.id,
           title: `${success} Tugas Baru Dikirim`,
           message: `${user.displayName} mengirim ${success} tugas untuk ${isDivisi ? 'divisi' : 'peran'} ${sendRole}.`,
-          category: 'Tugas', read: false, link: 'tugas',
+          category: 'Tugas',
+          read: false,
+          link: 'tugas',
           createdAt: new Date().toISOString(),
         });
       });
       await batch.commit();
-    } catch (err) { console.warn('Notif gagal:', err); }
+    } catch (err) {
+      console.warn('Notif gagal:', err);
+    }
 
     await recordAuditLog({
-      userId: user.uid, userName: user.displayName, role: user.role,
-      action: 'CREATE', targetType: 'TaskBatch', targetId: 'batch',
+      userId: user.uid,
+      userName: user.displayName,
+      role: user.role,
+      action: 'CREATE',
+      targetType: 'TaskBatch',
+      targetId: 'batch',
       details: `Kirim ${success} tugas ke ${isDivisi ? 'divisi' : 'peran'} ${sendRole} (${sendStage})`,
     });
 
@@ -289,8 +328,12 @@ export const TaskDeadlineModule: React.FC = () => {
 
   const handleDelete = async (id: string, title: string) => {
     if (!confirm(`Hapus tugas "${title}"?`)) return;
-    try { await deleteTask(id); showToast('Tugas dihapus', 'info'); }
-    catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    try {
+      await deleteTask(id);
+      showToast('Tugas dihapus', 'info');
+    } catch (err: any) {
+      showToast('Gagal: ' + err.message, 'error');
+    }
   };
 
   const getCountdown = (dueIso: string) => {
@@ -341,12 +384,20 @@ export const TaskDeadlineModule: React.FC = () => {
                 Tugas & Deadline
               </span>
               <h2 className="text-xl font-black text-white mt-1">Checklist Tugas Produksi</h2>
-              <p className="text-xs text-slate-300 mt-0.5">Siswa centang tugas yang sudah dikerjakan — guru verifikasi saat rapat</p>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Siswa centang tugas yang sudah dikerjakan — guru verifikasi saat rapat
+              </p>
             </div>
           </div>
           {canSendTasks && (
-            <button onClick={() => { setIsSendOpen(true); setSendStage('PELAKSANAAN'); setSelectedTplIds([]); }}
-              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
+            <button
+              onClick={() => {
+                setIsSendOpen(true);
+                setSendStage('PELAKSANAAN');
+                setSelectedTplIds([]);
+              }}
+              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg"
+            >
               <Send className="w-4 h-4" /> Kirim Tugas
             </button>
           )}
@@ -373,26 +424,41 @@ export const TaskDeadlineModule: React.FC = () => {
       {/* TABS */}
       <div className="flex items-center gap-2 flex-wrap">
         {!isTeacher && (
-          <button onClick={() => setActiveTab('my-tasks')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'my-tasks' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
+          <button
+            onClick={() => setActiveTab('my-tasks')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'my-tasks' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'
+            }`}
+          >
             📋 Tugas Saya ({myTasks.length})
           </button>
         )}
         {(isTeacher || canSendTasks) && (
-          <button onClick={() => setActiveTab('all-tasks')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'all-tasks' || isTeacher ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
+          <button
+            onClick={() => setActiveTab('all-tasks')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
+              activeTab === 'all-tasks' || isTeacher ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'
+            }`}
+          >
             👥 Semua Tugas ({tasks.length})
           </button>
         )}
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input type="text" placeholder="Cari tugas..." value={searchQuery}
+          <input
+            type="text"
+            placeholder="Cari tugas..."
+            value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
+          />
         </div>
         {!isTeacher && (
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800">
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
+          >
             <option value="ALL">Semua</option>
             <option value="PENDING">Belum Dikerjakan</option>
             <option value="COMPLETED">Sudah Dikerjakan</option>
@@ -421,14 +487,25 @@ export const TaskDeadlineModule: React.FC = () => {
             const label = tRole ? `👤 ${tRole}` : tDiv ? `👥 ${tDiv}` : task.divisionName || 'Umum';
 
             return (
-              <div key={task.id} className={`p-5 rounded-3xl border shadow-sm space-y-3 transition ${isCompleted ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200'}`}>
+              <div
+                key={task.id}
+                className={`p-5 rounded-3xl border shadow-sm space-y-3 transition ${
+                  isCompleted ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200'
+                }`}
+              >
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">{label}</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${prio.color}`}>{prio.label}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${prio.color}`}>
+                    {prio.label}
+                  </span>
                 </div>
 
-                <button onClick={() => toggleCompletion(task)}
-                  className={`w-full flex items-start gap-3 p-3 rounded-2xl border-2 text-left transition ${isCompleted ? 'border-emerald-500 bg-emerald-100' : 'border-slate-200 hover:border-amber-400'}`}>
+                <button
+                  onClick={() => toggleCompletion(task)}
+                  className={`w-full flex items-start gap-3 p-3 rounded-2xl border-2 text-left transition ${
+                    isCompleted ? 'border-emerald-500 bg-emerald-100' : 'border-slate-200 hover:border-amber-400'
+                  }`}
+                >
                   <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isCompleted ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
                     {isCompleted ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-transparent" />}
                   </div>
@@ -456,23 +533,35 @@ export const TaskDeadlineModule: React.FC = () => {
                 <div className={`p-2 rounded-xl border text-center text-xs ${cd.color}`}>{cd.text}</div>
 
                 {isTeacher && activeTab === 'all-tasks' && (
-                  <button onClick={() => {
-                    const targetStudent = classStudents.find(s =>
-                      s.uid === task.assigneeId ||
-                      s.role === (task as any).targetRole ||
-                      s.divisionName === (task as any).targetDivision
-                    );
-                    if (!targetStudent) { showToast('Tidak ada siswa target ditemukan', 'warning'); return; }
-                    setCancelTarget({ taskId: task.id, studentId: targetStudent.uid, studentName: targetStudent.displayName, taskTitle: task.title });
-                  }}
-                    className="w-full py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs flex items-center justify-center gap-1">
+                  <button
+                    onClick={() => {
+                      const targetStudent = classStudents.find(s =>
+                        s.uid === task.assigneeId ||
+                        s.role === (task as any).targetRole ||
+                        s.divisionName === (task as any).targetDivision
+                      );
+                      if (!targetStudent) {
+                        showToast('Tidak ada siswa target ditemukan', 'warning');
+                        return;
+                      }
+                      setCancelTarget({
+                        taskId: task.id,
+                        studentId: targetStudent.uid,
+                        studentName: targetStudent.displayName,
+                        taskTitle: task.title,
+                      });
+                    }}
+                    className="w-full py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold text-xs flex items-center justify-center gap-1"
+                  >
                     <RotateCcw className="w-3.5 h-3.5" /> Batalkan Centang Siswa
                   </button>
                 )}
 
                 {isTeacher && (
-                  <button onClick={() => handleDelete(task.id, task.title)}
-                    className="w-full py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center justify-center gap-1">
+                  <button
+                    onClick={() => handleDelete(task.id, task.title)}
+                    className="w-full py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center justify-center gap-1"
+                  >
                     <Trash2 className="w-3.5 h-3.5" /> Hapus Tugas
                   </button>
                 )}
@@ -491,22 +580,43 @@ export const TaskDeadlineModule: React.FC = () => {
                 <h3 className="text-base font-extrabold flex items-center gap-2">
                   <Send className="w-5 h-5 text-amber-500" /> Kirim Tugas
                 </h3>
-                <button onClick={() => setIsSendOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-5 h-5" /></button>
+                <button
+                  onClick={() => setIsSendOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-slate-100"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
               {/* Pilih Tahap */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
                 {STAGES.map(s => (
-                  <button key={s.id} onClick={() => { setSendStage(s.id); setSelectedTplIds([]); }}
-                    className={`p-2.5 rounded-xl text-[11px] font-black uppercase transition ${sendStage === s.id ? `bg-gradient-to-br ${STAGE_INFO_TASK[s.id].gradient} text-white shadow-md` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+                  <button
+                    key={s.id}
+                    onClick={() => {
+                      setSendStage(s.id);
+                      setSelectedTplIds([]);
+                    }}
+                    className={`p-2.5 rounded-xl text-[11px] font-black uppercase transition ${
+                      sendStage === s.id
+                        ? `bg-gradient-to-br ${STAGE_INFO_TASK[s.id].gradient} text-white shadow-md`
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
                     {s.id}
                   </button>
                 ))}
               </div>
 
-              {/* Pilih Target: Peran atau Divisi */}
-              <select value={sendRole} onChange={(e) => { setSendRole(e.target.value); setSelectedTplIds([]); }}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white">
+              {/* Pilih Target */}
+              <select
+                value={sendRole}
+                onChange={(e) => {
+                  setSendRole(e.target.value);
+                  setSelectedTplIds([]);
+                }}
+                className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white"
+              >
                 <optgroup label="👤 PERAN">
                   {PERAN_LIST.map(r => <option key={r} value={r}>{r}</option>)}
                 </optgroup>
@@ -519,19 +629,32 @@ export const TaskDeadlineModule: React.FC = () => {
             <div className="p-6 space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-xs text-slate-500">
-                  <strong>{currentSendTemplates.length} template</strong> untuk {DIVISI_LIST.includes(sendRole) ? 'divisi' : 'peran'} <strong>{sendRole}</strong> — {sendStage}
+                  <strong>{currentSendTemplates.length} template</strong> untuk{' '}
+                  {DIVISI_LIST.includes(sendRole) ? 'divisi' : 'peran'}{' '}
+                  <strong>{sendRole}</strong> — {sendStage}
                 </p>
                 <div className="flex items-center gap-2">
-                  <button onClick={selectAllForRole} className="text-[11px] font-bold text-blue-600 hover:underline">✓ Pilih Semua</button>
+                  <button
+                    onClick={selectAllForRole}
+                    className="text-[11px] font-bold text-blue-600 hover:underline"
+                  >
+                    ✓ Pilih Semua
+                  </button>
                   <span className="text-slate-300">|</span>
-                  <button onClick={deselectAll} className="text-[11px] font-bold text-rose-600 hover:underline">✕ Hapus Pilihan</button>
+                  <button
+                    onClick={deselectAll}
+                    className="text-[11px] font-bold text-rose-600 hover:underline"
+                  >
+                    ✕ Hapus Pilihan
+                  </button>
                 </div>
               </div>
 
               {currentSendTemplates.length === 0 ? (
                 <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200">
                   <p className="text-xs text-slate-500">
-                    Tidak ada template untuk <strong>{sendRole}</strong> di tahap {sendStage}. Coba pilih tahap lain.
+                    Tidak ada template untuk <strong>{sendRole}</strong> di tahap {sendStage}.
+                    Coba pilih tahap lain.
                   </p>
                 </div>
               ) : (
@@ -543,16 +666,29 @@ export const TaskDeadlineModule: React.FC = () => {
                     const tDiv = tpl.targetDivision;
                     const label = tRole ? `👤 ${tRole}` : tDiv ? `👥 ${tDiv}` : '🌐 Semua';
                     return (
-                      <button key={tpl.id} onClick={() => toggleTplSelect(tpl.id)}
-                        className={`w-full p-3 rounded-2xl border-2 text-left transition flex items-start gap-2 ${isSelected ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/50'}`}>
+                      <button
+                        key={tpl.id}
+                        onClick={() => toggleTplSelect(tpl.id)}
+                        className={`w-full p-3 rounded-2xl border-2 text-left transition flex items-start gap-2 ${
+                          isSelected
+                            ? 'border-emerald-500 bg-emerald-50'
+                            : 'border-slate-200 bg-white hover:border-amber-300 hover:bg-amber-50/50'
+                        }`}
+                      >
                         <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border border-slate-300'}`}>
                           {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>{prio.label}</span>
-                            <span className="text-[9px] text-slate-600 font-bold bg-slate-100 px-1.5 py-0.5 rounded-md">{label}</span>
-                            <span className="text-[9px] text-slate-500 ml-auto">+{tpl.daysFromNow} hari</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>
+                              {prio.label}
+                            </span>
+                            <span className="text-[9px] text-slate-600 font-bold bg-slate-100 px-1.5 py-0.5 rounded-md">
+                              {label}
+                            </span>
+                            <span className="text-[9px] text-slate-500 ml-auto">
+                              +{tpl.daysFromNow} hari
+                            </span>
                           </div>
                           <p className="text-xs font-extrabold text-slate-900">{tpl.title}</p>
                           <p className="text-[10px] text-slate-500 mt-1 line-clamp-2">{tpl.description}</p>
@@ -569,10 +705,19 @@ export const TaskDeadlineModule: React.FC = () => {
                 Terpilih: <strong className="text-emerald-600">{selectedTplIds.length}</strong> tugas
               </span>
               <div className="flex gap-2">
-                <button onClick={() => setIsSendOpen(false)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
-                <button onClick={handleSendTasks} disabled={submitting || selectedTplIds.length === 0}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs disabled:opacity-50 flex items-center gap-1.5">
-                  <Send className="w-3.5 h-3.5" /> {submitting ? 'Mengirim...' : `Kirim ${selectedTplIds.length} Tugas`}
+                <button
+                  onClick={() => setIsSendOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleSendTasks}
+                  disabled={submitting || selectedTplIds.length === 0}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {submitting ? 'Mengirim...' : `Kirim ${selectedTplIds.length} Tugas`}
                 </button>
               </div>
             </div>
@@ -588,21 +733,37 @@ export const TaskDeadlineModule: React.FC = () => {
               <h3 className="text-base font-extrabold flex items-center gap-2">
                 <RotateCcw className="w-5 h-5 text-amber-500" /> Batalkan Centang
               </h3>
-              <button onClick={() => setCancelTarget(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-5 h-5" /></button>
+              <button
+                onClick={() => setCancelTarget(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-100"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 mb-3 text-xs">
               <p><strong>Siswa:</strong> {cancelTarget.studentName}</p>
               <p><strong>Tugas:</strong> {cancelTarget.taskTitle}</p>
             </div>
             <div className="space-y-3">
-              <textarea rows={3} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)}
+              <textarea
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
                 placeholder="Alasan pembatalan (contoh: Bukti belum fix)"
-                className="w-full p-2.5 rounded-xl border border-slate-200 text-xs" />
+                className="w-full p-2.5 rounded-xl border border-slate-200 text-xs"
+              />
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button onClick={() => setCancelTarget(null)}
-                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
-                <button onClick={handleCancelByTeacher} disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs disabled:opacity-50">
+                <button
+                  onClick={() => setCancelTarget(null)}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleCancelByTeacher}
+                  disabled={submitting}
+                  className="px-5 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs disabled:opacity-50"
+                >
                   {submitting ? '...' : 'Batalkan Centang'}
                 </button>
               </div>
