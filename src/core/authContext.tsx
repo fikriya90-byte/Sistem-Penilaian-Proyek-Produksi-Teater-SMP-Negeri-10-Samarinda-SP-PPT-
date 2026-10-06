@@ -262,7 +262,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       await setDoc(doc(db, 'users', res.user.uid), newProfile);
 
-      // ===== FIX: increment totalStudents =====
+      // ============================================================
+      // SIMPAN CREDENTIALS — agar Guru bisa lihat password siswa
+      // Hanya untuk siswa (bukan guru yang registrasi)
+      // ============================================================
+      if (!isTeacherReg) {
+        try {
+          await setDoc(doc(db, 'userCredentials', res.user.uid), {
+            uid: res.user.uid,
+            email: cleanEmail,
+            password: data.pass, // plaintext — akses dibatasi Firestore Rules
+            displayName: data.displayName.trim(),
+            createdAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          console.warn('Gagal simpan credentials:', err);
+        }
+      }
+
+      // ============================================================
+      // INCREMENT totalStudents di class
+      // ============================================================
       if (!isTeacherReg) {
         try {
           await updateDoc(doc(db, 'classes', validClass.id), {
@@ -397,6 +417,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const myRole = user.role;
     const targetRole = target.role;
 
+    // Guru & Admin: menilai semua kecuali sesama Guru/Admin
     if (isTeacher) {
       return !(
         targetRole === 'Guru Pengampu' ||
@@ -405,6 +426,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
+    // Pimpro: menilai Sekretaris, Bendahara, semua Koordinator
     if (myRole === 'Pimpinan Produksi') {
       return (
         targetRole === 'Sekretaris' ||
@@ -413,10 +435,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
+    // Sekretaris & Bendahara: menilai Pimpro (atasan langsung)
     if (myRole === 'Sekretaris' || myRole === 'Bendahara') {
       return targetRole === 'Pimpinan Produksi';
     }
 
+    // Sutradara: menilai Asisten, semua Pemain, dan Koor artistik
     if (myRole === 'Sutradara') {
       return (
         targetRole === 'Asisten Sutradara' ||
@@ -428,6 +452,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
+    // Asisten Sutradara: menilai Pemain, Sutradara (peer-level), dan koor artistik
     if (myRole === 'Asisten Sutradara') {
       return (
         targetRole === 'Sutradara' ||
@@ -439,6 +464,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
+    // Koordinator: menilai Anggota divisinya saja
     if (myRole.startsWith('Koordinator ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
@@ -446,6 +472,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
 
+    // Anggota: menilai Koordinator dan sesama Anggota di divisi yang sama
     if (myRole.startsWith('Anggota ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
@@ -453,6 +480,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return targetRole.startsWith('Koordinator ') || targetRole.startsWith('Anggota ');
     }
 
+    // Pemain: menilai Sutradara & Asisten (pengarah langsung)
     if (myRole === 'Pemain') {
       return targetRole === 'Sutradara' || targetRole === 'Asisten Sutradara';
     }
