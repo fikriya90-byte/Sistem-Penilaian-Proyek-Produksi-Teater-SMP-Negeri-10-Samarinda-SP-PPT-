@@ -5,7 +5,7 @@ import {
   Wallet, Calculator, Star, MessageSquare, Timer, Camera, Music,
   Palette, Scissors, Package, ShieldCheck, Lock, KeyRound, Eye,
   FileText, Briefcase, Layers, TrendingUp, Bell, Info, AlertTriangle,
-  ArrowRight, UserCheck, Target, play,
+  ArrowRight, UserCheck, Target, Play,
 } from 'lucide-react';
 import { APP_CONFIG } from '../../core/constants';
 import { useAuth } from '../../core/authContext';
