@@ -1,554 +1,476 @@
 import React, { useState, useEffect } from 'react';
 import {
-  MessageCircle, PlusCircle, Radio, Send, Share2, Users, X, Save,
-  Copy, Check, Settings, Phone, ExternalLink, Info, Sparkles,
+  Bell, Search, CheckCheck, Trash2, Clock, Filter, CheckSquare,
+  MessageSquare, Award, AlertTriangle, Wallet, Megaphone, RefreshCw,
+  Building2, X, Send, Shield, Reply,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
-import { DIVISIONS } from '../../core/constants';
-import { BroadcastMessage, DivisionType } from '../../core/types';
-import { recordAuditLog, sendBroadcast, subscribeBroadcasts } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import {
+  subscribeNotifications, markNotificationAsRead, markAllNotificationsAsRead,
+} from '../../services/firestoreService';
+import { SystemNotification } from '../../core/types';
+import {
+  collection, query, where, doc, deleteDoc, writeBatch, getDocs, setDoc,
+} from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
-export const BroadcastModule: React.FC = () => {
-  const { user, activeClass, isTeacher, isPimprod, isSekretaris, isSutradara, isKoordinator } = useAuth();
+type FilterType = 'ALL' | 'UNREAD' | 'Tugas' | 'Reminder' | 'Pengumuman' | 'Nilai' | 'Urgent' | 'Sistem' | 'Keuangan';
+
+// ============================================================
+// FILTER KATA KASAR / MAKIAN
+// ============================================================
+const BAD_WORDS = [
+  // Indonesia umum
+  'anjing', 'anjg', 'anjir', 'bangsat', 'bajingan', 'kontol', 'kntl', 'memek', 'mmk',
+  'ngentot', 'ngentd', 'pepek', 'peler', 'pler', 'tai', 'taik', 'titit', 'kampang',
+  'asu', 'asw', 'babi', 'brengsek', 'sialan', 'setan', 'goblok', 'gblk', 'tolol',
+  'tlol', 'idiot', 'dungu', 'bodoh', 'bdh', 'sinting', 'edan', 'gila', 'bgst',
+  'pukimak', 'pkmk', 'kimak', 'jancuk', 'jancok', 'cok', 'coeg', 'cuk', 'tolo',
+  'goblog', 'lonte', 'pelacur', 'sundal', 'jablay', 'bispak', 'perek',
+  // Inggris
+  'fuck', 'fck', 'shit', 'bitch', 'bastard', 'asshole', 'dick', 'pussy', 'cunt',
+  'whore', 'slut', 'damn', 'crap', 'wtf', 'stfu',
+];
+
+const containsBadWord = (text: string): { has: boolean; found: string[] } => {
+  if (!text) return { has: false, found: [] };
+  const lower = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+  const found: string[] = [];
+  BAD_WORDS.forEach(word => {
+    // Cek sebagai kata utuh atau bagian dari kata
+    const regex = new RegExp(`\\b${word}\\b|${word}`, 'i');
+    if (regex.test(lower)) {
+      if (!found.includes(word)) found.push(word);
+    }
+  });
+  return { has: found.length > 0, found };
+};
+
+const sanitizeText = (text: string): string => {
+  let result = text;
+  BAD_WORDS.forEach(word => {
+    const regex = new RegExp(word, 'gi');
+    result = result.replace(regex, '*'.repeat(word.length));
+  });
+  return result;
+};
+
+export const NotificationPage: React.FC = () => {
+  const { user, classes } = useAuth();
   const { showToast } = useToast();
+  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
+  const [filter, setFilter] = useState<FilterType>('ALL');
+  const [classFilter, setClassFilter] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [markingAll, setMarkingAll] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [broadcasts, setBroadcasts] = useState<BroadcastMessage[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Reply state
+  const [replyTo, setReplyTo] = useState<SystemNotification | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
 
-  // WA Settings
-  const [waGroupLink, setWaGroupLink] = useState('');
-  const [waGroupName, setWaGroupName] = useState('');
-  const [autoOpenWA, setAutoOpenWA] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
-
-  // Form
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [target, setTarget] = useState<'SEMUA' | 'DIVISI' | 'PERAN' | 'CUSTOM'>('SEMUA');
-  const [targetDivision, setTargetDivision] = useState<DivisionType>('Perlengkapan');
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const canBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isKoordinator;
-
-  // ============================================================
-  // SUBSCRIBE BROADCASTS
-  // ============================================================
   useEffect(() => {
-    if (!activeClass) return;
-    const unsub = subscribeBroadcasts(activeClass.id, (bList) => {
-      const sorted = [...bList].sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-      setBroadcasts(sorted);
+    if (!user) return;
+    const unsub = subscribeNotifications(user.uid, (notifs) => {
+      setNotifications(notifs);
+      setLoading(false);
     });
     return () => unsub();
-  }, [activeClass]);
+  }, [user]);
 
-  // ============================================================
-  // LOAD WA SETTINGS
-  // ============================================================
-  useEffect(() => {
-    if (!activeClass) return;
-    (async () => {
-      try {
-        const ref = doc(db, 'classes', activeClass.id);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data();
-          setWaGroupLink(data.waGroupLink || '');
-          setWaGroupName(data.waGroupName || '');
-          setAutoOpenWA(data.autoOpenWA !== false);
-        }
-      } catch (err) {
-        console.warn('Gagal load WA settings:', err);
+  const getClassName = (classId?: string) => {
+    if (!classId) return null;
+    return classes.find(x => x.id === classId)?.name || null;
+  };
+
+  const availableClasses = (() => {
+    const map: Record<string, string> = {};
+    notifications.forEach(n => {
+      if (n.classId) {
+        const name = getClassName(n.classId);
+        if (name) map[n.classId] = name;
       }
-    })();
-  }, [activeClass]);
+    });
+    return Object.entries(map).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  })();
 
-  // ============================================================
-  // SAVE WA SETTINGS
-  // ============================================================
-  const handleSaveSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeClass) return;
-
-    // Validasi link WA
-    if (waGroupLink.trim() && !waGroupLink.includes('chat.whatsapp.com') && !waGroupLink.includes('wa.me')) {
-      showToast('Link WA tidak valid. Harus dari chat.whatsapp.com atau wa.me', 'warning');
-      return;
+  const filtered = notifications.filter(n => {
+    if (filter === 'UNREAD' && n.read) return false;
+    if (filter !== 'ALL' && filter !== 'UNREAD' && n.category !== filter) return false;
+    if (classFilter !== 'ALL' && n.classId !== classFilter) return false;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return n.title.toLowerCase().includes(q) || n.message.toLowerCase().includes(q);
     }
+    return true;
+  });
 
-    setSavingSettings(true);
+  const unreadCount = notifications.filter(n => !n.read).length;
+  const classUnreadCount = (cid: string) => notifications.filter(n => !n.read && n.classId === cid).length;
+
+  const handleMarkRead = async (n: SystemNotification) => {
+    if (n.read) return;
+    try { await markNotificationAsRead(n.id); } catch { /* silent */ }
+  };
+
+  const handleMarkAllRead = async () => {
+    if (!user) return;
+    setMarkingAll(true);
     try {
-      await setDoc(doc(db, 'classes', activeClass.id), {
-        waGroupLink: waGroupLink.trim(),
-        waGroupName: waGroupName.trim(),
-        autoOpenWA,
-      }, { merge: true });
-      showToast('Pengaturan WhatsApp tersimpan!', 'success');
-      setIsSettingsOpen(false);
+      const count = await markAllNotificationsAsRead(user.uid);
+      showToast(count > 0 ? `${count} notifikasi ditandai.` : 'Tidak ada yang baru.', 'success');
     } catch (err: any) {
-      showToast('Gagal simpan: ' + err.message, 'error');
-    } finally {
-      setSavingSettings(false);
-    }
+      showToast('Gagal: ' + err.message, 'error');
+    } finally { setMarkingAll(false); }
   };
 
-  // ============================================================
-  // BUILD WA MESSAGE
-  // ============================================================
-  const buildWhatsAppMessage = (b: BroadcastMessage | { title: string; content: string; target: string; targetDivision?: string; senderName: string; senderRole: string }) => {
-    const targetLabel =
-      b.target === 'SEMUA' ? 'Semua Anggota' :
-      b.target === 'DIVISI' ? `Divisi ${b.targetDivision || ''}` :
-      b.target === 'PERAN' ? 'Peran Tertentu' :
-      'Custom';
-
-    return (
-      `📢 *PENGUMUMAN RESMI*\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
-      `*${b.title}*\n\n` +
-      `${b.content}\n\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
-      `👤 Dari: ${b.senderName} (${b.senderRole})\n` +
-      `🎯 Target: ${targetLabel}\n` +
-      `🏫 ${activeClass?.name || ''} — ${activeClass?.kerabatKerja || 'SP-PPT'}\n` +
-      `📅 ${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`
-    );
-  };
-
-  // ============================================================
-  // COPY MESSAGE
-  // ============================================================
-  const handleCopy = async (text: string, id?: string) => {
+  const handleDeleteOne = async (n: SystemNotification) => {
+    if (!confirm(`Hapus notifikasi "${n.title}"?`)) return;
     try {
-      await navigator.clipboard.writeText(text);
-      if (id) {
-        setCopiedId(id);
-        setTimeout(() => setCopiedId(null), 2000);
-      }
-      showToast('Pesan disalin! Tempel di WA.', 'success');
-    } catch {
-      showToast('Gagal menyalin.', 'error');
-    }
+      await deleteDoc(doc(db, 'notifications', n.id));
+      showToast('Notifikasi dihapus.', 'info');
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+  };
+
+  const handleClearRead = async () => {
+    if (!user) return;
+    if (!confirm('Hapus semua notifikasi yang sudah dibaca?')) return;
+    setClearing(true);
+    try {
+      const q = query(
+        collection(db, 'notifications'),
+        where('userId', '==', user.uid),
+        where('read', '==', true)
+      );
+      const snap = await getDocs(q);
+      if (snap.empty) { showToast('Tidak ada yang bisa dihapus.', 'info'); return; }
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      showToast(`${snap.size} notifikasi dibersihkan.`, 'success');
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setClearing(false); }
   };
 
   // ============================================================
-  // OPEN WA — GROUP / PERSONAL / SHARE
+  // KIRIM BALASAN
   // ============================================================
-  const openWhatsAppGroup = (message: string) => {
-    if (!waGroupLink.trim()) {
-      // Kalau belum setting, fallback ke share generic
-      const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
-      window.open(url, '_blank');
-      showToast('Membuka WhatsApp — pilih grup/chat tujuan.', 'info');
+  const handleSendReply = async () => {
+    if (!user || !replyTo) return;
+    const text = replyText.trim();
+    if (!text) { showToast('Tulis balasan dulu.', 'warning'); return; }
+
+    // Cek kata kasar
+    const check = containsBadWord(text);
+    if (check.has) {
+      showToast(`❌ Balasan mengandung kata tidak pantas: ${check.found.join(', ')}. Mohon perbaiki.`, 'error');
       return;
     }
 
-    // Kalau link grup: buka grup + copy pesan (WA tidak support pre-fill text ke grup)
-    if (waGroupLink.includes('chat.whatsapp.com')) {
-      window.open(waGroupLink, '_blank');
-      // Copy pesan otomatis
-      navigator.clipboard.writeText(message).catch(() => {});
-      showToast('Grup WA dibuka + pesan otomatis tersalin. Tinggal paste di grup.', 'success');
-    } else {
-      // Kalau wa.me?phone=xxx : kirim ke nomor
-      const url = `${waGroupLink}?text=${encodeURIComponent(message)}`;
-      window.open(url, '_blank');
-      showToast('Membuka WhatsApp...', 'info');
-    }
-  };
+    if (text.length > 300) { showToast('Balasan maksimal 300 karakter.', 'warning'); return; }
 
-  const openWhatsAppPersonal = (phone: string, message: string) => {
-    let clean = phone.replace(/\D/g, '');
-    if (clean.startsWith('0')) clean = '62' + clean.slice(1);
-    const url = `https://wa.me/${clean}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
-  };
-
-  // ============================================================
-  // SUBMIT BROADCAST
-  // ============================================================
-  const handleSendBroadcast = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !activeClass) return;
-    if (!title.trim() || !content.trim()) {
-      showToast('Harap lengkapi judul dan isi pesan.', 'warning');
-      return;
-    }
-
+    setReplySending(true);
     try {
-      await sendBroadcast({
-        classId: activeClass.id,
-        senderId: user.uid,
-        senderName: user.displayName,
-        senderRole: user.role,
-        title: title.trim(),
-        content: content.trim(),
-        target,
-        targetDivision: target === 'DIVISI' ? targetDivision : undefined,
+      const replyRef = doc(collection(db, 'notifications', replyTo.id, 'replies'));
+      await setDoc(replyRef, {
+        id: replyRef.id,
+        notificationId: replyTo.id,
+        userId: user.uid,
+        userName: user.displayName,
+        userRole: user.role,
+        text: sanitizeText(text),
         createdAt: new Date().toISOString(),
       });
 
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'Broadcast', targetId: 'broadcast',
-        details: `Kirim broadcast: "${title}" (${target})`,
-      });
-
-      // Build message untuk WA
-      const waMessage = buildWhatsAppMessage({
-        title: title.trim(),
-        content: content.trim(),
-        target,
-        targetDivision: target === 'DIVISI' ? targetDivision : undefined,
-        senderName: user.displayName,
-        senderRole: user.role,
-      });
-
-      showToast('✅ Pengumuman berhasil disiarkan!', 'success');
-      setIsModalOpen(false);
-
-      // Reset form
-      setTitle('');
-      setContent('');
-
-      // Auto-buka WA kalau diaktifkan
-      if (autoOpenWA) {
-        setTimeout(() => openWhatsAppGroup(waMessage), 400);
-      } else {
-        // Kalau autoOpenWA off, setidaknya copy
-        navigator.clipboard.writeText(waMessage).catch(() => {});
-        showToast('💡 Pesan untuk WA tersalin ke clipboard.', 'info');
+      // Notifikasi balik ke Guru (kalau yang bales siswa)
+      if (user.role !== 'Guru Pengampu' && user.role !== 'Admin' && user.role !== 'Super Admin') {
+        try {
+          const notifRef = doc(collection(db, 'notifications'));
+          await setDoc(notifRef, {
+            id: notifRef.id,
+            userId: (replyTo as any).senderId || 'teacher-fikri',
+            classId: replyTo.classId || '',
+            title: `💬 Balasan dari ${user.displayName}`,
+            message: text.slice(0, 200),
+            category: 'Feedback',
+            read: false,
+            link: 'notifikasi',
+            createdAt: new Date().toISOString(),
+          });
+        } catch { /* non-fatal */ }
       }
+
+      showToast('✅ Balasan terkirim!', 'success');
+      setReplyTo(null);
+      setReplyText('');
     } catch (err: any) {
-      showToast('Gagal mengirim broadcast: ' + err.message, 'error');
+      showToast('Gagal kirim balasan: ' + err.message, 'error');
+    } finally { setReplySending(false); }
+  };
+
+  const getCategoryStyle = (cat: string) => {
+    switch (cat) {
+      case 'Tugas': return { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-300 dark:border-blue-500/40', Icon: CheckSquare };
+      case 'Feedback': return { bg: 'bg-pink-100 dark:bg-pink-500/20', text: 'text-pink-700 dark:text-pink-300', border: 'border-pink-300 dark:border-pink-500/40', Icon: MessageSquare };
+      case 'Reminder': return { bg: 'bg-orange-100 dark:bg-orange-500/20', text: 'text-orange-700 dark:text-orange-300', border: 'border-orange-300 dark:border-orange-500/40', Icon: Clock };
+      case 'Urgent': return { bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-300', border: 'border-rose-300 dark:border-rose-500/40', Icon: AlertTriangle };
+      case 'Pengumuman': return { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-300 dark:border-emerald-500/40', Icon: Megaphone };
+      case 'Nilai': return { bg: 'bg-amber-100 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-300 dark:border-amber-500/40', Icon: Award };
+      case 'Keuangan': return { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-300 dark:border-emerald-500/40', Icon: Wallet };
+      default: return { bg: 'bg-slate-100 dark:bg-slate-700', text: 'text-slate-700 dark:text-slate-300', border: 'border-slate-300 dark:border-slate-600', Icon: Bell };
     }
   };
 
+  const filterOptions: { val: FilterType; label: string }[] = [
+    { val: 'ALL', label: `Semua (${notifications.length})` },
+    { val: 'UNREAD', label: `Belum (${unreadCount})` },
+    { val: 'Pengumuman', label: 'Pengumuman' },
+    { val: 'Tugas', label: 'Tugas' },
+    { val: 'Reminder', label: 'Reminder' },
+    { val: 'Feedback', label: 'Feedback' },
+    { val: 'Nilai', label: 'Nilai' },
+    { val: 'Urgent', label: 'Urgent' },
+    { val: 'Keuangan', label: 'Keuangan' },
+    { val: 'Sistem', label: 'Sistem' },
+  ];
+
   return (
     <div className="space-y-6">
-      {/* ============================================================
-          HEADER
-          ============================================================ */}
-      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-emerald-500/10 text-emerald-600">
-              <Radio className="w-6 h-6" />
+      {/* HEADER */}
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-900 via-slate-900 to-indigo-950 text-white shadow-xl border border-blue-500/20">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="p-3 rounded-2xl bg-blue-500/20 text-blue-300 border border-blue-500/30 relative">
+              <Bell className="w-7 h-7" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </span>
             <div>
-              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
-                Pusat Pengumuman & Broadcast WA
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                Siarkan ke sistem & forward ke WhatsApp secara otomatis
+              <span className="text-[11px] font-bold uppercase tracking-wider text-blue-300 bg-blue-500/20 px-2.5 py-0.5 rounded-full border border-blue-500/30">
+                Pusat Notifikasi
+              </span>
+              <h2 className="text-xl font-black text-white mt-1">Notifikasi Saya</h2>
+              <p className="text-xs text-slate-300 mt-0.5">
+                {notifications.length} total — {unreadCount} belum dibaca
               </p>
             </div>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {isTeacher && (
-            <button onClick={() => setIsSettingsOpen(true)}
-              className="px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-2 transition">
-              <Settings className="w-4 h-4" /> Setelan WA
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={handleMarkAllRead} disabled={markingAll || unreadCount === 0}
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50">
+              <CheckCheck className="w-4 h-4" /> Tandai Semua
             </button>
-          )}
-          {canBroadcast && (
-            <button onClick={() => setIsModalOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-md transition">
-              <Send className="w-4 h-4" /> Kirim Broadcast
+            <button onClick={handleClearRead} disabled={clearing}
+              className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50">
+              <Trash2 className="w-4 h-4" /> Bersihkan
             </button>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* ============================================================
-          WA STATUS INFO
-          ============================================================ */}
-      {activeClass && (
-        <div className={`p-4 rounded-2xl border flex items-start gap-3 ${
-          waGroupLink
-            ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30'
-            : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30'
-        }`}>
-          <MessageCircle className={`w-5 h-5 shrink-0 mt-0.5 ${waGroupLink ? 'text-emerald-600' : 'text-amber-600'}`} />
-          <div className="flex-1 text-xs">
-            {waGroupLink ? (
-              <>
-                <p className="font-bold text-emerald-900 dark:text-emerald-200">
-                  ✅ WA Grup sudah tersambung
-                </p>
-                <p className="text-emerald-700 dark:text-emerald-300 mt-0.5">
-                  {waGroupName ? `Grup: "${waGroupName}"` : 'Link grup sudah disimpan.'}
-                  {autoOpenWA && ' — setiap kirim broadcast, WA akan otomatis terbuka.'}
-                </p>
-                <a href={waGroupLink} target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1 mt-1.5 text-emerald-700 dark:text-emerald-300 font-bold hover:underline">
-                  <ExternalLink className="w-3 h-3" /> Buka Grup WA
-                </a>
-              </>
-            ) : (
-              <>
-                <p className="font-bold text-amber-900 dark:text-amber-200">
-                  ⚠️ WA Grup belum disambungkan
-                </p>
-                <p className="text-amber-700 dark:text-amber-300 mt-0.5">
-                  {isTeacher
-                    ? 'Klik "Setelan WA" untuk menyimpan link grup. Setelah itu, setiap broadcast akan auto-copy pesan & buka WA.'
-                    : 'Guru dapat mengatur link grup WA di menu Setelan WA.'}
-                </p>
-              </>
+      {/* FILTER KELAS */}
+      {availableClasses.length > 0 && (
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Filter Kelas:</span>
+            {classFilter !== 'ALL' && (
+              <button onClick={() => setClassFilter('ALL')} className="text-[10px] font-bold text-rose-600 hover:underline flex items-center gap-1">
+                <X className="w-3 h-3" /> Reset
+              </button>
             )}
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <button onClick={() => setClassFilter('ALL')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                classFilter === 'ALL' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+              }`}>
+              Semua Kelas ({notifications.length})
+            </button>
+            {availableClasses.map(c => {
+              const count = notifications.filter(n => n.classId === c.id).length;
+              const unread = classUnreadCount(c.id);
+              return (
+                <button key={c.id} onClick={() => setClassFilter(c.id)}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                    classFilter === c.id ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                  }`}>
+                  <span>{c.name}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${classFilter === c.id ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>{count}</span>
+                  {unread > 0 && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500 text-white">{unread}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* ============================================================
-          BROADCAST FEED
-          ============================================================ */}
-      <div className="space-y-4">
-        {broadcasts.length === 0 ? (
-          <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-            <Radio className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-            <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
-              Belum Ada Broadcast
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Klik "Kirim Broadcast" untuk mulai menyiarkan pengumuman.
-            </p>
-          </div>
-        ) : (
-          broadcasts.map(b => {
-            const waMsg = buildWhatsAppMessage(b);
-            const isCopied = copiedId === b.id;
+      {/* SEARCH + FILTER KATEGORI */}
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+          <input type="text" placeholder="Cari notifikasi..." value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+        </div>
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {filterOptions.map(opt => (
+            <button key={opt.val} onClick={() => setFilter(opt.val)}
+              className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
+                filter === opt.val ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+              }`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* LIST */}
+      {loading ? (
+        <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
+          <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
+          <p className="text-xs text-slate-400">Memuat...</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
+          <Bell className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Tidak Ada Notifikasi</h3>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(n => {
+            const style = getCategoryStyle(n.category);
+            const Icon = style.Icon;
+            const cName = getClassName(n.classId);
+            const canReply = ['Pengumuman', 'Feedback', 'Sistem'].includes(n.category);
             return (
-              <div key={b.id}
-                className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm space-y-3 hover:border-emerald-300 dark:hover:border-emerald-500/50 transition">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40">
-                      Target: {b.target === 'DIVISI' ? b.targetDivision : b.target}
-                    </span>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {new Date(b.createdAt).toLocaleDateString('id-ID', {
-                        day: 'numeric', month: 'short',
-                        hour: '2-digit', minute: '2-digit',
-                      })} WITA
-                    </span>
+              <div key={n.id}
+                className={`p-4 rounded-2xl border-2 transition ${
+                  n.read ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
+                    : 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-500/40 shadow-sm'
+                }`}>
+                <div className="flex items-start gap-3">
+                  <span className={`p-2 rounded-xl border ${style.bg} ${style.text} ${style.border} shrink-0`}>
+                    <Icon className="w-4 h-4" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${style.bg} ${style.text} ${style.border}`}>
+                        {n.category}
+                      </span>
+                      {cName && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/40 flex items-center gap-1">
+                          <Building2 className="w-2.5 h-2.5" /> {cName}
+                        </span>
+                      )}
+                      {!n.read && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40">BARU</span>
+                      )}
+                      <span className="text-[10px] text-slate-400 ml-auto">
+                        {new Date(n.createdAt).toLocaleString('id-ID', {
+                          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                    <h4 className={`text-sm leading-snug ${n.read ? 'font-semibold text-slate-700 dark:text-slate-300' : 'font-extrabold text-slate-900 dark:text-white'}`}>
+                      {n.title}
+                    </h4>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">{n.message}</p>
+                    <div className="flex items-center gap-2 mt-3 flex-wrap">
+                      {!n.read && (
+                        <button onClick={() => handleMarkRead(n)}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] flex items-center gap-1">
+                          <CheckCheck className="w-3 h-3" /> Dibaca
+                        </button>
+                      )}
+                      {canReply && (
+                        <button onClick={() => { setReplyTo(n); setReplyText(''); }}
+                          className="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-300 dark:border-blue-500/40 text-blue-700 dark:text-blue-300 font-bold text-[10px] flex items-center gap-1">
+                          <Reply className="w-3 h-3" /> Balas
+                        </button>
+                      )}
+                      <button onClick={() => handleDeleteOne(n)}
+                        className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 font-bold text-[10px] flex items-center gap-1">
+                        <Trash2 className="w-3 h-3" /> Hapus
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <h3 className="text-base font-black text-slate-900 dark:text-white leading-snug">
-                  {b.title}
-                </h3>
-                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-slate-100 dark:border-slate-700 font-medium">
-                  {b.content}
-                </p>
-
-                <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Disiarkan oleh: <strong className="text-slate-800 dark:text-slate-200">{b.senderName}</strong> ({b.senderRole})
-                </div>
-
-                {/* WA ACTIONS */}
-                <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-2">
-                  <button onClick={() => openWhatsAppGroup(waMsg)}
-                    className="flex-1 min-w-[140px] py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    {waGroupLink ? 'Kirim ke Grup WA' : 'Buka WhatsApp'}
-                  </button>
-
-                  <button onClick={() => handleCopy(waMsg, b.id)}
-                    className={`flex-1 min-w-[120px] py-2.5 px-3 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition border ${
-                      isCopied
-                        ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40'
-                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
-                    }`}>
-                    {isCopied ? <><Check className="w-3.5 h-3.5" /> Tersalin!</> : <><Copy className="w-3.5 h-3.5" /> Salin Pesan</>}
-                  </button>
-
-                  <button onClick={() => openWhatsAppPersonal('', waMsg)}
-                    className="py-2.5 px-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/40 font-bold text-xs flex items-center gap-1.5 transition"
-                    title="Kirim ke nomor WA pribadi">
-                    <Phone className="w-3.5 h-3.5" /> Kirim Personal
-                  </button>
                 </div>
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
-      {/* ============================================================
-          MODAL SETELAN WA
-          ============================================================ */}
-      {isSettingsOpen && isTeacher && (
+      {/* MODAL BALAS */}
+      {replyTo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-          <form onSubmit={handleSaveSettings}
-            className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[92vh] overflow-y-auto space-y-4">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Settings className="w-5 h-5 text-emerald-500" /> Setelan WhatsApp
+                <Reply className="w-5 h-5 text-blue-500" /> Balas Notifikasi
               </h3>
-              <button type="button" onClick={() => setIsSettingsOpen(false)}
+              <button onClick={() => setReplyTo(null)}
                 className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-              <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-              <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                <p className="font-bold mb-0.5">Cara dapat link grup WA:</p>
-                <ol className="list-decimal pl-4 space-y-0.5">
-                  <li>Buka grup WA kelas Anda</li>
-                  <li>Ketuk nama grup → <strong>Invite via link</strong></li>
-                  <li>Salin link (contoh: <code className="bg-blue-100 dark:bg-blue-500/30 px-1 rounded">chat.whatsapp.com/xxxxx</code>)</li>
-                  <li>Paste di kolom di bawah</li>
-                </ol>
-              </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Notifikasi:</p>
+              <p className="text-xs font-bold text-slate-900 dark:text-white">{replyTo.title}</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{replyTo.message}</p>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Link Grup WA Kelas
-              </label>
-              <input type="url" value={waGroupLink}
-                onChange={(e) => setWaGroupLink(e.target.value)}
-                placeholder="https://chat.whatsapp.com/..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-              <p className="text-[10px] text-slate-400 mt-1">
-                Atau link <code>wa.me/62xxxxx</code> kalau mau ke nomor guru/pribadi.
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
+              <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                <strong>Penting:</strong> Balasan akan dibaca Guru/Pengurus. Gunakan bahasa sopan.
+                Kata kasar/makian otomatis <strong>ditolak sistem</strong>.
               </p>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Nama Grup (opsional)
+                Balasan Anda <span className="text-rose-500">*</span>
               </label>
-              <input type="text" value={waGroupName}
-                onChange={(e) => setWaGroupName(e.target.value)}
-                placeholder="Contoh: Teater IX-C Gema Senandika"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-            </div>
-
-            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input type="checkbox" checked={autoOpenWA}
-                  onChange={(e) => setAutoOpenWA(e.target.checked)}
-                  className="mt-0.5 rounded border-emerald-300 text-emerald-500" />
-                <div>
-                  <p className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
-                    🚀 Auto-buka WA saat kirim broadcast
+              <textarea rows={4} value={replyText} onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Tulis balasan sopan (maks 300 karakter)..."
+                maxLength={300}
+                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+              <div className="flex items-center justify-between mt-1">
+                <p className="text-[10px] text-slate-400">
+                  {replyText.length}/300 karakter
+                </p>
+                {replyText && containsBadWord(replyText).has && (
+                  <p className="text-[10px] font-bold text-rose-600">
+                    ⚠️ Mengandung kata tidak pantas
                   </p>
-                  <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
-                    Setelah kirim, sistem otomatis buka grup WA + copy pesan. Tinggal paste.
-                  </p>
-                </div>
-              </label>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-              <button type="button" onClick={() => setIsSettingsOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
-                Batal
-              </button>
-              <button type="submit" disabled={savingSettings}
-                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                <Save className="w-3.5 h-3.5" />
-                {savingSettings ? 'Menyimpan...' : 'Simpan Setelan'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* ============================================================
-          MODAL KIRIM BROADCAST
-          ============================================================ */}
-      {isModalOpen && canBroadcast && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-          <form onSubmit={handleSendBroadcast}
-            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[92vh] overflow-y-auto space-y-4 p-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Radio className="w-5 h-5 text-emerald-500" /> Siarkan Pengumuman
-              </h3>
-              <button type="button" onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Target Penerima
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <select value={target} onChange={(e) => setTarget(e.target.value as any)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                  <option value="SEMUA">Semua Anggota</option>
-                  <option value="DIVISI">Divisi Tertentu</option>
-                  <option value="PERAN">Peran Tertentu</option>
-                </select>
-
-                {target === 'DIVISI' && (
-                  <select value={targetDivision} onChange={(e) => setTargetDivision(e.target.value as DivisionType)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                    {DIVISIONS.map(d => (
-                      <option key={d.id} value={d.id}>{d.id}</option>
-                    ))}
-                  </select>
                 )}
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Judul Pengumuman <span className="text-rose-500">*</span>
-              </label>
-              <input type="text" required value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Contoh: Rapat Darurat Besok Pukul 14.00"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Isi Pengumuman <span className="text-rose-500">*</span>
-              </label>
-              <textarea rows={5} required value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Tulis instruksi lengkap: waktu, lokasi, hal yang perlu dibawa..."
-                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white leading-relaxed" />
-            </div>
-
-            {autoOpenWA && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-emerald-900 dark:text-emerald-200">
-                  <strong>Setelah klik "Siarkan":</strong> Broadcast tersimpan di sistem + pesan otomatis ter-copy + WA grup terbuka.
-                  Tinggal paste di grup.
-                </p>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-              <button type="button" onClick={() => setIsModalOpen(false)}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button type="button" onClick={() => setReplyTo(null)}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
                 Batal
               </button>
-              <button type="submit"
-                className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm flex items-center gap-1.5">
-                <Send className="w-3.5 h-3.5" /> Siarkan & Buka WA
+              <button type="button" onClick={handleSendReply}
+                disabled={replySending || !replyText.trim() || containsBadWord(replyText).has}
+                className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5" />
+                {replySending ? 'Mengirim...' : 'Kirim Balasan'}
               </button>
             </div>
-          </form>
+          </div>
         </div>
       )}
     </div>
