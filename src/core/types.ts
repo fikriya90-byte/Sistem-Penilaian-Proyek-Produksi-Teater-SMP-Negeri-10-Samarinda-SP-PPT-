@@ -304,6 +304,7 @@ export interface AuditLogItem {
 export interface DeadlineItem {
   id: string;
   classId: string;
+  status?: 'ACTIVE' | 'HOLD' | 'CANCELLED';
   title: string;
   description: string;
   dueDate: string;
