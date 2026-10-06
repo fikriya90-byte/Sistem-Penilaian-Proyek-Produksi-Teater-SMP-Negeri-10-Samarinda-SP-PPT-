@@ -4,23 +4,106 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 
-    <!-- ANTI-CACHE: agar siswa selalu dapat versi terbaru -->
+    <!-- ⚠️ ANTI-CACHE -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
 
     <title>SP-PPT - Sistem Penilaian & Manajemen Proyek Produksi Teater SMPN 10 Samarinda</title>
     <meta name="description" content="Platform terintegrasi penilaian multi-peran, manajemen tugas, absensi, jadwal, deadline, dan koordinasi produksi teater siswa kelas IX SMP Negeri 10 Samarinda." />
-    <meta property="og:title" content="SP-PPT - Sistem Penilaian & Manajemen Proyek Produksi Teater SMPN 10 Samarinda" />
-    <meta property="og:description" content="Platform terintegrasi penilaian multi-peran, manajemen tugas, absensi, jadwal, deadline, dan koordinasi produksi teater siswa kelas IX SMP Negeri 10 Samarinda." />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:card" content="summary_large_image" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="theme-color" content="#D4AF37" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet">
+
+    <!-- ============================================================ -->
+    <!-- NUCLEAR CLEANUP — jalan SEBELUM bundle JS dimuat -->
+    <!-- Menghapus Service Worker + Cache + Storage sekali saja. -->
+    <!-- Tidak akan reload loop karena flag disimpan di sessionStorage. -->
+    <!-- ============================================================ -->
+    <script>
+      (function() {
+        try {
+          var CLEANUP_VERSION = 'v7-nuclear';
+          var FLAG_KEY = 'spppt-nuclear-done';
+          var alreadyDone = false;
+
+          try {
+            alreadyDone = sessionStorage.getItem(FLAG_KEY) === CLEANUP_VERSION;
+          } catch (e) { /* ignore */ }
+
+          // Kalau sudah pernah cleanup di sesi ini, jangan ulangi
+          if (alreadyDone) return;
+
+          var needsReload = false;
+
+          // 1. Cek & unregister Service Worker
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+              if (regs && regs.length > 0) {
+                regs.forEach(function(reg) {
+                  try { reg.unregister(); } catch (e) {}
+                });
+                needsReload = true;
+                doFinalCleanup();
+              } else {
+                doFinalCleanup();
+              }
+            }).catch(function() {
+              doFinalCleanup();
+            });
+          } else {
+            doFinalCleanup();
+          }
+
+          function doFinalCleanup() {
+            // 2. Hapus semua cache
+            if ('caches' in window) {
+              caches.keys().then(function(names) {
+                if (names && names.length > 0) {
+                  Promise.all(names.map(function(n) {
+                    return caches.delete(n);
+                  })).then(function() {
+                    needsReload = true;
+                    finalize();
+                  }).catch(finalize);
+                } else {
+                  finalize();
+                }
+              }).catch(finalize);
+            } else {
+              finalize();
+            }
+          }
+
+          function finalize() {
+            // 3. Tandai sudah cleanup (agar tidak loop)
+            try {
+              sessionStorage.setItem(FLAG_KEY, CLEANUP_VERSION);
+            } catch (e) {}
+
+            // 4. Kalau ada SW atau cache yang dibersihkan → reload 1x
+            if (needsReload) {
+              // Kecilkan delay agar cepat
+              setTimeout(function() {
+                try {
+                  // Ganti URL dgn query baru agar tidak ambil dari cache
+                  var url = window.location.pathname + '?clean=' + Date.now();
+                  window.location.replace(url);
+                } catch (e) {
+                  window.location.reload();
+                }
+              }, 150);
+            }
+          }
+        } catch (err) {
+          // Kalau script error, biarkan App tetap load
+          console.warn('Nuclear cleanup skip:', err);
+        }
+      })();
+    </script>
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased selection:bg-amber-500/20 selection:text-amber-900">
     <div id="root"></div>
