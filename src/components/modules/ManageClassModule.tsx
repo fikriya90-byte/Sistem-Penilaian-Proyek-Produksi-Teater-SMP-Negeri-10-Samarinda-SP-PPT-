@@ -3,7 +3,7 @@ import {
   Plus, Users, BookOpen, Edit3, Trash2, Hash, Sparkles, X,
   ChevronRight, Copy, RefreshCw, AlertTriangle, GraduationCap,
   Search, Save, UserCog, Camera, TrendingUp, ArrowLeft, Check,
-  Eye, EyeOff, KeyRound, ShieldAlert,
+  KeyRound, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -22,7 +22,7 @@ interface ManageClassModuleProps {
 
 const ROLE_OPTIONS: { group: string; roles: UserRole[] }[] = [
   { group: '👑 Pengurus Inti', roles: ['Pimpinan Produksi', 'Sekretaris', 'Bendahara'] },
-  { group: '🎬 Pemeran & Penyutradaraan', roles: ['Sutradara', 'Asisten Sutradara', 'Pemain'] },
+  { group: '🎬 Pemeran & Penyutradaraan', roles: ['Sutradara', 'Asisten Sutradara', 'Pemeran'] },
   { group: '📋 Koordinator Divisi', roles: ['Koordinator Perlengkapan', 'Koordinator Publikasi', 'Koordinator Tata Panggung', 'Koordinator Tata Rias', 'Koordinator Tata Busana', 'Koordinator Tata Musik'] },
   { group: '🎭 Anggota Divisi', roles: ['Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung', 'Anggota Tata Rias', 'Anggota Tata Busana', 'Anggota Tata Musik'] },
 ];
@@ -55,19 +55,16 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null);
   const [isEditStudentOpen, setIsEditStudentOpen] = useState(false);
   const [photoModalStudent, setPhotoModalStudent] = useState<UserProfile | null>(null);
-
-  // Lihat password modal
   const [passwordModal, setPasswordModal] = useState<CredentialView | null>(null);
 
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
-  const [editRole, setEditRole] = useState<UserRole>('Pemain');
+  const [editRole, setEditRole] = useState<UserRole>('Pemeran');
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [taskCompletions, setTaskCompletions] = useState<Record<string, any>>({});
   const [studentCountMap, setStudentCountMap] = useState<Record<string, number>>({});
 
-  // Hitung siswa riil per kelas
   useEffect(() => {
     if (classes.length === 0) return;
     const unsubs: (() => void)[] = [];
@@ -138,14 +135,14 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
       });
       setCredentials(map);
     } catch (err) {
-      console.warn('Load credentials error (mungkin diblokir rules):', err);
+      console.warn('Load credentials error:', err);
     }
   };
 
   const handleViewPassword = (s: UserProfile) => {
     const pwd = credentials[s.uid];
     if (!pwd) {
-      showToast('Password tidak tersedia. Siswa mungkin sudah ganti password atau mendaftar sebelum fitur ini aktif.', 'warning');
+      showToast('Password tidak tersedia. Siswa mungkin sudah ganti password.', 'warning');
       return;
     }
     setPasswordModal({
@@ -200,7 +197,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     setSelectedStudent(s);
     setEditName(s.displayName || '');
     setEditPhone(s.phone || '');
-    setEditRole((s.role as UserRole) || 'Pemain');
+    setEditRole((s.role as UserRole) || 'Pemeran');
     setIsEditStudentOpen(true);
   };
 
@@ -318,7 +315,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     showToast('Data diperbarui.', 'info');
   };
 
-  // === TOMBOL KEMBALI ke dashboard ===
   const handleBack = () => {
     if (onNavigate) onNavigate('dashboard');
     else window.location.reload();
@@ -335,7 +331,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
 
   return (
     <div className="space-y-6">
-      {/* ============ HEADER ============ */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -369,7 +364,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </div>
       </div>
 
-      {/* TAB SWITCHER */}
       <div className="flex items-center gap-2 flex-wrap">
         <button onClick={() => setActiveTab('kelas')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
@@ -389,7 +383,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </button>
       </div>
 
-      {/* TAB: KELAS */}
       {activeTab === 'kelas' && (
         <>
           {classes.length === 0 ? (
@@ -467,7 +460,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </>
       )}
 
-      {/* TAB: SISWA */}
       {activeTab === 'siswa' && (
         <>
           {!activeClass ? (
@@ -481,7 +473,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
             </div>
           ) : (
             <>
-              {/* Stats */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shadow-md">
                   <div className="flex items-center gap-2 mb-1">
@@ -629,7 +620,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </>
       )}
 
-      {/* MODAL FORM KELAS */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6">
@@ -675,7 +665,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </div>
       )}
 
-      {/* MODAL EDIT SISWA */}
       {isEditStudentOpen && selectedStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 p-6">
@@ -724,7 +713,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </div>
       )}
 
-      {/* MODAL LIHAT PASSWORD */}
       {passwordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border-2 border-amber-300 p-6">
@@ -741,7 +729,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
             <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 mb-4 flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <p className="text-[11px] text-amber-900 leading-relaxed">
-                <strong>Peringatan Keamanan:</strong> Jangan bagikan kredensial ini ke pihak lain. Hanya untuk keperluan reset password oleh Guru.
+                <strong>Peringatan Keamanan:</strong> Jangan bagikan kredensial ini ke pihak lain. Hanya untuk reset password.
               </p>
             </div>
 
