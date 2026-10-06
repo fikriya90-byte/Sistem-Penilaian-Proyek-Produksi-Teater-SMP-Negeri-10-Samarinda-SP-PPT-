@@ -3,6 +3,7 @@ import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
   AlertTriangle, Check, BookOpen, Flag, Palette, Star, ChevronRight,
   Sparkles, Target, ListChecks, Square, CheckSquare, User, Briefcase,
+  Copy,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -18,6 +19,7 @@ import {
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { DEADLINE_TEMPLATES, STAGE_INFO, DeadlineTemplate } from '../../core/deadlineTemplates';
+import { DeadlineCopyModal } from './DeadlineCopyModal';
 
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   LOW: { label: 'Rendah', color: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' },
@@ -30,10 +32,10 @@ function getPriorityConfig(priority?: string) {
   return PRIORITY_CONFIG[priority || 'MEDIUM'] || PRIORITY_CONFIG.MEDIUM;
 }
 
-const CAN_CREATE_DEADLINE_ROLES = ['Guru Pengampu', 'Admin', 'Super Admin'];
+const CAN_CREATE_DEADLINE_ROLES = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'];
 
 const ROLE_LIST: UserRole[] = [
-  'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemain',
+  'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemeran',
   'Koordinator Perlengkapan', 'Koordinator Publikasi', 'Koordinator Tata Panggung',
   'Koordinator Tata Rias', 'Koordinator Tata Busana', 'Koordinator Tata Musik',
   'Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung',
@@ -51,13 +53,14 @@ interface TargetItem {
 }
 
 export const DeadlineModule: React.FC = () => {
-  const { user, activeClass, isGuruPengampu } = useAuth();
+  const { user, activeClass, isGuruPengampu, classes } = useAuth();
   const { showToast } = useToast();
 
   const [deadlines, setDeadlines] = useState<DeadlineItem[]>([]);
   const [mySubmissions, setMySubmissions] = useState<Record<string, DeadlineSubmission>>({});
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCopyOpen, setIsCopyOpen] = useState(false);
   const [selectedDeadline, setSelectedDeadline] = useState<DeadlineItem | null>(null);
   const [isSubmitOpen, setIsSubmitOpen] = useState(false);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
@@ -66,7 +69,7 @@ export const DeadlineModule: React.FC = () => {
   const [now, setNow] = useState(new Date());
   const [submitting, setSubmitting] = useState(false);
 
-  // ========== WIZARD STATE ==========
+  // WIZARD STATE
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
@@ -74,14 +77,14 @@ export const DeadlineModule: React.FC = () => {
   const [targetAll, setTargetAll] = useState(false);
   const [dueDateOverride, setDueDateOverride] = useState('');
 
-  // ========== SUBMIT PROOF ==========
+  // SUBMIT PROOF
   const [proofUrl, setProofUrl] = useState('');
   const [proofNote, setProofNote] = useState('');
   const [progress, setProgress] = useState(50);
   const [askExtension, setAskExtension] = useState(false);
   const [extensionReason, setExtensionReason] = useState('');
 
-  // ========== REVIEW ==========
+  // REVIEW
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [approveExt, setApproveExt] = useState(false);
@@ -138,7 +141,6 @@ export const DeadlineModule: React.FC = () => {
     return { text: `${days} hari lagi`, color: 'text-slate-700 bg-slate-50 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700' };
   };
 
-  // ========== RESET WIZARD ==========
   const handleOpenCreate = () => {
     setWizardStep(1);
     setSelectedStage('PELAKSANAAN');
@@ -168,18 +170,17 @@ export const DeadlineModule: React.FC = () => {
   const isTargetSelected = (type: 'PERAN' | 'DIVISI', name: string) =>
     selectedTargets.some(t => t.type === type && t.name === name);
 
-  // Hitung siapa saja yang akan menerima
   const recipientCount = (() => {
     if (targetAll) {
       return users.filter(u =>
-        u.role !== 'Guru Pengampu' && 
+        u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
         u.role !== 'Admin' && u.role !== 'Super Admin'
       ).length;
     }
     const matched = new Set<string>();
     selectedTargets.forEach(t => {
       users.forEach(u => {
-        if (u.role === 'Guru Pengampu' return;
+        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
         if (u.role === 'Admin' || u.role === 'Super Admin') return;
         if (t.type === 'PERAN' && u.role === t.name) matched.add(u.uid);
         if (t.type === 'DIVISI' && u.divisionName === t.name) matched.add(u.uid);
@@ -188,7 +189,6 @@ export const DeadlineModule: React.FC = () => {
     return matched.size;
   })();
 
-  // ========== SUBMIT ==========
   const handleCreate = async () => {
     if (!user || !activeClass) return;
     if (selectedTemplateIds.length === 0) { showToast('Pilih minimal 1 template.', 'warning'); return; }
@@ -198,10 +198,9 @@ export const DeadlineModule: React.FC = () => {
     let success = 0;
 
     try {
-      // Kumpulkan semua user target (unique)
       const recipientIds = new Set<string>();
       users.forEach(u => {
-        if (u.role === 'Guru Pengampu' return;
+        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
         if (u.role === 'Admin' || u.role === 'Super Admin') return;
         if (targetAll) { recipientIds.add(u.uid); return; }
         selectedTargets.forEach(t => {
@@ -235,6 +234,7 @@ export const DeadlineModule: React.FC = () => {
           targetScope: targetAll ? 'SEMUA' : 'CUSTOM',
           targetUserIds: Array.from(recipientIds),
           stage: selectedStage,
+          isCritical: tpl.isCritical || false,
           createdBy: user.uid,
           creatorName: user.displayName,
           creatorRole: user.role,
@@ -245,7 +245,6 @@ export const DeadlineModule: React.FC = () => {
         success++;
       }
 
-      // ============ KIRIM NOTIFIKASI KE SEMUA PENERIMA ============
       if (recipientIds.size > 0) {
         const batch = writeBatch(db);
         const now = new Date().toISOString();
@@ -285,7 +284,6 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
-  // ========== SUBMIT PROOF ==========
   const handleSubmitProof = async () => {
     if (!user || !activeClass || !selectedDeadline) return;
     setSubmitting(true);
@@ -309,10 +307,9 @@ export const DeadlineModule: React.FC = () => {
         submittedAt: new Date().toISOString(),
       });
 
-      // Notif ke guru
       try {
         const batch = writeBatch(db);
-        users.filter(u => u.role === 'Guru Pengampu').forEach(g => {
+        users.filter(u => u.role === 'Guru Pengampu' || u.role === 'Guru Pembina').forEach(g => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
             id: notifRef.id,
@@ -341,7 +338,6 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
-  // ========== REVIEW ==========
   const handleOpenReview = async (d: DeadlineItem) => {
     setSelectedDeadline(d);
     try {
@@ -395,7 +391,6 @@ export const DeadlineModule: React.FC = () => {
       const dStage = (d as any).stage;
       if (dStage && dStage !== filterStage) return false;
     }
-    // Untuk siswa: hanya tampilkan yang target-nya include user
     if (!canCreate && user) {
       const tu: string[] = (d as any).targetUserIds || [];
       if (d.targetScope === 'CUSTOM' && tu.length > 0 && !tu.includes(user.uid)) return false;
@@ -418,15 +413,22 @@ export const DeadlineModule: React.FC = () => {
               </span>
               <h2 className="text-xl font-black text-white mt-1">Tenggat Waktu & Pengumpulan</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Multi-template × Multi-target — Notifikasi otomatis ke siswa
+                Multi-template × Multi-target • Salin ke kelas lain
               </p>
             </div>
           </div>
           {canCreate && (
-            <button onClick={handleOpenCreate}
-              className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
-              <PlusCircle className="w-4 h-4" /> Kirim Deadline
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={() => setIsCopyOpen(true)}
+                disabled={deadlines.length === 0}
+                className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition">
+                <Copy className="w-4 h-4" /> Salin ke Kelas Lain
+              </button>
+              <button onClick={handleOpenCreate}
+                className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
+                <PlusCircle className="w-4 h-4" /> Kirim Deadline
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -474,6 +476,7 @@ export const DeadlineModule: React.FC = () => {
             const stageInfo = dStage ? STAGE_INFO[dStage] : null;
             const tplRef = (d as any).templateReference;
             const targetCount = ((d as any).targetUserIds || []).length;
+            const isCritical = (d as any).isCritical;
 
             return (
               <div key={d.id} className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-rose-300 transition shadow-sm space-y-3">
@@ -481,6 +484,11 @@ export const DeadlineModule: React.FC = () => {
                   {stageInfo && dStage && (
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md bg-gradient-to-r ${stageInfo.gradient} text-white`}>
                       {dStage}
+                    </span>
+                  )}
+                  {isCritical && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40">
+                      ★ KRITIS
                     </span>
                   )}
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 ${priority.color}`}>
@@ -569,8 +577,6 @@ export const DeadlineModule: React.FC = () => {
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] overflow-y-auto my-auto">
-
-            {/* HEADER */}
             <div className="p-6 border-b border-slate-100 dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-900 z-10">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -593,10 +599,8 @@ export const DeadlineModule: React.FC = () => {
               </div>
             </div>
 
-            {/* BODY */}
             <div className="p-6 space-y-4">
-
-              {/* === STEP 1: PILIH TAHAP === */}
+              {/* STEP 1 */}
               {wizardStep === 1 && (
                 <>
                   <div className="flex items-center gap-2">
@@ -622,7 +626,7 @@ export const DeadlineModule: React.FC = () => {
                 </>
               )}
 
-              {/* === STEP 2: PILIH TEMPLATE (MULTI) === */}
+              {/* STEP 2 */}
               {wizardStep === 2 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -669,9 +673,14 @@ export const DeadlineModule: React.FC = () => {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              {tpl.isCritical && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700 border border-rose-300">
+                                  ★ KRITIS
+                                </span>
+                              )}
                               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${prio.color}`}>{prio.label}</span>
                               <span className="text-[9px] text-slate-600 dark:text-slate-300 font-bold bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded-md">{label}</span>
-                              <span className="text-[9px] text-slate-500 ml-auto">+{tpl.daysFromNow}h</span>
+                              <span className="text-[9px] text-slate-500 ml-auto">{tpl.deadlineRef}</span>
                             </div>
                             <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{tpl.title}</p>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{tpl.description}</p>
@@ -684,7 +693,7 @@ export const DeadlineModule: React.FC = () => {
                 </>
               )}
 
-              {/* === STEP 3: PILIH TARGET (MULTI) === */}
+              {/* STEP 3 */}
               {wizardStep === 3 && (
                 <>
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -697,7 +706,6 @@ export const DeadlineModule: React.FC = () => {
                     </button>
                   </div>
 
-                  {/* Toggle "Semua Siswa" */}
                   <button onClick={() => { setTargetAll(!targetAll); setSelectedTargets([]); }}
                     className={`w-full p-4 rounded-2xl border-2 text-left flex items-center gap-3 transition ${
                       targetAll ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700'
@@ -715,7 +723,6 @@ export const DeadlineModule: React.FC = () => {
 
                   {!targetAll && (
                     <>
-                      {/* Peran */}
                       <div>
                         <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
                           <User className="w-3.5 h-3.5" /> Per Peran
@@ -737,7 +744,6 @@ export const DeadlineModule: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Divisi */}
                       <div>
                         <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
                           <Briefcase className="w-3.5 h-3.5" /> Per Divisi
@@ -761,7 +767,6 @@ export const DeadlineModule: React.FC = () => {
                     </>
                   )}
 
-                  {/* Override deadline */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                       Override Deadline (Opsional)
@@ -769,14 +774,11 @@ export const DeadlineModule: React.FC = () => {
                     <input type="datetime-local" value={dueDateOverride}
                       onChange={(e) => setDueDateOverride(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Kosongkan untuk pakai deadline default masing-masing template.
-                    </p>
                   </div>
                 </>
               )}
 
-              {/* === STEP 4: REVIEW === */}
+              {/* STEP 4 */}
               {wizardStep === 4 && (
                 <>
                   <div className="flex items-center gap-2">
@@ -794,12 +796,6 @@ export const DeadlineModule: React.FC = () => {
                     <div>
                       <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Template Terpilih</p>
                       <p className="text-xs font-bold text-slate-900 dark:text-white">{selectedTemplateIds.length} template</p>
-                      <ul className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 space-y-0.5 pl-4 list-disc">
-                        {selectedTemplateIds.map(id => {
-                          const tpl = currentTemplates.find(t => t.id === id);
-                          return tpl ? <li key={id}>{tpl.title}</li> : null;
-                        })}
-                      </ul>
                     </div>
                     <div>
                       <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Target Penerima</p>
@@ -810,27 +806,11 @@ export const DeadlineModule: React.FC = () => {
                         <strong>{recipientCount} siswa</strong> akan menerima notifikasi
                       </p>
                     </div>
-                    {dueDateOverride && (
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Override Deadline</p>
-                        <p className="text-xs font-bold text-slate-900 dark:text-white">
-                          {new Date(dueDateOverride).toLocaleString('id-ID')}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
-                    <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <p className="text-[11px] text-emerald-900 dark:text-emerald-200">
-                      Notifikasi akan otomatis dikirim ke semua penerima yang dipilih setelah Anda klik <strong>Kirim</strong>.
-                    </p>
                   </div>
                 </>
               )}
             </div>
 
-            {/* FOOTER */}
             <div className="p-4 border-t border-slate-100 dark:border-slate-700 flex justify-between items-center gap-2 sticky bottom-0 bg-white dark:bg-slate-900">
               <button onClick={() => setIsCreateOpen(false)}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -996,6 +976,19 @@ export const DeadlineModule: React.FC = () => {
             )}
           </div>
         </div>
+      )}
+
+      {/* ==================== MODAL SALIN KE KELAS LAIN ==================== */}
+      {isCopyOpen && (
+        <DeadlineCopyModal
+          allClasses={classes}
+          currentClassId={activeClass?.id || ''}
+          deadlines={deadlines}
+          onClose={() => setIsCopyOpen(false)}
+          onSuccess={() => {
+            showToast('Deadline berhasil disalin ke kelas lain!', 'success');
+          }}
+        />
       )}
     </div>
   );
