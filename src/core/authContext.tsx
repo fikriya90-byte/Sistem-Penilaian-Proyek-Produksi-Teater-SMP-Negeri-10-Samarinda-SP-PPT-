@@ -407,156 +407,105 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
-    // =========================================================
-  // MATRIKS PENILAIAN — FINAL
+  // =========================================================
+  // MATRIKS PENILAIAN 360° (Section 2 Panduan)
+  // Guru hanya menilai Pimprod & Sutradara
   // =========================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
-    if (target.uid === user.uid) return false; // tidak bisa menilai diri sendiri
+    if (target.uid === user.uid) return false;
 
     const myRole = user.role;
     const targetRole = target.role;
 
-    // ============ GURU & ADMIN: menilai SEMUA kecuali sesama Guru/Admin ============
-    if (isTeacher) {
-      return !(
-        targetRole === 'Guru Pengampu' ||
-        targetRole === 'Guru Pembina' ||
-        targetRole === 'Admin' ||
-        targetRole === 'Super Admin'
-      );
+    // Guru: hanya Pimprod & Sutradara
+    if (isGuruPengampu) {
+      return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
+    }
+    if (isAdminRole) {
+      return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
     }
 
-    // ============ PIMPINAN PRODUKSI ============
-    // Menilai: Sekretaris, Bendahara, Semua Koordinator
+    // Pimpinan Produksi: menilai Sutradara (rekan), Sekretaris, Bendahara, Koor Publikasi, Koor Perlengkapan (bawahan)
     if (myRole === 'Pimpinan Produksi') {
       return (
+        targetRole === 'Sutradara' ||
         targetRole === 'Sekretaris' ||
         targetRole === 'Bendahara' ||
-        targetRole.startsWith('Koordinator ')
+        targetRole === 'Koordinator Publikasi' ||
+        targetRole === 'Koordinator Perlengkapan'
       );
     }
 
-    // ============ SEKRETARIS & BENDAHARA ============
-    // Menilai: Pimpinan Produksi (atasan langsung)
-    if (myRole === 'Sekretaris' || myRole === 'Bendahara') {
-      return targetRole === 'Pimpinan Produksi';
-    }
-
-    // ============ SUTRADARA ============
-    // Menilai: Pimprod, Asisten, Semua Pemain, Koor artistik
+    // Sutradara: menilai Pimprod (rekan), Asisten, Koor artistik + Anggota, Pemeran
     if (myRole === 'Sutradara') {
       return (
         targetRole === 'Pimpinan Produksi' ||
         targetRole === 'Asisten Sutradara' ||
-        targetRole === 'Pemain' ||
         targetRole === 'Koordinator Tata Panggung' ||
         targetRole === 'Koordinator Tata Busana' ||
         targetRole === 'Koordinator Tata Rias' ||
-        targetRole === 'Koordinator Tata Musik'
+        targetRole === 'Koordinator Tata Musik' ||
+        targetRole === 'Anggota Tata Panggung' ||
+        targetRole === 'Anggota Tata Busana' ||
+        targetRole === 'Anggota Tata Rias' ||
+        targetRole === 'Anggota Tata Musik' ||
+        targetRole === 'Pemeran'
       );
     }
 
-    // ============ ASISTEN SUTRADARA ============
-    // Menilai: Sutradara, Semua Pemain, Koor artistik
+    // Sekretaris ↔ Bendahara (rekan)
+    if (myRole === 'Sekretaris') return targetRole === 'Bendahara';
+    if (myRole === 'Bendahara') return targetRole === 'Sekretaris';
+
+    // Koor Publikasi & Koor Perlengkapan: dinilai Pimprod, nilai Anggota-nya
+    if (myRole === 'Koordinator Publikasi' || myRole === 'Koordinator Perlengkapan') {
+      const divPrefix = myRole === 'Koordinator Publikasi' ? 'Anggota Publikasi' : 'Anggota Perlengkapan';
+      return targetRole === divPrefix;
+    }
+
+    // Koor Artistik: dinilai Sutradara, nilai Anggota-nya
+    if (myRole === 'Koordinator Tata Panggung') return targetRole === 'Anggota Tata Panggung';
+    if (myRole === 'Koordinator Tata Rias') return targetRole === 'Anggota Tata Rias';
+    if (myRole === 'Koordinator Tata Busana') return targetRole === 'Anggota Tata Busana';
+    if (myRole === 'Koordinator Tata Musik') return targetRole === 'Anggota Tata Musik';
+
+    // Asisten Sutradara: dinilai Sutradara, menilai Pemeran
     if (myRole === 'Asisten Sutradara') {
-      return (
-        targetRole === 'Sutradara' ||
-        targetRole === 'Pemain' ||
-        targetRole === 'Koordinator Tata Panggung' ||
-        targetRole === 'Koordinator Tata Busana' ||
-        targetRole === 'Koordinator Tata Rias' ||
-        targetRole === 'Koordinator Tata Musik'
-      );
+      return targetRole === 'Pemeran';
     }
 
-    // ============ KOORDINATOR DIVISI ============
-    if (myRole === 'Koordinator Perlengkapan') {
-      return targetRole === 'Anggota Perlengkapan' || targetRole === 'Pimpinan Produksi';
-    }
-    if (myRole === 'Koordinator Publikasi') {
-      return targetRole === 'Anggota Publikasi' || targetRole === 'Pimpinan Produksi';
-    }
-    if (myRole === 'Koordinator Tata Panggung') {
-      return targetRole === 'Anggota Tata Panggung' || targetRole === 'Sutradara';
-    }
-    if (myRole === 'Koordinator Tata Busana') {
-      return targetRole === 'Anggota Tata Busana' || targetRole === 'Sutradara';
-    }
-    if (myRole === 'Koordinator Tata Rias') {
-      return targetRole === 'Anggota Tata Rias' || targetRole === 'Sutradara';
-    }
-    if (myRole === 'Koordinator Tata Musik') {
-      return targetRole === 'Anggota Tata Musik' || targetRole === 'Sutradara';
-    }
-
-    // ============ ANGGOTA DIVISI ============
-    // Menilai: Koordinator divisinya + sesama Anggota di divisi yang sama
+    // Anggota Divisi: dinilai Koordinator, menilai Koordinator & sesama Anggota divisi
     if (myRole.startsWith('Anggota ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
-      if (!myDiv || targetDiv !== myDiv) return false;
-      return (
-        targetRole.startsWith('Koordinator ') ||
-        targetRole.startsWith('Anggota ')
-      );
+      if (myDiv && targetDiv !== myDiv) return false;
+
+      // Anggota Tata Panggung/Busana/Rias/Musik menilai Sutradara (bawahan ke atasan)
+      if (['Tata Panggung', 'Tata Busana', 'Tata Rias', 'Tata Musik & Suara'].includes(myDiv)) {
+        if (targetRole === 'Sutradara') return true;
+      }
+
+      // Anggota Publikasi/Perlengkapan TIDAK menilai Sutradara atau Pimprod
+      if (['Publikasi & Dokumentasi', 'Perlengkapan'].includes(myDiv)) {
+        if (targetRole === 'Sutradara' || targetRole === 'Pimpinan Produksi') return false;
+      }
+
+      // Sesama anggota & koordinator divisi
+      return targetRole.startsWith('Koordinator ') || targetRole.startsWith('Anggota ');
     }
 
-    // ============ PEMAIN ============
-    // Menilai: Sutradara, Asisten, DAN sesama Pemain (peer assessment)
-    if (myRole === 'Pemain') {
+    // Pemeran: dinilai Sutradara + Asisten, menilai Sutradara (bawahan ke atasan) & sesama Pemeran
+    if (myRole === 'Pemeran') {
       return (
         targetRole === 'Sutradara' ||
         targetRole === 'Asisten Sutradara' ||
-        targetRole === 'Pemain'
+        targetRole === 'Pemeran'
       );
     }
 
     return false;
   };
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        activeClass,
-        classes,
-        setActiveClass,
-        reloadClasses,
-        loginWithEmail,
-        registerUser,
-        logout,
-        resetDemoDatabase,
-        updateKerabatKerja,
-        isTeacher,
-        isGuruPengampu,
-        isAdminRole,
-        isPimprod,
-        isSekretaris,
-        isBendahara,
-        isSutradara,
-        isAsisten,
-        isKoordinator,
-        isAnggota,
-        isPemain,
-        canEditKerabatKerja,
-        canCreateGeneralAttendance,
-        canCreateRehearsalAttendance,
-        canCreateDivisionAttendance,
-        canCreateGeneralSchedule,
-        canCreateInternalSchedule,
-        canCreateTask,
-        canCreateDeadline,
-        canCreateBroadcast,
-        canAssessTarget,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
-};
-
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within an AuthProvider');
