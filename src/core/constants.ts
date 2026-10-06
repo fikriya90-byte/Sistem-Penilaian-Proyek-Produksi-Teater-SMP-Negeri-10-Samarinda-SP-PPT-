@@ -1,4 +1,4 @@
-import { DivisionType, ProductionStage, UserRole } from './types';
+import { AssessorCategory, DivisionType, ProductionStage, UserRole } from './types';
 
 export const APP_CONFIG = {
   appName: 'SP-PPT',
@@ -10,11 +10,6 @@ export const APP_CONFIG = {
   bgMotif: 'https://iili.io/nJ1Rcj1.png',
 };
 
-// ========================================================
-// KODE UNDANGAN GURU
-// HANYA bagikan kode ini ke guru yang berwenang.
-// Admin dapat menggantinya kapan saja untuk alasan keamanan.
-// ========================================================
 export const TEACHER_INVITE_CODE = 'SPPPT-GURU-2025!';
 
 export const COLOR_PALETTE = {
@@ -39,31 +34,176 @@ export const STAGES: { id: ProductionStage; name: string; defaultWeight: number;
 
 export const DIVISIONS: { id: DivisionType; color: string; badgeColor: string; description: string }[] = [
   { id: 'Pengurus Inti', color: '#D4AF37', badgeColor: 'bg-amber-100 text-amber-800 border-amber-300', description: 'Pimpinan Produksi, Sekretaris, Bendahara' },
-  { id: 'Pemeran', color: '#E74C3C', badgeColor: 'bg-rose-100 text-rose-800 border-rose-300', description: 'Sutradara, Asisten Sutradara, dan Para Aktor/Aktris' },
+  { id: 'Pemeran', color: '#E74C3C', badgeColor: 'bg-rose-100 text-rose-800 border-rose-300', description: 'Sutradara, Asisten Sutradara, dan Para Aktor/Aktris (Pemeran)' },
   { id: 'Perlengkapan', color: '#2E5090', badgeColor: 'bg-blue-100 text-blue-800 border-blue-300', description: 'Manajemen properti, set alat, dan inventaris' },
   { id: 'Publikasi & Dokumentasi', color: '#27AE60', badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300', description: 'Poster, kalender konten, foto, video, BTS' },
-  { id: 'Tata Panggung', color: '#8E44AD', badgeColor: 'bg-purple-100 text-purple-800 border-purple-300', description: 'Desain set panggung, konstruksi, gladi kering' },
+  { id: 'Tata Panggung', color: '#8E44AD', badgeColor: 'bg-purple-100 text-purple-800 border-purple-300', description: 'Desain set panggung, tata cahaya, konstruksi, gladi kering' },
   { id: 'Tata Rias', color: '#E91E63', badgeColor: 'bg-pink-100 text-pink-800 border-pink-300', description: 'Face chart, rias karakter/fantasi, sterilisasi alat' },
-  { id: 'Tata Busana', color: '#3F51B5', badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-300', description: 'Desain kostum, ukuran pemain, fitting, quick change' },
+  { id: 'Tata Busana', color: '#3F51B5', badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-300', description: 'Desain kostum, ukuran pemeran, fitting, quick change' },
   { id: 'Tata Musik & Suara', color: '#00BCD4', badgeColor: 'bg-cyan-100 text-cyan-800 border-cyan-300', description: 'Konsep musik, cue sheet audio, sound check' },
 ];
 
-export const ACTOR_CRITERIA = [
-  { key: 'hafalan', label: 'Hafalan Dialog', weight: 20, desc: 'Tingkat penguasaan dan kelancaran menghafal baris naskah' },
-  { key: 'penjiwaan', label: 'Penjiwaan Karakter', weight: 25, desc: 'Kedalaman emosi, ekspresi wajah, dan penjiwaan peran' },
-  { key: 'suara', label: 'Proyeksi Suara & Intonasi', weight: 15, desc: 'Kejelasan vokal, dinamika intonasi, dan daya jangkau suara' },
-  { key: 'blocking', label: 'Blocking & Movement', weight: 15, desc: 'Ketepatan posisi panggung, orientasi penonton, keluwesan' },
-  { key: 'interaksi', label: 'Interaksi Panggung', weight: 15, desc: 'Respons terhadap lawan main dan dinamika panggung' },
-  { key: 'disiplin', label: 'Kedisiplinan', weight: 10, desc: 'Kehadiran latihan tepat waktu, fokus, dan komitmen' },
+// =====================================================
+// KRITERIA PEMERAN (6 poin, 5 manual + 1 otomatis)
+// =====================================================
+export const PEMERAN_CRITERIA = [
+  { key: 'hafalan', label: 'Hafalan Dialog', weight: 20, source: 'MANUAL' as const, desc: 'Hafal dialog pada/sebelum tenggat tanpa dibisiki' },
+  { key: 'penjiwaan', label: 'Penjiwaan Karakter', weight: 25, source: 'MANUAL' as const, desc: 'Analisis karakter tepat waktu + perasaan tokoh konsisten' },
+  { key: 'suara', label: 'Proyeksi Suara & Intonasi', weight: 15, source: 'MANUAL' as const, desc: 'Terdengar sampai baris belakang, nada bervariasi' },
+  { key: 'blocking', label: 'Blocking & Movement', weight: 15, source: 'MANUAL' as const, desc: 'Ingat semua blocking tanpa diingatkan' },
+  { key: 'interaksi', label: 'Interaksi Panggung', weight: 15, source: 'MANUAL' as const, desc: 'Responsif, cue tepat, bisa selamatkan adegan' },
+  { key: 'kedisiplinan', label: 'Kedisiplinan', weight: 10, source: 'AUTO_DISCIPLINE' as const, desc: 'Otomatis: rata-rata kehadiran & ketepatan tugas' },
 ];
 
+// =====================================================
+// KRITERIA NON-PEMERAN (5 poin, 3 manual + 2 otomatis)
+// =====================================================
 export const GENERAL_CRITERIA = [
-  { key: 'kerjasama', label: 'Kerja Sama Tim', weight: 25, desc: 'Koordinasi, komunikasi, dan kolaborasi aktif dengan tim' },
-  { key: 'tanggungjawab', label: 'Tanggung Jawab & Eksekusi', weight: 25, desc: 'Kualitas dan ketuntasan tugas divisi yang diberikan' },
-  { key: 'disiplin', label: 'Kehadiran & Disiplin', weight: 20, desc: 'Kedisiplinan waktu, presensi rapat, dan kepatuhan aturan' },
-  { key: 'kreativitas', label: 'Kreativitas & Inisiatif', weight: 15, desc: 'Ide orisinal, pemecahan masalah, dan inisiatif berkarya' },
-  { key: 'teknis', label: 'Keahlian Teknis Divisi', weight: 15, desc: 'Penguasaan alat, kerapian kerja, dan standar keselamatan' },
+  { key: 'kerja_sama', label: 'Kerja Sama Tim', weight: 25, source: 'MANUAL' as const, desc: 'Hasil & informasi sampai tepat tenggat, mau menerima arahan' },
+  { key: 'tanggung_jawab', label: 'Tanggung Jawab', weight: 25, source: 'AUTO_TASK' as const, desc: 'Otomatis dari ketepatan tugas (Awal/Tepat/Telat)' },
+  { key: 'kehadiran', label: 'Kehadiran & Disiplin', weight: 20, source: 'AUTO_ATTENDANCE' as const, desc: 'Otomatis dari presensi per tahap' },
+  { key: 'kreativitas', label: 'Kreativitas', weight: 15, source: 'MANUAL' as const, desc: 'Punya ide yang membuat hasil lebih baik / kerja lebih cepat' },
+  { key: 'teknis', label: 'Keahlian Teknis', weight: 15, source: 'MANUAL' as const, desc: 'Hasil rapi, benar, sesuai permintaan' },
 ];
+
+// =====================================================
+// BOBOT KELOMPOK PENILAI PER PERAN (Section 3.2)
+// =====================================================
+export interface AssessorWeightConfig {
+  GURU: number;
+  ATASAN: number;
+  REKAN: number;
+  BAWAHAN: number;
+}
+
+export const ASSESSOR_WEIGHTS: Record<string, AssessorWeightConfig> = {
+  'Pimpinan Produksi': { GURU: 40, ATASAN: 0, REKAN: 20, BAWAHAN: 40 },
+  'Sutradara':          { GURU: 40, ATASAN: 0, REKAN: 20, BAWAHAN: 40 },
+  'Sekretaris':         { GURU: 0,  ATASAN: 60, REKAN: 40, BAWAHAN: 0 },
+  'Bendahara':          { GURU: 0,  ATASAN: 60, REKAN: 40, BAWAHAN: 0 },
+  'Koordinator Perlengkapan':         { GURU: 0, ATASAN: 50, REKAN: 0, BAWAHAN: 50 },
+  'Koordinator Publikasi':            { GURU: 0, ATASAN: 50, REKAN: 0, BAWAHAN: 50 },
+  'Koordinator Tata Panggung':        { GURU: 0, ATASAN: 50, REKAN: 0, BAWAHAN: 50 },
+  'Koordinator Tata Rias':            { GURU: 0, ATASAN: 50, REKAN: 0, BAWAHAN: 50 },
+  'Koordinator Tata Busana':          { GURU: 0, ATASAN: 50, REKAN: 0, BAWAHAN: 50 },
+  'Koordinator Tata Musik':           { GURU: 0, ATASAN: 50, REKAN: 0, BAWAHAN: 50 },
+  'Anggota Perlengkapan':             { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 },
+  'Anggota Publikasi':                { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 },
+  'Anggota Tata Panggung':            { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 },
+  'Anggota Tata Rias':                { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 },
+  'Anggota Tata Busana':              { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 },
+  'Anggota Tata Musik':               { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 },
+  'Asisten Sutradara':                { GURU: 0, ATASAN: 60, REKAN: 0, BAWAHAN: 40 },
+  'Pemeran':                          { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 },
+};
+
+// =====================================================
+// MATRIKS PENILAI 360° — Siapa menilai siapa
+// =====================================================
+export interface AssessorRelationship {
+  category: AssessorCategory;
+  roles: string[];
+}
+
+export const ASSESSMENT_MATRIX: Record<string, AssessorRelationship[]> = {
+  'Pimpinan Produksi': [
+    { category: 'GURU', roles: ['Guru Pengampu'] },
+    { category: 'REKAN', roles: ['Sutradara'] },
+    { category: 'BAWAHAN', roles: ['Sekretaris', 'Bendahara', 'Koordinator Publikasi', 'Koordinator Perlengkapan'] },
+  ],
+  'Sutradara': [
+    { category: 'GURU', roles: ['Guru Pengampu'] },
+    { category: 'REKAN', roles: ['Pimpinan Produksi'] },
+    { category: 'BAWAHAN', roles: [
+      'Asisten Sutradara',
+      'Koordinator Tata Panggung', 'Koordinator Tata Busana', 'Koordinator Tata Rias', 'Koordinator Tata Musik',
+      'Anggota Tata Panggung', 'Anggota Tata Busana', 'Anggota Tata Rias', 'Anggota Tata Musik',
+      'Pemeran',
+    ] },
+  ],
+  'Sekretaris': [
+    { category: 'ATASAN', roles: ['Pimpinan Produksi'] },
+    { category: 'REKAN', roles: ['Bendahara'] },
+  ],
+  'Bendahara': [
+    { category: 'ATASAN', roles: ['Pimpinan Produksi'] },
+    { category: 'REKAN', roles: ['Sekretaris'] },
+  ],
+  'Koordinator Perlengkapan': [
+    { category: 'ATASAN', roles: ['Pimpinan Produksi'] },
+    { category: 'BAWAHAN', roles: ['Anggota Perlengkapan'] },
+  ],
+  'Koordinator Publikasi': [
+    { category: 'ATASAN', roles: ['Pimpinan Produksi'] },
+    { category: 'BAWAHAN', roles: ['Anggota Publikasi'] },
+  ],
+  'Koordinator Tata Panggung': [
+    { category: 'ATASAN', roles: ['Sutradara'] },
+    { category: 'BAWAHAN', roles: ['Anggota Tata Panggung'] },
+  ],
+  'Koordinator Tata Rias': [
+    { category: 'ATASAN', roles: ['Sutradara'] },
+    { category: 'BAWAHAN', roles: ['Anggota Tata Rias'] },
+  ],
+  'Koordinator Tata Busana': [
+    { category: 'ATASAN', roles: ['Sutradara'] },
+    { category: 'BAWAHAN', roles: ['Anggota Tata Busana'] },
+  ],
+  'Koordinator Tata Musik': [
+    { category: 'ATASAN', roles: ['Sutradara'] },
+    { category: 'BAWAHAN', roles: ['Anggota Tata Musik'] },
+  ],
+  'Anggota Perlengkapan': [
+    { category: 'ATASAN', roles: ['Koordinator Perlengkapan'] },
+    { category: 'REKAN', roles: ['Anggota Perlengkapan'] },
+  ],
+  'Anggota Publikasi': [
+    { category: 'ATASAN', roles: ['Koordinator Publikasi'] },
+    { category: 'REKAN', roles: ['Anggota Publikasi'] },
+  ],
+  'Anggota Tata Panggung': [
+    { category: 'ATASAN', roles: ['Koordinator Tata Panggung'] },
+    { category: 'REKAN', roles: ['Anggota Tata Panggung'] },
+  ],
+  'Anggota Tata Rias': [
+    { category: 'ATASAN', roles: ['Koordinator Tata Rias'] },
+    { category: 'REKAN', roles: ['Anggota Tata Rias'] },
+  ],
+  'Anggota Tata Busana': [
+    { category: 'ATASAN', roles: ['Koordinator Tata Busana'] },
+    { category: 'REKAN', roles: ['Anggota Tata Busana'] },
+  ],
+  'Anggota Tata Musik': [
+    { category: 'ATASAN', roles: ['Koordinator Tata Musik'] },
+    { category: 'REKAN', roles: ['Anggota Tata Musik'] },
+  ],
+  'Asisten Sutradara': [
+    { category: 'ATASAN', roles: ['Sutradara'] },
+    { category: 'BAWAHAN', roles: ['Pemeran'] },
+  ],
+  'Pemeran': [
+    { category: 'ATASAN', roles: ['Sutradara', 'Asisten Sutradara'] },
+    { category: 'REKAN', roles: ['Pemeran'] },
+  ],
+};
+
+// =====================================================
+// AMBANG SKOR OTOMATIS
+// =====================================================
+export const AUTO_SCORE_THRESHOLDS = {
+  task: {
+    excellent: 90, // ≥90% → 4
+    good: 75,       // 75-89% → 3
+    fair: 50,       // 50-74% → 2
+    // <50% → 1
+  },
+  attendance: {
+    excellent: 95, // ≥95% → 4
+    good: 85,       // 85-94% → 3
+    fair: 70,       // 70-84% → 2
+    // <70% → 1
+  },
+};
 
 export const SCORE_SCALE: Record<number, { label: string; score100: number; badgeColor: string }> = {
   1: { label: 'Kurang', score100: 40, badgeColor: 'bg-red-100 text-red-700 border-red-300' },
@@ -92,45 +232,39 @@ export const DIALOG_PRACTICE_STEPS = [
   { step: 9, title: 'Latihan Imajinasi Sensoris', tip: 'Bayangkan suasana ruang, aroma, suhu, dan tekanan situasi dramatis di sekeliling panggung.' },
   { step: 10, title: 'Pementasan Ulang Lengkap', tip: 'Lakukan run-through utuh adegan dengan kostum, properti, dan blocking panggung teruji.' },
 ];
-// ==========================================
+
+// =====================================================
 // MAPPING ROLE → DIVISI OTOMATIS
-// ==========================================
+// =====================================================
 export const ROLE_TO_DIVISION: Record<string, { id: string; name: DivisionType }> = {
-  // Pengurus Inti
   'Pimpinan Produksi': { id: 'div-inti', name: 'Pengurus Inti' },
   'Sekretaris': { id: 'div-inti', name: 'Pengurus Inti' },
   'Bendahara': { id: 'div-inti', name: 'Pengurus Inti' },
-
-  // Pemeran
-  'Sutradara': { id: 'div-pemain', name: 'Pemeran' },
-  'Asisten Sutradara': { id: 'div-pemain', name: 'Pemeran' },
-  'Pemain': { id: 'div-pemain', name: 'Pemeran' },
-
-  // Perlengkapan
+  'Sutradara': { id: 'div-pemeran', name: 'Pemeran' },
+  'Asisten Sutradara': { id: 'div-pemeran', name: 'Pemeran' },
+  'Pemeran': { id: 'div-pemeran', name: 'Pemeran' },
   'Koordinator Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
   'Anggota Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
-
-  // Publikasi
   'Koordinator Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
   'Anggota Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
-
-  // Tata Panggung
   'Koordinator Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
   'Anggota Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
-
-  // Tata Rias
   'Koordinator Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
   'Anggota Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
-
-  // Tata Busana
   'Koordinator Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
   'Anggota Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
-
-  // Tata Musik
   'Koordinator Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
   'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
 };
 
 export function getDivisionFromRole(role: string): { id: string; name: DivisionType } {
   return ROLE_TO_DIVISION[role] || { id: '', name: 'Pemeran' };
+}
+
+export function getAssessorWeights(targetRole: string): AssessorWeightConfig {
+  return ASSESSOR_WEIGHTS[targetRole] || { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 };
+}
+
+export function getAssessmentMatrix(targetRole: string): AssessorRelationship[] {
+  return ASSESSMENT_MATRIX[targetRole] || [];
 }
