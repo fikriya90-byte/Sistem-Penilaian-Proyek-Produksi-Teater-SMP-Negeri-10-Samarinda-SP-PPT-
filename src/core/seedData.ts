@@ -1,70 +1,72 @@
 // ============================================================
-// FIX: JANGAN auto-seed ulang kalau sudah pernah seed
+// SEED DATA — TIDAK ADA DEMO
+// Aplikasi murni dimulai dari kosong. Guru membuat kelas sendiri.
 // ============================================================
+
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from './firebase';
+
+// Flag untuk menandai bahwa aplikasi sudah pernah dibuka (agar tidak ada auto-seed)
 const SEED_FLAGS = ['spppt_seed_done_v4', 'spppt_seed_done_v3', 'spppt_seed_done_v2'];
 
+/**
+ * Cek apakah perlu seed.
+ * Karena tidak ada demo, fungsi ini hanya menyimpan flag "sudah pernah dibuka".
+ * Tidak melakukan seeding apapun.
+ */
 export async function checkAndSeedDatabase() {
   try {
     const flagRef = doc(db, 'systemConfig', 'seedStatus');
-    let alreadySeeded = false;
+    let alreadyChecked = false;
 
     // 1. Cek flag di Firestore
     try {
       const flagSnap = await getDoc(flagRef);
       if (flagSnap.exists() && flagSnap.data()?.seeded === true) {
-        alreadySeeded = true;
+        alreadyChecked = true;
       }
     } catch (err) {
-      console.warn('Gagal baca seed flag Firestore:', err);
+      console.warn('Gagal baca flag Firestore:', err);
     }
 
-    // 2. Fallback localStorage (multiple versi)
-    if (!alreadySeeded) {
+    // 2. Fallback localStorage
+    if (!alreadyChecked) {
       for (const key of SEED_FLAGS) {
         try {
           if (localStorage.getItem(key) === 'done') {
-            alreadySeeded = true;
+            alreadyChecked = true;
             break;
           }
         } catch { /* ignore */ }
       }
     }
 
-    // 3. Kalau sudah pernah seed → JANGAN seed ulang
-    if (alreadySeeded) return;
+    // 3. Kalau sudah ada flag → cukup return
+    if (alreadyChecked) return;
 
-    // 4. Cek apakah classes sudah ada isinya
-    const classesSnap = await getDocs(collection(db, 'classes'));
-    if (classesSnap.size > 0) {
-      try {
-        await setDoc(flagRef, {
-          seeded: true,
-          seededAt: new Date().toISOString(),
-          reason: 'kelas sudah ada',
-        }, { merge: true });
-      } catch { /* ignore */ }
-      for (const key of SEED_FLAGS) {
-        try { localStorage.setItem(key, 'done'); } catch { /* ignore */ }
-      }
-      return;
-    }
-
-    // 5. Benar-benar kosong & belum pernah seed → seed awal
-    console.log('🌱 First-time seed...');
-    await forceSeedDatabase();
-
+    // 4. Pertama kali dibuka → simpan flag saja (TIDAK SEED APAPUN)
     try {
       await setDoc(flagRef, {
         seeded: true,
         seededAt: new Date().toISOString(),
-        reason: 'initial seed',
+        reason: 'no-demo mode — aplikasi murni kosong',
       }, { merge: true });
     } catch { /* ignore */ }
+
     for (const key of SEED_FLAGS) {
       try { localStorage.setItem(key, 'done'); } catch { /* ignore */ }
     }
-    console.log('✅ Seed selesai — tidak akan seed ulang.');
+
+    console.log('✅ SP-PPT siap digunakan — mode tanpa demo.');
   } catch (error) {
-    console.error('Seed error:', error);
+    console.error('checkAndSeedDatabase error:', error);
   }
+}
+
+/**
+ * Force seed — tidak dipakai lagi.
+ * Dibiarkan sebagai no-op agar tidak error saat dipanggil dari Settings.
+ */
+export async function forceSeedDatabase() {
+  console.warn('forceSeedDatabase dipanggil tapi mode no-demo aktif. Tidak ada aksi.');
 }
