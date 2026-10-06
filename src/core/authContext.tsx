@@ -12,7 +12,7 @@ import { ClassRoom, UserProfile, UserRole } from './types';
 import {
   fetchClasses, fetchUserProfile, recordAuditLog, notifyTeachers,
 } from '../services/firestoreService';
-import { doc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, updateDoc, increment } from 'firebase/firestore';
 import { TEACHER_INVITE_CODE } from './constants';
 
 interface AuthContextType {
@@ -90,7 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (!isMounted) return;
 
-      // === FIX: pastikan loading tidak pernah stuck ===
+      // Safety timer agar loading tidak stuck
       const safetyTimer = setTimeout(() => {
         if (isMounted) setLoading(false);
       }, 6000);
@@ -104,17 +104,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             profile.role = normalizeRole(profile.role);
             setUser(profile);
           } else {
-            // === FIX: JANGAN auto-create profil fallback ===
-            // User lama di Firebase Auth tapi tidak ada di Firestore = data tidak valid
-            // Sign out agar mereka lihat halaman login/registrasi
-            console.warn('Profil tidak ditemukan untuk UID:', fbUser.uid, '— force logout');
+            // User Firebase ada tapi profil Firestore tidak ada → sign out
+            console.warn('Profil tidak ditemukan untuk UID:', fbUser.uid);
             try { await signOut(auth); } catch { /* ignore */ }
             setUser(null);
             setActiveClass(null);
           }
         } catch (err) {
           console.warn('Fetch profile error:', err);
-          // Jika gagal fetch, sign out agar user bisa coba login ulang
           try { await signOut(auth); } catch { /* ignore */ }
           setUser(null);
           setActiveClass(null);
@@ -154,7 +151,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const reloadClasses = async () => {
     const clsList = await fetchClasses();
     setClasses(clsList);
-    // Refresh activeClass jika ada
     if (activeClass) {
       const refreshed = clsList.find(c => c.id === activeClass.id);
       if (refreshed) setActiveClass(refreshed);
@@ -199,7 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       else if (code === 'auth/invalid-email') message = 'Format email tidak valid.';
       else if (code === 'auth/too-many-requests') message = 'Terlalu banyak percobaan. Tunggu beberapa menit.';
       else if (code === 'auth/network-request-failed') message = 'Koneksi internet bermasalah.';
-      else if (code === 'auth/operation-not-allowed') message = 'Login Email/Password belum diaktifkan oleh admin sistem.';
+      else if (code === 'auth/operation-not-allowed') message = 'Login Email/Password belum diaktifkan.';
       return { ok: false, message };
     } finally {
       setLoading(false);
@@ -218,7 +214,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isTeacherReg = !!data.isTeacherRegistration &&
       data.classCode.trim().toUpperCase() === TEACHER_INVITE_CODE.toUpperCase();
 
-    // === VALIDASI WAJIB: WhatsApp untuk siswa ===
     if (!isTeacherReg) {
       const cleanPhone = (data.phone || '').replace(/\D/g, '');
       if (cleanPhone.length < 9 || cleanPhone.length > 15) {
@@ -267,6 +262,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       };
       await setDoc(doc(db, 'users', res.user.uid), newProfile);
 
+      // ===== FIX: increment totalStudents =====
+      if (!isTeacherReg) {
+        try {
+          await updateDoc(doc(db, 'classes', validClass.id), {
+            totalStudents: increment(1),
+          });
+        } catch (err) {
+          console.warn('Gagal update totalStudents:', err);
+        }
+      }
+
       setUser(newProfile);
       if (!isTeacherReg) setActiveClass(validClass);
 
@@ -298,7 +304,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (code === 'auth/email-already-in-use') return { success: false, message: 'Email sudah terdaftar. Silakan login atau hubungi Admin.' };
       if (code === 'auth/weak-password') return { success: false, message: 'Password minimal 6 karakter.' };
       if (code === 'auth/invalid-email') return { success: false, message: 'Format email tidak valid.' };
-      if (code === 'auth/operation-not-allowed') return { success: false, message: 'Login Email/Password belum diaktifkan oleh admin sistem.' };
+      if (code === 'auth/operation-not-allowed') return { success: false, message: 'Login Email/Password belum diaktifkan.' };
       return { success: false, message: 'Gagal registrasi: ' + (err?.message || 'Unknown error') };
     }
   };
@@ -322,7 +328,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setActiveClass(null);
   };
 
-  // === FITUR BARU: ubah nama kerabat kerja ===
   const updateKerabatKerja = async (newName: string): Promise<{ success: boolean; message: string }> => {
     if (!activeClass || !user) return { success: false, message: 'Tidak ada kelas aktif.' };
     try {
@@ -338,7 +343,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         targetId: activeClass.id,
         details: `Ubah nama kerabat kerja menjadi "${newName.trim()}"`,
       });
-      // Update local state
       setActiveClass({ ...activeClass, kerabatKerja: newName.trim() });
       setClasses(prev => prev.map(c => c.id === activeClass.id ? { ...c, kerabatKerja: newName.trim() } : c));
       return { success: true, message: 'Nama kerabat kerja berhasil diperbarui!' };
@@ -372,7 +376,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAnggota = role.startsWith('Anggota ');
   const isPemain = role === 'Pemain';
 
-  // === FITUR BARU: siapa yang boleh ubah nama kerabat kerja ===
   const canEditKerabatKerja = isTeacher || isPimprod;
 
   const canCreateGeneralAttendance = isTeacher || isPimprod || isSekretaris;
@@ -385,7 +388,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
   // =========================================================
-  // MATRIKS PENILAIAN — DIPERBAIKI
+  // MATRIKS PENILAIAN
   // =========================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
@@ -394,7 +397,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const myRole = user.role;
     const targetRole = target.role;
 
-    // Guru & Admin: menilai semua kecuali sesama Guru/Admin
     if (isTeacher) {
       return !(
         targetRole === 'Guru Pengampu' ||
@@ -403,7 +405,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Pimpro: menilai Sekretaris, Bendahara, semua Koordinator
     if (myRole === 'Pimpinan Produksi') {
       return (
         targetRole === 'Sekretaris' ||
@@ -412,12 +413,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Sekretaris & Bendahara: menilai Pimpro (atasan langsung)
     if (myRole === 'Sekretaris' || myRole === 'Bendahara') {
       return targetRole === 'Pimpinan Produksi';
     }
 
-    // Sutradara: menilai Asisten, semua Pemain, dan Koor artistik
     if (myRole === 'Sutradara') {
       return (
         targetRole === 'Asisten Sutradara' ||
@@ -429,7 +428,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Asisten Sutradara: menilai Pemain, Sutradara (peer-level), dan koor artistik
     if (myRole === 'Asisten Sutradara') {
       return (
         targetRole === 'Sutradara' ||
@@ -441,7 +439,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     }
 
-    // Koordinator: menilai Anggota divisinya saja
     if (myRole.startsWith('Koordinator ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
@@ -449,7 +446,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
 
-    // Anggota: menilai Koordinator dan sesama Anggota di divisi yang sama
     if (myRole.startsWith('Anggota ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
@@ -457,7 +453,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return targetRole.startsWith('Koordinator ') || targetRole.startsWith('Anggota ');
     }
 
-    // Pemain: menilai Sutradara & Asisten (pengarah langsung)
     if (myRole === 'Pemain') {
       return targetRole === 'Sutradara' || targetRole === 'Asisten Sutradara';
     }
