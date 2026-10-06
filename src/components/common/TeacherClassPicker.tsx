@@ -28,12 +28,10 @@ export const TeacherClassPicker: React.FC = () => {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [studentCountMap, setStudentCountMap] = useState<Record<string, number>>({});
 
-  // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<ClassRoom | null>(null);
   const [confirmCode, setConfirmCode] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  // Hitung siswa riil per kelas
   useEffect(() => {
     if (classes.length === 0) return;
     const unsubs: (() => void)[] = [];
@@ -114,7 +112,6 @@ export const TeacherClassPicker: React.FC = () => {
     }
   };
 
-  // ============ HAPUS KELAS ============
   const openDeleteConfirm = (c: ClassRoom) => {
     setDeleteTarget(c);
     setConfirmCode('');
@@ -123,43 +120,34 @@ export const TeacherClassPicker: React.FC = () => {
   const handleConfirmDelete = async () => {
     if (!deleteTarget || !user) return;
     if (confirmCode.trim().toUpperCase() !== deleteTarget.code.toUpperCase()) {
-      showToast('Kode kelas tidak cocok! Ketik kode dengan benar.', 'error');
+      showToast('Kode kelas tidak cocok!', 'error');
       return;
     }
-
     setDeleting(true);
     try {
-      // Cek apakah ada user di kelas ini
       const userQ = query(collection(db, 'users'), where('classId', '==', deleteTarget.id));
       const userSnap = await getDocs(userQ);
       const studentCount = userSnap.docs.filter(d => {
         const r = d.data().role;
         return r !== 'Guru Pengampu' && r !== 'Admin' && r !== 'Super Admin';
       }).length;
-
       if (studentCount > 0) {
-        showToast(
-          `Kelas ini masih memiliki ${studentCount} siswa terdaftar. Pindahkan atau hapus siswa terlebih dahulu.`,
-          'warning'
-        );
+        showToast(`Kelas masih memiliki ${studentCount} siswa. Pindahkan/hapus siswa dulu.`, 'warning');
         setDeleting(false);
         return;
       }
-
       await deleteDoc(doc(db, 'classes', deleteTarget.id));
-
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'DELETE', targetType: 'Class', targetId: deleteTarget.id,
         details: `Menghapus kelas: ${deleteTarget.name} (${deleteTarget.code})`,
       });
-
       await reloadClasses();
-      showToast(`Kelas ${deleteTarget.name} berhasil dihapus.`, 'success');
+      showToast(`Kelas ${deleteTarget.name} dihapus.`, 'success');
       setDeleteTarget(null);
       setConfirmCode('');
     } catch (err: any) {
-      showToast('Gagal menghapus: ' + (err?.message || 'Unknown'), 'error');
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     } finally {
       setDeleting(false);
     }
@@ -177,7 +165,6 @@ export const TeacherClassPicker: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
-      {/* Header */}
       <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -289,7 +276,6 @@ export const TeacherClassPicker: React.FC = () => {
                       )}
                     </button>
 
-                    {/* KODE + SALIN */}
                     <button
                       onClick={() => handleCopyCode(c.code)}
                       className={`mt-3 w-full p-2.5 rounded-xl border flex items-center justify-between transition ${
@@ -322,7 +308,6 @@ export const TeacherClassPicker: React.FC = () => {
                         <Users className="w-3 h-3" /> {realCount} siswa
                       </span>
                       <div className="flex items-center gap-1.5">
-                        {/* Tombol Hapus */}
                         <button
                           onClick={() => openDeleteConfirm(c)}
                           className="p-1.5 rounded-lg text-rose-500 hover:text-white hover:bg-rose-500 transition"
@@ -354,7 +339,6 @@ export const TeacherClassPicker: React.FC = () => {
         </div>
       </main>
 
-      {/* Modal Tambah Kelas */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
@@ -417,7 +401,6 @@ export const TeacherClassPicker: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Konfirmasi Hapus Kelas */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-rose-200 dark:border-rose-500/40 p-6">
@@ -438,7 +421,7 @@ export const TeacherClassPicker: React.FC = () => {
               </p>
               <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1.5 leading-relaxed">
                 Kelas <strong>{deleteTarget.name}</strong> beserta seluruh data terkait akan dihapus permanen.
-                Siswa yang terdaftar di kelas ini harus dipindahkan atau dihapus terlebih dahulu.
+                Siswa yang terdaftar harus dipindahkan atau dihapus terlebih dahulu.
               </p>
             </div>
 
@@ -468,12 +451,12 @@ export const TeacherClassPicker: React.FC = () => {
               />
               {confirmCode.length > 0 && !isCodeMatch && (
                 <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1 font-bold">
-                  ❌ Kode tidak cocok. Periksa kembali.
+                  ❌ Kode tidak cocok.
                 </p>
               )}
               {isCodeMatch && (
                 <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 font-bold">
-                  ✅ Kode cocok. Klik tombol hapus untuk melanjutkan.
+                  ✅ Kode cocok.
                 </p>
               )}
             </div>
