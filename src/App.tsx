@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import {
   Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
+  Loader2,
 } from 'lucide-react';
 import { AuthProvider, useAuth } from './core/authContext';
 import { ThemeProvider } from './core/themeContext';
@@ -12,15 +13,12 @@ import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
 import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 import { DashboardReminder } from './components/common/DashboardReminder';
 
-// ==================== MODULES ====================
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
 import { MyGradeModule } from './components/modules/MyGradeModule';
 import { AttendanceModule } from './components/modules/AttendanceModule';
 import { ScheduleModule } from './components/modules/ScheduleModule';
-import { TaskDeadlineModule } from './components/modules/TaskDeadlineModule';
 import { TaskProgressModule } from './components/modules/TaskProgressModule';
-import { DeadlineModule } from './components/modules/DeadlineModule';
 import { StructureModule } from './components/modules/StructureModule';
 import { StudioModule } from './components/modules/StudioModule';
 import { BroadcastModule } from './components/modules/BroadcastModule';
@@ -34,7 +32,6 @@ import { StageManagerModule } from './components/modules/StageManagerModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
 import { KasModule } from './components/modules/KasModule';
-import { RABModule } from './components/modules/RABModule';
 import { PropertyModule } from './components/modules/PropertyModule';
 import { MusicCueModule } from './components/modules/MusicCueModule';
 import { FaceChartModule } from './components/modules/FaceChartModule';
@@ -48,13 +45,63 @@ import { ContentScheduleModule } from './components/modules/ContentScheduleModul
 import { DivisionScheduleModule } from './components/modules/DivisionScheduleModule';
 import { DirectorTimelineModule } from './components/modules/DirectorTimelineModule';
 
+// ============================================================
+// LAZY LOADING untuk modul-modul yang berpotensi circular dep
+// ============================================================
+const DeadlineModule = lazy(() =>
+  import('./components/modules/DeadlineModule')
+    .then(m => ({ default: m.DeadlineModule }))
+    .catch(err => {
+      console.warn('Gagal load DeadlineModule, fallback ke TaskDeadlineModule:', err);
+      return import('./components/modules/TaskDeadlineModule')
+        .then(m => ({ default: m.TaskDeadlineModule }));
+    })
+);
+
+const RABModule = lazy(() =>
+  import('./components/modules/RABModule')
+    .then(m => ({ default: m.RABModule }))
+    .catch(err => {
+      console.warn('RABModule belum tersedia:', err);
+      return Promise.resolve({
+        default: () => (
+          <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
+            <Calculator className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+              Modul RAB belum tersedia
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Silakan hubungi developer.
+            </p>
+          </div>
+        ),
+      });
+    })
+);
+
+// ============================================================
+// LOADING FALLBACK
+// ============================================================
+const LoadingFallback: React.FC = () => (
+  <div className="p-12 text-center">
+    <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin text-amber-500" />
+    <p className="text-xs text-slate-500 dark:text-slate-400">Memuat modul...</p>
+  </div>
+);
+
+const withSuspense = (element: React.ReactNode) => (
+  <Suspense fallback={<LoadingFallback />}>{element}</Suspense>
+);
+
+// ============================================================
+// MAIN LAYOUT
+// ============================================================
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout } = useAuth();
   const [currentModule, setCurrentModule] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
 
-  // === Cek flag verifikasi login setelah user berhasil login ===
   useEffect(() => {
     if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
       setShowLoginConfirm(true);
@@ -77,7 +124,6 @@ const MainLayout: React.FC = () => {
 
   if (!user) return <LoginModal />;
 
-  // === Handle konfirmasi login (Ya/Tidak) ===
   const handleLoginConfirmYes = () => {
     try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
     setShowLoginConfirm(false);
@@ -111,13 +157,12 @@ const MainLayout: React.FC = () => {
                currentModule === 'division-schedule' ? <DivisionScheduleModule /> :
                currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
                currentModule === 'progress-tugas' ? <TaskProgressModule /> :
-               currentModule === 'rab' ? <RABModule /> :
+               currentModule === 'rab' ? withSuspense(<RABModule />) :
                <AdminModule />}
             </main>
           </div>
         </div>
 
-        {/* Konfirmasi Login */}
         {showLoginConfirm && user && (
           <LoginConfirmModal
             user={user}
@@ -132,7 +177,7 @@ const MainLayout: React.FC = () => {
   if (isGuruPengampu && !activeClass) return <TeacherClassPicker />;
 
   // ============================================================
-  // ROUTER MODULE
+  // ROUTER MODULE (GURU & SISWA)
   // ============================================================
   const renderCurrentModule = () => {
     switch (currentModule) {
@@ -142,7 +187,7 @@ const MainLayout: React.FC = () => {
       case 'moderasi': return <ModerationModule />;
       case 'statistik-absensi': return <AttendanceStatsModule />;
       case 'kas': return <KasModule />;
-      case 'rab': return <RABModule />;
+      case 'rab': return withSuspense(<RABModule />);
       case 'properti': return <PropertyModule />;
       case 'musik': return <MusicCueModule />;
       case 'rias': return <FaceChartModule />;
@@ -150,8 +195,7 @@ const MainLayout: React.FC = () => {
       case 'backup': return <BackupModule />;
       case 'jadwal': return <ScheduleModule />;
       case 'absensi': return <AttendanceModule />;
-      case 'tugas': return <DeadlineModule />;
-      case 'deadline': return <DeadlineModule />;
+      case 'tugas': return withSuspense(<DeadlineModule />);
       case 'progress-tugas': return <TaskProgressModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
@@ -174,7 +218,7 @@ const MainLayout: React.FC = () => {
   };
 
   // ============================================================
-  // MAIN LAYOUT (GURU & SISWA)
+  // MAIN LAYOUT
   // ============================================================
   return (
     <>
@@ -189,7 +233,6 @@ const MainLayout: React.FC = () => {
           </main>
         </div>
 
-        {/* Reminder on refresh/login (untuk siswa) */}
         <DashboardReminder onNavigate={setCurrentModule} />
 
         {/* FAB */}
@@ -242,7 +285,6 @@ const MainLayout: React.FC = () => {
         </div>
       </div>
 
-      {/* === KONFIRMASI LOGIN (YA/TIDAK) === */}
       {showLoginConfirm && user && (
         <LoginConfirmModal
           user={user}
