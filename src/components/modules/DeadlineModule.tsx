@@ -3,7 +3,7 @@ import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
   AlertTriangle, Check, BookOpen, ChevronRight, Sparkles, Target,
   ListChecks, Square, CheckSquare, User, Briefcase, Copy, FilePlus,
-  Wand2, Loader2,
+  Wand2, Loader2, Trash2,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -13,8 +13,8 @@ import {
   ProductionStage, UserProfile, ClassRoom, TaskPriority,
 } from '../../core/types';
 import {
-  collection, query, where, onSnapshot, doc, setDoc, updateDoc, getDocs,
-  writeBatch,
+  collection, query, where, onSnapshot, doc, setDoc, updateDoc, deleteDoc,
+  getDocs, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
@@ -381,6 +381,7 @@ export const DeadlineModule: React.FC = () => {
   const [selectedTargets, setSelectedTargets] = useState<TargetItem[]>([]);
   const [targetAll, setTargetAll] = useState(false);
   const [dueDateOverride, setDueDateOverride] = useState('');
+  const [useTemplateTarget, setUseTemplateTarget] = useState(true);
 
   const [manualTitle, setManualTitle] = useState('');
   const [manualDescription, setManualDescription] = useState('');
@@ -460,6 +461,7 @@ export const DeadlineModule: React.FC = () => {
     setSelectedTargets([]);
     setTargetAll(false);
     setDueDateOverride('');
+    setUseTemplateTarget(true);
     setIsTemplateOpen(true);
   };
 
@@ -506,6 +508,21 @@ export const DeadlineModule: React.FC = () => {
     manualTargets.some(t => t.type === type && t.name === name);
 
   const recipientCount = (() => {
+    if (useTemplateTarget) {
+      const matched = new Set<string>();
+      selectedTemplateIds.forEach(tplId => {
+        const tpl = currentTemplates.find(t => t.id === tplId);
+        if (!tpl) return;
+        users.forEach(u => {
+          if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+          if (u.role === 'Admin' || u.role === 'Super Admin') return;
+          if (tpl.targetType === 'SEMUA') matched.add(u.uid);
+          if (tpl.targetType === 'PERAN' && tpl.targetRole && u.role === tpl.targetRole) matched.add(u.uid);
+          if (tpl.targetType === 'DIVISI' && tpl.targetDivision && u.divisionName === tpl.targetDivision) matched.add(u.uid);
+        });
+      });
+      return matched.size;
+    }
     if (targetAll) {
       return users.filter(u =>
         u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
@@ -543,25 +560,36 @@ export const DeadlineModule: React.FC = () => {
     return matched.size;
   })();
 
+  const handleDeleteDeadline = async (d: DeadlineItem) => {
+    if (!user) return;
+    if (!confirm(`Hapus deadline "${d.title}"?\n\nTindakan ini tidak bisa dibatalkan.`)) return;
+    try {
+      await deleteDoc(doc(db, 'deadlines', d.id));
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'DELETE', targetType: 'Deadline', targetId: d.id,
+        details: `Hapus deadline: ${d.title}`,
+      });
+      showToast('Deadline berhasil dihapus.', 'success');
+    } catch (err: any) {
+      showToast('Gagal hapus: ' + (err?.message || 'Unknown'), 'error');
+    }
+  };
+
   const handleCreateFromTemplate = async () => {
     if (!user || !activeClass) return;
     if (selectedTemplateIds.length === 0) { showToast('Pilih minimal 1 template.', 'warning'); return; }
-    if (!targetAll && selectedTargets.length === 0) { showToast('Pilih minimal 1 target.', 'warning'); return; }
+    if (!useTemplateTarget && !targetAll && selectedTargets.length === 0) {
+      showToast('Pilih minimal 1 target.', 'warning');
+      return;
+    }
 
     setSubmitting(true);
     let success = 0;
+    let totalNotif = 0;
 
     try {
-      const recipientIds = new Set<string>();
-      users.forEach(u => {
-        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
-        if (u.role === 'Admin' || u.role === 'Super Admin') return;
-        if (targetAll) { recipientIds.add(u.uid); return; }
-        selectedTargets.forEach(t => {
-          if (t.type === 'PERAN' && u.role === t.name) recipientIds.add(u.uid);
-          if (t.type === 'DIVISI' && u.divisionName === t.name) recipientIds.add(u.uid);
-        });
-      });
+      const allRecipientIds = new Set<string>();
 
       for (const tplId of selectedTemplateIds) {
         const tpl = currentTemplates.find(t => t.id === tplId);
@@ -577,6 +605,38 @@ export const DeadlineModule: React.FC = () => {
           dueIso = d.toISOString();
         }
 
+        const recipientIds = new Set<string>();
+        let targetScope: 'SEMUA' | 'DIVISI' | 'PERAN' | 'CUSTOM';
+        let targetRole: string | undefined;
+        let targetDivision: string | undefined;
+
+        if (useTemplateTarget) {
+          targetScope = tpl.targetType as any;
+          targetRole = tpl.targetRole;
+          targetDivision = tpl.targetDivision as any;
+        } else {
+          targetScope = targetAll ? 'SEMUA' : 'CUSTOM';
+        }
+
+        users.forEach(u => {
+          if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+          if (u.role === 'Admin' || u.role === 'Super Admin') return;
+
+          if (useTemplateTarget) {
+            if (tpl.targetType === 'SEMUA') recipientIds.add(u.uid);
+            if (tpl.targetType === 'PERAN' && tpl.targetRole && u.role === tpl.targetRole) recipientIds.add(u.uid);
+            if (tpl.targetType === 'DIVISI' && tpl.targetDivision && u.divisionName === tpl.targetDivision) recipientIds.add(u.uid);
+          } else {
+            if (targetAll) recipientIds.add(u.uid);
+            else {
+              selectedTargets.forEach(t => {
+                if (t.type === 'PERAN' && u.role === t.name) recipientIds.add(u.uid);
+                if (t.type === 'DIVISI' && u.divisionName === t.name) recipientIds.add(u.uid);
+              });
+            }
+          }
+        });
+
         const newRef = doc(collection(db, 'deadlines'));
         await setDoc(newRef, {
           id: newRef.id,
@@ -585,8 +645,10 @@ export const DeadlineModule: React.FC = () => {
           description: tpl.description,
           dueDate: dueIso,
           priority: tpl.priority,
-          targetScope: targetAll ? 'SEMUA' : 'CUSTOM',
+          targetScope: targetScope,
           targetUserIds: Array.from(recipientIds),
+          targetRole: targetRole,
+          targetDivision: targetDivision,
           stage: selectedStage,
           isCritical: tpl.isCritical || false,
           createdBy: user.uid,
@@ -595,13 +657,16 @@ export const DeadlineModule: React.FC = () => {
           createdAt: new Date().toISOString(),
           templateReference: tpl.reference,
         });
+
+        recipientIds.forEach(id => allRecipientIds.add(id));
+        totalNotif += recipientIds.size;
         success++;
       }
 
-      if (recipientIds.size > 0) {
+      if (allRecipientIds.size > 0) {
         const batch = writeBatch(db);
         const nowStr = new Date().toISOString();
-        recipientIds.forEach(uid => {
+        allRecipientIds.forEach(uid => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
             id: notifRef.id,
@@ -619,10 +684,10 @@ export const DeadlineModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'DeadlineBatch', targetId: 'batch',
-        details: `Kirim ${success} deadline ke ${recipientCount} siswa (${selectedStage})`,
+        details: `Kirim ${success} deadline ke ${totalNotif} penerima (${selectedStage})`,
       });
 
-      showToast(`✅ ${success} deadline dikirim ke ${recipientCount} siswa!`, 'success');
+      showToast(`✅ ${success} deadline dikirim ke ${totalNotif} penerima!`, 'success');
       setIsTemplateOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
@@ -885,7 +950,10 @@ export const DeadlineModule: React.FC = () => {
                     {priority.label}
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
-                    {d.targetScope === 'SEMUA' ? 'Semua Siswa' : `${targetCount} penerima`}
+                    {d.targetScope === 'SEMUA' ? 'Semua Siswa' :
+                     d.targetScope === 'PERAN' && (d as any).targetRole ? `👤 ${(d as any).targetRole}` :
+                     d.targetScope === 'DIVISI' && (d as any).targetDivision ? `👥 ${(d as any).targetDivision}` :
+                     `${targetCount} penerima`}
                   </span>
                 </div>
 
@@ -938,10 +1006,17 @@ export const DeadlineModule: React.FC = () => {
                 )}
 
                 {canCreate && (
-                  <button onClick={() => handleOpenReview(d)}
-                    className="w-full py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-xs flex items-center justify-center gap-1">
-                    <Users className="w-3.5 h-3.5" /> Lihat Submisi ({targetCount} target)
-                  </button>
+                  <div className="grid grid-cols-5 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-700">
+                    <button onClick={() => handleOpenReview(d)}
+                      className="col-span-4 py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-xs flex items-center justify-center gap-1">
+                      <Users className="w-3.5 h-3.5" /> Lihat Submisi ({targetCount})
+                    </button>
+                    <button onClick={() => handleDeleteDeadline(d)}
+                      className="py-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 font-bold text-xs flex items-center justify-center"
+                      title="Hapus deadline">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 )}
               </div>
             );
@@ -1244,56 +1319,76 @@ export const DeadlineModule: React.FC = () => {
                     <button onClick={() => setWizardStep(2)} className="text-[11px] font-bold text-blue-600 hover:underline">← Ganti Template</button>
                   </div>
 
-                  <button onClick={() => { setTargetAll(!targetAll); setSelectedTargets([]); }}
-                    className={`w-full p-4 rounded-2xl border-2 text-left flex items-center gap-3 transition ${
-                      targetAll ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700'
-                    }`}>
-                    <div className={`p-0.5 rounded-md shrink-0 ${targetAll ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'}`}>
-                      {targetAll ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-transparent" />}
-                    </div>
-                    <div>
-                      <p className="text-sm font-extrabold text-slate-900 dark:text-white">🎯 Semua Siswa</p>
-                    </div>
-                  </button>
+                  <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-300 dark:border-emerald-500/40">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input type="checkbox" checked={useTemplateTarget}
+                        onChange={(e) => setUseTemplateTarget(e.target.checked)}
+                        className="mt-0.5 rounded border-emerald-300 text-emerald-500" />
+                      <div>
+                        <p className="text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
+                          🎯 Kirim sesuai target template (disarankan)
+                        </p>
+                        <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                          Deadline akan otomatis dikirim ke peran/divisi yang sesuai dengan template masing-masing.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
 
-                  {!targetAll && (
+                  {!useTemplateTarget && (
                     <>
-                      <div>
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Per Peran</p>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          {ROLE_LIST.map(r => {
-                            const sel = isTargetSelected('PERAN', r);
-                            return (
-                              <button key={r} onClick={() => toggleTarget('PERAN', r)}
-                                className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
-                                  sel ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
-                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                                }`}>
-                                {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-                                <span className="truncate">{r}</span>
-                              </button>
-                            );
-                          })}
+                      <button onClick={() => { setTargetAll(!targetAll); setSelectedTargets([]); }}
+                        className={`w-full p-4 rounded-2xl border-2 text-left flex items-center gap-3 transition ${
+                          targetAll ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700'
+                        }`}>
+                        <div className={`p-0.5 rounded-md shrink-0 ${targetAll ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'}`}>
+                          {targetAll ? <CheckSquare className="w-5 h-5" /> : <Square className="w-5 h-5 text-transparent" />}
                         </div>
-                      </div>
-                      <div>
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Per Divisi</p>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                          {DIVISION_LIST.map(d => {
-                            const sel = isTargetSelected('DIVISI', d);
-                            return (
-                              <button key={d} onClick={() => toggleTarget('DIVISI', d)}
-                                className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
-                                  sel ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300'
-                                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                                }`}>
-                                {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-                                <span className="truncate">{d}</span>
-                              </button>
-                            );
-                          })}
+                        <div>
+                          <p className="text-sm font-extrabold text-slate-900 dark:text-white">🎯 Semua Siswa</p>
                         </div>
-                      </div>
+                      </button>
+
+                      {!targetAll && (
+                        <>
+                          <div>
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Per Peran</p>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                              {ROLE_LIST.map(r => {
+                                const sel = isTargetSelected('PERAN', r);
+                                return (
+                                  <button key={r} onClick={() => toggleTarget('PERAN', r)}
+                                    className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
+                                      sel ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
+                                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}>
+                                    {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                    <span className="truncate">{r}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Per Divisi</p>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                              {DIVISION_LIST.map(d => {
+                                const sel = isTargetSelected('DIVISI', d);
+                                return (
+                                  <button key={d} onClick={() => toggleTarget('DIVISI', d)}
+                                    className={`p-2.5 rounded-xl border-2 text-[11px] font-bold transition text-left flex items-center gap-2 ${
+                                      sel ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300'
+                                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                                    }`}>
+                                    {sel ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                                    <span className="truncate">{d}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
 
@@ -1323,6 +1418,12 @@ export const DeadlineModule: React.FC = () => {
                       <p className="text-xs font-bold text-slate-900 dark:text-white">{selectedTemplateIds.length}</p>
                     </div>
                     <div>
+                      <p className="text-[10px] font-bold text-slate-500 uppercase">Mode Target</p>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">
+                        {useTemplateTarget ? '🎯 Sesuai target template' : targetAll ? '🎯 Semua Siswa' : 'Custom'}
+                      </p>
+                    </div>
+                    <div>
                       <p className="text-[10px] font-bold text-slate-500 uppercase">Penerima</p>
                       <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{recipientCount} siswa</p>
                     </div>
@@ -1345,7 +1446,7 @@ export const DeadlineModule: React.FC = () => {
                 )}
                 {wizardStep < 4 && wizardStep >= 2 && (
                   <button onClick={() => setWizardStep((wizardStep + 1) as any)}
-                    disabled={(wizardStep === 2 && selectedTemplateIds.length === 0) || (wizardStep === 3 && !targetAll && selectedTargets.length === 0)}
+                    disabled={(wizardStep === 2 && selectedTemplateIds.length === 0) || (wizardStep === 3 && !useTemplateTarget && !targetAll && selectedTargets.length === 0)}
                     className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                     Lanjut <ChevronRight className="w-3.5 h-3.5" />
                   </button>
