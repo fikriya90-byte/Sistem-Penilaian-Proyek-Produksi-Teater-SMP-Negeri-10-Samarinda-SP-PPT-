@@ -14,7 +14,7 @@ import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 import { DashboardReminder } from './components/common/DashboardReminder';
 
 // ============================================================
-// MODUL UTAMA (import langsung — sudah terbukti stabil)
+// MODUL UTAMA
 // ============================================================
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
@@ -50,9 +50,6 @@ import { DirectorTimelineModule } from './components/modules/DirectorTimelineMod
 import { DeadlineModule } from './components/modules/DeadlineModule';
 import { NotulensiModule } from './components/modules/NotulensiModule';
 
-// ============================================================
-// RAB MODULE — lazy (karena opsional, kalau belum ada tidak crash)
-// ============================================================
 const RABModule = lazy(() =>
   import('./components/modules/RABModule')
     .then(m => ({ default: m.RABModule }))
@@ -82,27 +79,56 @@ const LoadingFallback: React.FC = () => (
 );
 
 // ============================================================
+// KEY UNTUK PERSISTENSI NAVIGASI
+// ============================================================
+const NAV_STORAGE_KEY = 'spppt-current-module';
+
+// ============================================================
 // MAIN LAYOUT
 // ============================================================
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout } = useAuth();
-  const [currentModule, setCurrentModule] = useState('dashboard');
+
+  // Inisialisasi dari localStorage agar halaman bertahan setelah refresh
+  const [currentModule, setCurrentModule] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(NAV_STORAGE_KEY);
+      return saved || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
 
-  // Cek flag verifikasi login
+  // Simpan setiap kali modul berubah
+  useEffect(() => {
+    try {
+      localStorage.setItem(NAV_STORAGE_KEY, currentModule);
+    } catch { /* ignore */ }
+  }, [currentModule]);
+
+  // Flag verifikasi login
   useEffect(() => {
     if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
       setShowLoginConfirm(true);
     }
   }, [user]);
 
-  // Reset ke dashboard saat ganti kelas
+  // ⚠️ HANYA reset ke dashboard saat GANTI KELAS (bukan saat refresh)
+  // Deteksi ganti kelas dengan membandingkan activeClass.id sebelumnya
+  const prevClassIdRef = React.useRef<string | null>(null);
   useEffect(() => {
-    setCurrentModule('dashboard');
+    const currentId = activeClass?.id || null;
+    const prevId = prevClassIdRef.current;
+
+    // Kalau sebelumnya sudah ada kelas dan sekarang ganti kelas → reset ke dashboard
+    if (prevId && currentId && prevId !== currentId) {
+      setCurrentModule('dashboard');
+    }
+    prevClassIdRef.current = currentId;
   }, [activeClass?.id]);
 
-  // Loading screen
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
@@ -115,10 +141,8 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // Belum login
   if (!user) return <LoginModal />;
 
-  // Handle konfirmasi login
   const handleLoginConfirmYes = () => {
     try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
     setShowLoginConfirm(false);
@@ -130,9 +154,7 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
-  // ============================================================
   // ADMIN LAYOUT
-  // ============================================================
   if (isAdminRole) {
     return (
       <>
@@ -178,87 +200,51 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // Guru tanpa kelas aktif → tampilkan picker
   if (isGuruPengampu && !activeClass) return <TeacherClassPicker />;
 
-  // ============================================================
-  // ROUTER MODULE (GURU & SISWA)
-  // ============================================================
   const renderCurrentModule = () => {
     switch (currentModule) {
-      // Dashboard
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
-
-      // Penilaian
       case 'nilai-saya': return <MyGradeModule />;
       case 'nilai': return <AssessmentModule />;
       case 'moderasi': return <ModerationModule />;
-
-      // Kehadiran
       case 'absensi': return <AttendanceModule />;
       case 'statistik-absensi': return <AttendanceStatsModule />;
-
-      // Keuangan
       case 'kas': return <KasModule />;
       case 'rab': return (
         <Suspense fallback={<LoadingFallback />}>
           <RABModule />
         </Suspense>
       );
-
-      // Tugas & Deadline (sudah digabung)
       case 'tugas': return <DeadlineModule />;
       case 'progress-tugas': return <TaskProgressModule />;
-
-      // Jadwal
       case 'jadwal': return <ScheduleModule />;
       case 'master-timeline': return <MasterTimelineModule />;
       case 'content-schedule': return <ContentScheduleModule />;
       case 'division-schedule': return <DivisionScheduleModule />;
       case 'director-timeline': return <DirectorTimelineModule />;
-
-      // Produksi
       case 'properti': return <PropertyModule />;
       case 'musik': return <MusicCueModule />;
       case 'rias': return <FaceChartModule />;
       case 'busana': return <CostumeModule />;
-
-      // Komunikasi
       case 'informasi': return <InformationModule />;
       case 'notifikasi': return <NotificationPage />;
       case 'broadcast': return <BroadcastModule />;
       case 'aduan': return <ComplaintModule />;
-
-      // Dokumen & struktur
       case 'dokumen': return <DocumentModule />;
       case 'struktur': return <StructureModule />;
-
-      // Studio
       case 'studio': return <StudioModule />;
-
-      // Kelola
       case 'kelola-kelas': return <ManageClassModule onNavigate={setCurrentModule} />;
       case 'kelola-tahapan': return <StageManagerModule />;
-
-      // Log
       case 'aktivitas': return <ActivityLogModule />;
-
-      // Backup & pengaturan
       case 'backup': return <BackupModule />;
       case 'pengaturan': return <SettingsModule />;
       case 'panduan': return <GuideModule />;
-
-      // Notulensi
       case 'notulensi': return <NotulensiModule />;
-
-      // Default
       default: return <DashboardModule onNavigate={setCurrentModule} />;
     }
   };
 
-  // ============================================================
-  // MAIN LAYOUT (GURU & SISWA)
-  // ============================================================
   return (
     <>
       <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
@@ -279,12 +265,8 @@ const MainLayout: React.FC = () => {
           </main>
         </div>
 
-        {/* Reminder on refresh/login (siswa) */}
         <DashboardReminder onNavigate={setCurrentModule} />
 
-        {/* ============================================================ */}
-        {/* FLOATING ACTION BUTTONS */}
-        {/* ============================================================ */}
         <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
           <button
             onClick={() => setCurrentModule('informasi')}
@@ -309,16 +291,11 @@ const MainLayout: React.FC = () => {
           </button>
         </div>
 
-        {/* ============================================================ */}
-        {/* BOTTOM NAV (Mobile) */}
-        {/* ============================================================ */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
           <button
             onClick={() => setCurrentModule('dashboard')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'dashboard'
-                ? 'text-amber-600 dark:text-amber-400 font-bold'
-                : 'text-slate-500 dark:text-slate-400'
+              currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Home className="w-5 h-5" />
@@ -328,9 +305,7 @@ const MainLayout: React.FC = () => {
           <button
             onClick={() => setCurrentModule('informasi')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'informasi'
-                ? 'text-amber-600 dark:text-amber-400 font-bold'
-                : 'text-slate-500 dark:text-slate-400'
+              currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Megaphone className="w-5 h-5" />
@@ -340,9 +315,7 @@ const MainLayout: React.FC = () => {
           <button
             onClick={() => setCurrentModule('notifikasi')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'notifikasi'
-                ? 'text-amber-600 dark:text-amber-400 font-bold'
-                : 'text-slate-500 dark:text-slate-400'
+              currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Bell className="w-5 h-5" />
@@ -352,9 +325,7 @@ const MainLayout: React.FC = () => {
           <button
             onClick={() => setCurrentModule('kas')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'kas'
-                ? 'text-amber-600 dark:text-amber-400 font-bold'
-                : 'text-slate-500 dark:text-slate-400'
+              currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Wallet className="w-5 h-5" />
@@ -364,9 +335,7 @@ const MainLayout: React.FC = () => {
           <button
             onClick={() => setCurrentModule('rab')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'rab'
-                ? 'text-amber-600 dark:text-amber-400 font-bold'
-                : 'text-slate-500 dark:text-slate-400'
+              currentModule === 'rab' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
             }`}
           >
             <Calculator className="w-5 h-5" />
@@ -375,7 +344,6 @@ const MainLayout: React.FC = () => {
         </div>
       </div>
 
-      {/* Konfirmasi Login (Ya/Tidak) */}
       {showLoginConfirm && user && (
         <LoginConfirmModal
           user={user}
@@ -387,9 +355,6 @@ const MainLayout: React.FC = () => {
   );
 };
 
-// ============================================================
-// APP WRAPPER
-// ============================================================
 export default function App() {
   return (
     <ThemeProvider>
