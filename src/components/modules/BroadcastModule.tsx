@@ -1,36 +1,125 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Bell, Search, CheckCheck, Trash2, Clock, Filter, CheckSquare,
-  MessageSquare, Award, AlertTriangle, Wallet, Megaphone, RefreshCw,
-  Building2, X, Send, Shield, Reply,
+  Radio, Send, Search, Filter, Megaphone, AlertTriangle, Users,
+  User, Target, CheckSquare, Square, ChevronDown, ChevronRight,
+  MessageSquare, Reply, X, Shield, Clock, Trash2, Check,
+  RefreshCw, Building2, Crown, Star, Pause, Play, Ban, Eye,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
+import { UserRole, DivisionType, UserProfile } from '../../core/types';
 import {
-  subscribeNotifications, markNotificationAsRead, markAllNotificationsAsRead,
-} from '../../services/firestoreService';
-import { SystemNotification } from '../../core/types';
-import {
-  collection, query, where, doc, deleteDoc, writeBatch, getDocs, setDoc,
+  collection, query, where, onSnapshot, doc, setDoc, deleteDoc,
+  getDocs, writeBatch, orderBy, limit,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+import {
+  recordAuditLog, fetchUsersByClass, notifyTeachers,
+} from '../../services/firestoreService';
 
-type FilterType = 'ALL' | 'UNREAD' | 'Tugas' | 'Reminder' | 'Pengumuman' | 'Nilai' | 'Urgent' | 'Sistem' | 'Keuangan';
+// =====================================================
+// TIPE DATA
+// =====================================================
+type BroadcastPriority = 'NORMAL' | 'PENTING' | 'URGENT';
+type BroadcastTarget = 'SEMUA' | 'CUSTOM';
+type BroadcastStatus = 'ACTIVE' | 'CLOSED';
 
-// ============================================================
-// FILTER KATA KASAR / MAKIAN
-// ============================================================
+interface BroadcastReply {
+  id: string;
+  broadcastId: string;
+  classId: string;
+  userId: string;
+  userName: string;
+  userRole: string;
+  userDivision: string;
+  content: string;
+  createdAt: string;
+}
+
+interface BroadcastMessage {
+  id: string;
+  classId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: string;
+  title: string;
+  content: string;
+  priority: BroadcastPriority;
+  targetScope: BroadcastTarget;
+  targetRoles: string[];
+  targetDivisions: string[];
+  recipientIds: string[];
+  status: BroadcastStatus;
+  closedAt?: string;
+  createdAt: string;
+}
+
+// =====================================================
+// KONFIGURASI
+// =====================================================
+const CAN_BROADCAST_ROLES = [
+  'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin',
+  'Pimpinan Produksi', 'Sekretaris', 'Bendahara',
+  'Sutradara', 'Asisten Sutradara',
+  'Koordinator Perlengkapan', 'Koordinator Publikasi',
+  'Koordinator Tata Panggung', 'Koordinator Tata Rias',
+  'Koordinator Tata Busana', 'Koordinator Tata Musik',
+];
+
+const PRIORITY_CONFIG: Record<BroadcastPriority, {
+  label: string; color: string; bg: string; border: string; icon: any;
+}> = {
+  NORMAL: {
+    label: 'Normal',
+    color: 'text-slate-700 dark:text-slate-300',
+    bg: 'bg-slate-100 dark:bg-slate-800',
+    border: 'border-slate-300 dark:border-slate-600',
+    icon: MessageSquare,
+  },
+  PENTING: {
+    label: 'Penting',
+    color: 'text-amber-700 dark:text-amber-300',
+    bg: 'bg-amber-100 dark:bg-amber-500/20',
+    border: 'border-amber-300 dark:border-amber-500/40',
+    icon: AlertTriangle,
+  },
+  URGENT: {
+    label: 'URGENT',
+    color: 'text-rose-700 dark:text-rose-300',
+    bg: 'bg-rose-100 dark:bg-rose-500/20',
+    border: 'border-rose-300 dark:border-rose-500/40 animate-pulse',
+    icon: AlertTriangle,
+  },
+};
+
+const ROLE_LIST: UserRole[] = [
+  'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemeran',
+  'Koordinator Perlengkapan', 'Koordinator Publikasi', 'Koordinator Tata Panggung',
+  'Koordinator Tata Rias', 'Koordinator Tata Busana', 'Koordinator Tata Musik',
+  'Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung',
+  'Anggota Tata Rias', 'Anggota Tata Busana', 'Anggota Tata Musik',
+];
+
+const DIVISION_LIST: DivisionType[] = [
+  'Pengurus Inti', 'Pemeran', 'Perlengkapan', 'Publikasi & Dokumentasi',
+  'Tata Panggung', 'Tata Rias', 'Tata Busana', 'Tata Musik & Suara',
+];
+
+const MAX_REPLY_LENGTH = 300;
+const MAX_REPLIES_PER_USER = 3;
+
+// =====================================================
+// FILTER KATA KASAR
+// =====================================================
 const BAD_WORDS = [
-  // Indonesia umum
-  'anjing', 'anjg', 'anjir', 'bangsat', 'bajingan', 'kontol', 'kntl', 'memek', 'mmk',
-  'ngentot', 'ngentd', 'pepek', 'peler', 'pler', 'tai', 'taik', 'titit', 'kampang',
-  'asu', 'asw', 'babi', 'brengsek', 'sialan', 'setan', 'goblok', 'gblk', 'tolol',
-  'tlol', 'idiot', 'dungu', 'bodoh', 'bdh', 'sinting', 'edan', 'gila', 'bgst',
-  'pukimak', 'pkmk', 'kimak', 'jancuk', 'jancok', 'cok', 'coeg', 'cuk', 'tolo',
-  'goblog', 'lonte', 'pelacur', 'sundal', 'jablay', 'bispak', 'perek',
-  // Inggris
-  'fuck', 'fck', 'shit', 'bitch', 'bastard', 'asshole', 'dick', 'pussy', 'cunt',
-  'whore', 'slut', 'damn', 'crap', 'wtf', 'stfu',
+  'anjing', 'anjg', 'anjir', 'bangsat', 'bajingan', 'kontol', 'kntl', 'memek',
+  'ngentot', 'pepek', 'peler', 'pler', 'tai', 'taik', 'kampang', 'asu', 'asw',
+  'babi', 'brengsek', 'sialan', 'setan', 'goblok', 'gblk', 'tolol', 'tlol',
+  'idiot', 'dungu', 'bodoh', 'bdh', 'sinting', 'edan', 'gila', 'bgst',
+  'pukimak', 'kimak', 'jancuk', 'jancok', 'cuk', 'tolo', 'lonte', 'pelacur',
+  'sundal', 'jablay', 'bispak', 'perek',
+  'fuck', 'shit', 'bitch', 'bastard', 'asshole', 'dick', 'pussy', 'cunt',
+  'whore', 'slut', 'damn', 'wtf',
 ];
 
 const containsBadWord = (text: string): { has: boolean; found: string[] } => {
@@ -38,7 +127,6 @@ const containsBadWord = (text: string): { has: boolean; found: string[] } => {
   const lower = text.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
   const found: string[] = [];
   BAD_WORDS.forEach(word => {
-    // Cek sebagai kata utuh atau bagian dari kata
     const regex = new RegExp(`\\b${word}\\b|${word}`, 'i');
     if (regex.test(lower)) {
       if (!found.includes(word)) found.push(word);
@@ -56,278 +144,425 @@ const sanitizeText = (text: string): string => {
   return result;
 };
 
-export const BroadcastModule: React.FC = () => {
-  const { user, classes } = useAuth();
-  const { showToast } = useToast();
-  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
-  const [filter, setFilter] = useState<FilterType>('ALL');
-  const [classFilter, setClassFilter] = useState<string>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [markingAll, setMarkingAll] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [loading, setLoading] = useState(true);
+const getPriorityInfo = (p: BroadcastPriority) => PRIORITY_CONFIG[p] || PRIORITY_CONFIG.NORMAL;
 
-  // Reply state
-  const [replyTo, setReplyTo] = useState<SystemNotification | null>(null);
+// =====================================================
+// MAIN COMPONENT
+// =====================================================
+export const BroadcastModule: React.FC = () => {
+  const { user, activeClass } = useAuth();
+  const { showToast } = useToast();
+
+  const [broadcasts, setBroadcasts] = useState<BroadcastMessage[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [replies, setReplies] = useState<Record<string, BroadcastReply[]>>({});
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'ALL' | 'MINE' | 'TO_ME' | 'URGENT'>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [isComposeOpen, setIsComposeOpen] = useState(false);
+
+  // Form compose
+  const [composeTitle, setComposeTitle] = useState('');
+  const [composeContent, setComposeContent] = useState('');
+  const [composePriority, setComposePriority] = useState<BroadcastPriority>('NORMAL');
+  const [composeTargetScope, setComposeTargetScope] = useState<BroadcastTarget>('SEMUA');
+  const [composeTargetRoles, setComposeTargetRoles] = useState<string[]>([]);
+  const [composeTargetDivisions, setComposeTargetDivisions] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Reply form
+  const [replyTarget, setReplyTarget] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
 
+  const canBroadcast = !!user && CAN_BROADCAST_ROLES.includes(user.role);
+
+  // =====================================================
+  // SUBSCRIBE
+  // =====================================================
   useEffect(() => {
-    if (!user) return;
-    const unsub = subscribeNotifications(user.uid, (notifs) => {
-      setNotifications(notifs);
+    if (!activeClass || !user) return;
+
+    const q = query(
+      collection(db, 'broadcasts'),
+      where('classId', '==', activeClass.id)
+    );
+    const unsub = onSnapshot(q, snap => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as BroadcastMessage));
+      // Sort: terbaru duluan
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setBroadcasts(list);
       setLoading(false);
     });
+
+    fetchUsersByClass(activeClass.id).then(setUsers);
+
     return () => unsub();
-  }, [user]);
+  }, [activeClass, user]);
 
-  const getClassName = (classId?: string) => {
-    if (!classId) return null;
-    return classes.find(x => x.id === classId)?.name || null;
-  };
-
-  const availableClasses = (() => {
-    const map: Record<string, string> = {};
-    notifications.forEach(n => {
-      if (n.classId) {
-        const name = getClassName(n.classId);
-        if (name) map[n.classId] = name;
-      }
+  // Subscribe replies untuk broadcast yang di-expand
+  useEffect(() => {
+    if (!expandedId) return;
+    const q = query(
+      collection(db, 'broadcasts', expandedId, 'replies')
+    );
+    const unsub = onSnapshot(q, snap => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as BroadcastReply));
+      list.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      setReplies(prev => ({ ...prev, [expandedId]: list }));
     });
-    return Object.entries(map).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  })();
+    return () => unsub();
+  }, [expandedId]);
 
-  const filtered = notifications.filter(n => {
-    if (filter === 'UNREAD' && n.read) return false;
-    if (filter !== 'ALL' && filter !== 'UNREAD' && n.category !== filter) return false;
-    if (classFilter !== 'ALL' && n.classId !== classFilter) return false;
+  // =====================================================
+  // FILTER BROADCAST
+  // =====================================================
+  const visibleBroadcasts = broadcasts.filter(b => {
+    // User bisa lihat kalau:
+    // 1. Dia pengirim
+    // 2. Target SEMUA
+    // 3. targetRoles includes user.role
+    // 4. targetDivisions includes user.divisionName
+    // 5. recipientIds includes user.uid
+    const isSender = b.senderId === user?.uid;
+    const isAll = b.targetScope === 'SEMUA';
+    const isTargetRole = b.targetRoles?.includes(user?.role || '');
+    const isTargetDivision = b.targetDivisions?.includes(user?.divisionName || '');
+    const isRecipient = b.recipientIds?.includes(user?.uid || '');
+
+    const isVisible = isSender || isAll || isTargetRole || isTargetDivision || isRecipient;
+    if (!isVisible) return false;
+
+    if (filter === 'MINE' && !isSender) return false;
+    if (filter === 'TO_ME' && isSender) return false;
+    if (filter === 'URGENT' && b.priority !== 'URGENT') return false;
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      return n.title.toLowerCase().includes(q) || n.message.toLowerCase().includes(q);
+      return b.title.toLowerCase().includes(q) ||
+             b.content.toLowerCase().includes(q) ||
+             b.senderName.toLowerCase().includes(q);
     }
     return true;
   });
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-  const classUnreadCount = (cid: string) => notifications.filter(n => !n.read && n.classId === cid).length;
+  const unreadUrgentCount = broadcasts.filter(b =>
+    b.priority === 'URGENT' &&
+    b.senderId !== user?.uid &&
+    (b.targetScope === 'SEMUA' ||
+     b.targetRoles?.includes(user?.role || '') ||
+     b.targetDivisions?.includes(user?.divisionName || '') ||
+     b.recipientIds?.includes(user?.uid || ''))
+  ).length;
 
-  const handleMarkRead = async (n: SystemNotification) => {
-    if (n.read) return;
-    try { await markNotificationAsRead(n.id); } catch { /* silent */ }
+  // =====================================================
+  // HITUNG PENERIMA DARI TARGET
+  // =====================================================
+  const computeRecipients = (): string[] => {
+    const recipientIds = new Set<string>();
+    users.forEach(u => {
+      if (u.role === 'Guru Pengampu' || u.role === 'Admin' || u.role === 'Super Admin') return;
+      if (u.uid === user?.uid) return; // jangan kirim ke diri sendiri
+
+      if (composeTargetScope === 'SEMUA') {
+        recipientIds.add(u.uid);
+      } else {
+        if (composeTargetRoles.includes(u.role)) recipientIds.add(u.uid);
+        if (u.divisionName && composeTargetDivisions.includes(u.divisionName)) recipientIds.add(u.uid);
+      }
+    });
+    return Array.from(recipientIds);
   };
 
-  const handleMarkAllRead = async () => {
-    if (!user) return;
-    setMarkingAll(true);
-    try {
-      const count = await markAllNotificationsAsRead(user.uid);
-      showToast(count > 0 ? `${count} notifikasi ditandai.` : 'Tidak ada yang baru.', 'success');
-    } catch (err: any) {
-      showToast('Gagal: ' + err.message, 'error');
-    } finally { setMarkingAll(false); }
-  };
+  const previewRecipientCount = computeRecipients().length;
 
-  const handleDeleteOne = async (n: SystemNotification) => {
-    if (!confirm(`Hapus notifikasi "${n.title}"?`)) return;
-    try {
-      await deleteDoc(doc(db, 'notifications', n.id));
-      showToast('Notifikasi dihapus.', 'info');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
-  };
+  // =====================================================
+  // SEND BROADCAST
+  // =====================================================
+  const handleSendBroadcast = async () => {
+    if (!user || !activeClass) return;
 
-  const handleClearRead = async () => {
-    if (!user) return;
-    if (!confirm('Hapus semua notifikasi yang sudah dibaca?')) return;
-    setClearing(true);
-    try {
-      const q = query(
-        collection(db, 'notifications'),
-        where('userId', '==', user.uid),
-        where('read', '==', true)
-      );
-      const snap = await getDocs(q);
-      if (snap.empty) { showToast('Tidak ada yang bisa dihapus.', 'info'); return; }
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
-      showToast(`${snap.size} notifikasi dibersihkan.`, 'success');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
-    finally { setClearing(false); }
-  };
+    if (!composeTitle.trim()) { showToast('Judul wajib diisi.', 'warning'); return; }
+    if (!composeContent.trim()) { showToast('Isi pesan wajib diisi.', 'warning'); return; }
+    if (composeContent.length > 500) { showToast('Isi pesan maks 500 karakter.', 'warning'); return; }
 
-  // ============================================================
-  // KIRIM BALASAN
-  // ============================================================
-  const handleSendReply = async () => {
-    if (!user || !replyTo) return;
-    const text = replyText.trim();
-    if (!text) { showToast('Tulis balasan dulu.', 'warning'); return; }
-
-    // Cek kata kasar
-    const check = containsBadWord(text);
-    if (check.has) {
-      showToast(`Balasan mengandung kata tidak pantas: ${check.found.join(', ')}. Mohon perbaiki.`, 'error');
+    const badCheck = containsBadWord(composeContent) || containsBadWord(composeTitle);
+    if (badCheck.has) {
+      showToast(`Pesan mengandung kata tidak pantas: ${badCheck.found.join(', ')}`, 'error');
       return;
     }
 
-    if (text.length > 300) { showToast('Balasan maksimal 300 karakter.', 'warning'); return; }
+    if (composeTargetScope === 'CUSTOM' &&
+        composeTargetRoles.length === 0 &&
+        composeTargetDivisions.length === 0) {
+      showToast('Pilih minimal 1 peran atau divisi tujuan.', 'warning');
+      return;
+    }
 
-    setReplySending(true);
+    setSubmitting(true);
     try {
-      const replyRef = doc(collection(db, 'notifications', replyTo.id, 'replies'));
-      await setDoc(replyRef, {
-        id: replyRef.id,
-        notificationId: replyTo.id,
-        userId: user.uid,
-        userName: user.displayName,
-        userRole: user.role,
-        text: sanitizeText(text),
+      const recipientIds = computeRecipients();
+      if (recipientIds.length === 0 && composeTargetScope === 'CUSTOM') {
+        showToast('Tidak ada penerima yang cocok dengan target yang dipilih.', 'warning');
+        setSubmitting(false);
+        return;
+      }
+
+      const newRef = doc(collection(db, 'broadcasts'));
+      await setDoc(newRef, {
+        id: newRef.id,
+        classId: activeClass.id,
+        senderId: user.uid,
+        senderName: user.displayName,
+        senderRole: user.role,
+        title: composeTitle.trim(),
+        content: composeContent.trim(),
+        priority: composePriority,
+        targetScope: composeTargetScope,
+        targetRoles: composeTargetRoles,
+        targetDivisions: composeTargetDivisions,
+        recipientIds,
+        status: 'ACTIVE',
         createdAt: new Date().toISOString(),
       });
 
-      // Notifikasi balik ke Guru (kalau yang bales siswa)
-      if (user.role !== 'Guru Pengampu' && user.role !== 'Admin' && user.role !== 'Super Admin') {
-        try {
+      // Kirim notifikasi ke penerima
+      if (recipientIds.length > 0) {
+        const batch = writeBatch(db);
+        const nowStr = new Date().toISOString();
+        recipientIds.forEach(uid => {
           const notifRef = doc(collection(db, 'notifications'));
-          await setDoc(notifRef, {
+          batch.set(notifRef, {
             id: notifRef.id,
-            userId: (replyTo as any).senderId || 'teacher-fikri',
-            classId: replyTo.classId || '',
-            title: `Balasan dari ${user.displayName}`,
-            message: text.slice(0, 200),
-            category: 'Feedback',
+            userId: uid,
+            classId: activeClass.id,
+            title: composePriority === 'URGENT'
+              ? `🚨 BROADCAST URGENT: ${composeTitle.trim()}`
+              : `📢 ${composeTitle.trim()}`,
+            message: `${user.displayName} (${user.role}): ${composeContent.trim().slice(0, 150)}`,
+            category: composePriority === 'URGENT' ? 'Urgent' : 'Pengumuman',
             read: false,
-            link: 'notifikasi',
-            createdAt: new Date().toISOString(),
+            link: 'broadcast',
+            createdAt: nowStr,
           });
-        } catch { /* non-fatal */ }
+        });
+        await batch.commit();
       }
 
-      showToast('Balasan terkirim!', 'success');
-      setReplyTo(null);
-      setReplyText('');
-    } catch (err: any) {
-      showToast('Gagal kirim balasan: ' + err.message, 'error');
-    } finally { setReplySending(false); }
-  };
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'CREATE', targetType: 'Broadcast', targetId: newRef.id,
+        details: `Broadcast "${composeTitle}" → ${recipientIds.length} penerima (${composeTargetScope})`,
+      });
 
-  const getCategoryStyle = (cat: string) => {
-    switch (cat) {
-      case 'Tugas': return { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-700 dark:text-blue-300', border: 'border-blue-300 dark:border-blue-500/40', Icon: CheckSquare };
-      case 'Feedback': return { bg: 'bg-pink-100 dark:bg-pink-500/20', text: 'text-pink-700 dark:text-pink-300', border: 'border-pink-300 dark:border-pink-500/40', Icon: MessageSquare };
-      case 'Reminder': return { bg: 'bg-orange-100 dark:bg-orange-500/20', text: 'text-orange-700 dark:text-orange-300', border: 'border-orange-300 dark:border-orange-500/40', Icon: Clock };
-      case 'Urgent': return { bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-700 dark:text-rose-300', border: 'border-rose-300 dark:border-rose-500/40', Icon: AlertTriangle };
-      case 'Pengumuman': return { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-300 dark:border-emerald-500/40', Icon: Megaphone };
-      case 'Nilai': return { bg: 'bg-amber-100 dark:bg-amber-500/20', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-300 dark:border-amber-500/40', Icon: Award };
-      case 'Keuangan': return { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-300 dark:border-emerald-500/40', Icon: Wallet };
-      default: return { bg: 'bg-slate-100 dark:bg-slate-700', text: 'text-slate-700 dark:text-slate-300', border: 'border-slate-300 dark:border-slate-600', Icon: Bell };
+      showToast(`Broadcast terkirim ke ${recipientIds.length} penerima!`, 'success');
+      setIsComposeOpen(false);
+      setComposeTitle('');
+      setComposeContent('');
+      setComposePriority('NORMAL');
+      setComposeTargetScope('SEMUA');
+      setComposeTargetRoles([]);
+      setComposeTargetDivisions([]);
+    } catch (err: any) {
+      showToast('Gagal kirim broadcast: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const filterOptions: { val: FilterType; label: string }[] = [
-    { val: 'ALL', label: `Semua (${notifications.length})` },
-    { val: 'UNREAD', label: `Belum (${unreadCount})` },
-    { val: 'Pengumuman', label: 'Pengumuman' },
-    { val: 'Tugas', label: 'Tugas' },
-    { val: 'Reminder', label: 'Reminder' },
-    { val: 'Feedback', label: 'Feedback' },
-    { val: 'Nilai', label: 'Nilai' },
-    { val: 'Urgent', label: 'Urgent' },
-    { val: 'Keuangan', label: 'Keuangan' },
-    { val: 'Sistem', label: 'Sistem' },
-  ];
+  // =====================================================
+  // SEND REPLY
+  // =====================================================
+  const handleSendReply = async (broadcastId: string) => {
+    if (!user || !activeClass) return;
+    const text = replyText.trim();
+    if (!text) { showToast('Tulis balasan dulu.', 'warning'); return; }
+    if (text.length > MAX_REPLY_LENGTH) {
+      showToast(`Balasan maks ${MAX_REPLY_LENGTH} karakter.`, 'warning');
+      return;
+    }
 
+    const badCheck = containsBadWord(text);
+    if (badCheck.has) {
+      showToast(`Balasan mengandung kata tidak pantas: ${badCheck.found.join(', ')}`, 'error');
+      return;
+    }
+
+    // Cek limit
+    const myReplies = (replies[broadcastId] || []).filter(r => r.userId === user.uid);
+    if (myReplies.length >= MAX_REPLIES_PER_USER) {
+      showToast(`Maksimal ${MAX_REPLIES_PER_USER} balasan per broadcast.`, 'warning');
+      return;
+    }
+
+    const broadcast = broadcasts.find(b => b.id === broadcastId);
+    if (!broadcast) return;
+    if (broadcast.status === 'CLOSED') {
+      showToast('Broadcast ini sudah ditutup oleh pengirim.', 'warning');
+      return;
+    }
+
+    setReplySending(true);
+    try {
+      const replyRef = doc(collection(db, 'broadcasts', broadcastId, 'replies'));
+      await setDoc(replyRef, {
+        id: replyRef.id,
+        broadcastId,
+        classId: activeClass.id,
+        userId: user.uid,
+        userName: user.displayName,
+        userRole: user.role,
+        userDivision: user.divisionName || '',
+        content: sanitizeText(text),
+        createdAt: new Date().toISOString(),
+      });
+
+      // Notifikasi ke pengirim broadcast (kalau bukan diri sendiri)
+      if (broadcast.senderId !== user.uid) {
+        const notifRef = doc(collection(db, 'notifications'));
+        await setDoc(notifRef, {
+          id: notifRef.id,
+          userId: broadcast.senderId,
+          classId: activeClass.id,
+          title: `Balasan dari ${user.displayName}`,
+          message: `"${broadcast.title}" → ${text.slice(0, 150)}`,
+          category: 'Feedback',
+          read: false,
+          link: 'broadcast',
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      showToast('Balasan terkirim!', 'success');
+      setReplyText('');
+      setReplyTarget(null);
+    } catch (err: any) {
+      showToast('Gagal kirim balasan: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setReplySending(false);
+    }
+  };
+
+  // =====================================================
+  // DELETE / CLOSE
+  // =====================================================
+  const handleDeleteBroadcast = async (b: BroadcastMessage) => {
+    if (!user) return;
+    const canDel = b.senderId === user.uid ||
+                   user.role === 'Guru Pengampu' ||
+                   user.role === 'Admin' || user.role === 'Super Admin';
+    if (!canDel) { showToast('Tidak berwenang menghapus.', 'warning'); return; }
+    if (!confirm(`Hapus broadcast "${b.title}"?\n\nSemua balasan juga akan terhapus.`)) return;
+
+    try {
+      // Hapus replies dulu
+      const repliesSnap = await getDocs(collection(db, 'broadcasts', b.id, 'replies'));
+      const batch = writeBatch(db);
+      repliesSnap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+
+      // Hapus broadcast
+      await deleteDoc(doc(db, 'broadcasts', b.id));
+      showToast('Broadcast dihapus.', 'info');
+    } catch (err: any) {
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    }
+  };
+
+  const handleToggleStatus = async (b: BroadcastMessage) => {
+    if (!user) return;
+    const canManage = b.senderId === user.uid ||
+                      user.role === 'Guru Pengampu' ||
+                      user.role === 'Admin' || user.role === 'Super Admin';
+    if (!canManage) { showToast('Tidak berwenang.', 'warning'); return; }
+
+    const newStatus: BroadcastStatus = b.status === 'ACTIVE' ? 'CLOSED' : 'ACTIVE';
+    if (!confirm(
+      newStatus === 'CLOSED'
+        ? `Tutup broadcast "${b.title}"?\n\nPenerima tidak bisa balas lagi.`
+        : `Buka kembali broadcast "${b.title}"?\n\nPenerima bisa balas lagi.`
+    )) return;
+
+    try {
+      await setDoc(doc(db, 'broadcasts', b.id), {
+        status: newStatus,
+        closedAt: newStatus === 'CLOSED' ? new Date().toISOString() : null,
+      }, { merge: true });
+      showToast(newStatus === 'CLOSED' ? 'Broadcast ditutup.' : 'Broadcast dibuka.', 'info');
+    } catch (err: any) {
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    }
+  };
+
+  // =====================================================
+  // RENDER
+  // =====================================================
   return (
     <div className="space-y-6">
       {/* HEADER */}
-      <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-900 via-slate-900 to-indigo-950 text-white shadow-xl border border-blue-500/20">
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl border border-indigo-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="p-3 rounded-2xl bg-blue-500/20 text-blue-300 border border-blue-500/30 relative">
-              <Bell className="w-7 h-7" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                  {unreadCount > 99 ? '99+' : unreadCount}
+            <span className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 relative">
+              <Radio className="w-7 h-7" />
+              {unreadUrgentCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-rose-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                  {unreadUrgentCount}
                 </span>
               )}
             </span>
             <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-blue-300 bg-blue-500/20 px-2.5 py-0.5 rounded-full border border-blue-500/30">
-                Pusat Notifikasi
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
+                Broadcast & Komunikasi
               </span>
-              <h2 className="text-xl font-black text-white mt-1">Notifikasi Saya</h2>
+              <h2 className="text-xl font-black text-white mt-1">Pesan Siaran Resmi</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                {notifications.length} total — {unreadCount} belum dibaca
+                Kirim pengumuman ke semua atau beberapa peran/divisi — penerima dapat membalas
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={handleMarkAllRead} disabled={markingAll || unreadCount === 0}
-              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50">
-              <CheckCheck className="w-4 h-4" /> Tandai Semua
+          {canBroadcast && (
+            <button onClick={() => setIsComposeOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
+              <Megaphone className="w-4 h-4" /> Buat Broadcast
             </button>
-            <button onClick={handleClearRead} disabled={clearing}
-              className="px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50">
-              <Trash2 className="w-4 h-4" /> Bersihkan
-            </button>
-          </div>
+          )}
         </div>
+
+        {!canBroadcast && (
+          <div className="mt-3 p-2.5 rounded-xl bg-white/10 border border-white/20 text-[11px] text-slate-200 flex items-start gap-2">
+            <Shield className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Anda hanya dapat <strong>melihat & membalas</strong> broadcast.
+              Yang berhak mengirim: Guru, Pimprod, Sekretaris, Bendahara, Sutradara, Asisten, & semua Koordinator.
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* FILTER KELAS */}
-      {availableClasses.length > 0 && (
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-          <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Filter Kelas:</span>
-            {classFilter !== 'ALL' && (
-              <button onClick={() => setClassFilter('ALL')} className="text-[10px] font-bold text-rose-600 hover:underline flex items-center gap-1">
-                <X className="w-3 h-3" /> Reset
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-            <button onClick={() => setClassFilter('ALL')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                classFilter === 'ALL' ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-              }`}>
-              Semua Kelas ({notifications.length})
-            </button>
-            {availableClasses.map(c => {
-              const count = notifications.filter(n => n.classId === c.id).length;
-              const unread = classUnreadCount(c.id);
-              return (
-                <button key={c.id} onClick={() => setClassFilter(c.id)}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
-                    classFilter === c.id ? 'bg-purple-600 text-white shadow-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-                  }`}>
-                  <span>{c.name}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${classFilter === c.id ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>{count}</span>
-                  {unread > 0 && (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-rose-500 text-white">{unread}</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* SEARCH + FILTER KATEGORI */}
+      {/* FILTER + SEARCH */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input type="text" placeholder="Cari notifikasi..." value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+          <input type="text" placeholder="Cari broadcast..."
+            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          {filterOptions.map(opt => (
-            <button key={opt.val} onClick={() => setFilter(opt.val)}
+          {([
+            { val: 'ALL', label: `Semua (${broadcasts.length})` },
+            { val: 'MINE', label: 'Dari Saya' },
+            { val: 'TO_ME', label: 'Untuk Saya' },
+            { val: 'URGENT', label: `🚨 Urgent (${unreadUrgentCount})` },
+          ] as { val: typeof filter; label: string }[]).map(f => (
+            <button key={f.val} onClick={() => setFilter(f.val)}
               className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                filter === opt.val ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                filter === f.val
+                  ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
               }`}>
-              {opt.label}
+              {f.label}
             </button>
           ))}
         </div>
@@ -337,137 +572,455 @@ export const BroadcastModule: React.FC = () => {
       {loading ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
-          <p className="text-xs text-slate-400">Memuat...</p>
+          <p className="text-xs text-slate-400">Memuat broadcast...</p>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : visibleBroadcasts.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-          <Bell className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Tidak Ada Notifikasi</h3>
+          <Radio className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Broadcast</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {canBroadcast ? 'Klik "Buat Broadcast" untuk mengirim pesan pertama.' : 'Tunggu pengumuman dari pengurus.'}
+          </p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map(n => {
-            const style = getCategoryStyle(n.category);
-            const Icon = style.Icon;
-            const cName = getClassName(n.classId);
-            const canReply = ['Pengumuman', 'Feedback', 'Sistem'].includes(n.category);
+        <div className="space-y-3">
+          {visibleBroadcasts.map(b => {
+            const prio = getPriorityInfo(b.priority);
+            const PrioIcon = prio.icon;
+            const isExpanded = expandedId === b.id;
+            const bReplies = replies[b.id] || [];
+            const isMine = b.senderId === user?.uid;
+            const canManage = isMine || user?.role === 'Guru Pengampu' ||
+                              user?.role === 'Admin' || user?.role === 'Super Admin';
+            const myRepliesCount = bReplies.filter(r => r.userId === user?.uid).length;
+            const canReply = !isMine && b.status === 'ACTIVE' && myRepliesCount < MAX_REPLIES_PER_USER;
+            const targetInfo = b.targetScope === 'SEMUA'
+              ? 'Semua Siswa'
+              : [
+                  ...(b.targetRoles || []).slice(0, 2),
+                  ...(b.targetDivisions || []).slice(0, 2),
+                ].join(', ') + (
+                  (b.targetRoles?.length || 0) + (b.targetDivisions?.length || 0) > 4
+                    ? ` +${(b.targetRoles?.length || 0) + (b.targetDivisions?.length || 0) - 4} lagi`
+                    : ''
+                );
+
             return (
-              <div key={n.id}
-                className={`p-4 rounded-2xl border-2 transition ${
-                  n.read ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700'
-                    : 'bg-blue-50 dark:bg-blue-500/10 border-blue-300 dark:border-blue-500/40 shadow-sm'
+              <div key={b.id}
+                className={`rounded-3xl bg-white dark:bg-slate-900 border-2 shadow-sm transition ${
+                  b.priority === 'URGENT' ? 'border-rose-400 dark:border-rose-500/60'
+                    : b.priority === 'PENTING' ? 'border-amber-300 dark:border-amber-500/40'
+                    : 'border-slate-200 dark:border-slate-700'
                 }`}>
-                <div className="flex items-start gap-3">
-                  <span className={`p-2 rounded-xl border ${style.bg} ${style.text} ${style.border} shrink-0`}>
-                    <Icon className="w-4 h-4" />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${style.bg} ${style.text} ${style.border}`}>
-                        {n.category}
-                      </span>
-                      {cName && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/40 flex items-center gap-1">
-                          <Building2 className="w-2.5 h-2.5" /> {cName}
+                {/* Header Broadcast */}
+                <div className="p-5">
+                  <div className="flex items-start gap-3">
+                    <span className={`p-2.5 rounded-xl border shrink-0 ${prio.bg} ${prio.color} ${prio.border}`}>
+                      <PrioIcon className="w-5 h-5" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${prio.bg} ${prio.color} ${prio.border}`}>
+                          {prio.label}
                         </span>
-                      )}
-                      {!n.read && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40">BARU</span>
-                      )}
-                      <span className="text-[10px] text-slate-400 ml-auto">
-                        {new Date(n.createdAt).toLocaleString('id-ID', {
-                          day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
-                        })}
-                      </span>
-                    </div>
-                    <h4 className={`text-sm leading-snug ${n.read ? 'font-semibold text-slate-700 dark:text-slate-300' : 'font-extrabold text-slate-900 dark:text-white'}`}>
-                      {n.title}
-                    </h4>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">{n.message}</p>
-                    <div className="flex items-center gap-2 mt-3 flex-wrap">
-                      {!n.read && (
-                        <button onClick={() => handleMarkRead(n)}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] flex items-center gap-1">
-                          <CheckCheck className="w-3 h-3" /> Dibaca
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/40 flex items-center gap-1">
+                          <Target className="w-2.5 h-2.5" /> {targetInfo}
+                        </span>
+                        {b.status === 'CLOSED' && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 flex items-center gap-1">
+                            <Ban className="w-2.5 h-2.5" /> Ditutup
+                          </span>
+                        )}
+                        {isMine && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40">
+                            Saya Kirim
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-400 ml-auto flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {new Date(b.createdAt).toLocaleString('id-ID', {
+                            day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </span>
+                      </div>
+
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{b.title}</h3>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5">
+                        <Users className="w-3 h-3" />
+                        <strong className="text-slate-700 dark:text-slate-300">{b.senderName}</strong>
+                        <span>({b.senderRole})</span>
+                        <span className="text-slate-400">•</span>
+                        <span>{b.recipientIds?.length || 0} penerima</span>
+                      </p>
+
+                      <p className="text-xs text-slate-700 dark:text-slate-300 mt-2.5 leading-relaxed whitespace-pre-line">
+                        {b.content}
+                      </p>
+
+                      {/* Action Buttons */}
+                      <div className="flex items-center gap-2 mt-3 flex-wrap">
+                        <button onClick={() => setExpandedId(isExpanded ? null : b.id)}
+                          className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold flex items-center gap-1.5 transition">
+                          <MessageSquare className="w-3 h-3" />
+                          {bReplies.length > 0 ? `${bReplies.length} Balasan` : 'Lihat Balasan'}
+                          {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                         </button>
+
+                        {canReply && (
+                          <button onClick={() => setReplyTarget(replyTarget === b.id ? null : b.id)}
+                            className="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/40 text-blue-700 dark:text-blue-300 text-[11px] font-bold flex items-center gap-1.5 transition">
+                            <Reply className="w-3 h-3" /> Balas
+                          </button>
+                        )}
+
+                        {canManage && (
+                          <>
+                            <button onClick={() => handleToggleStatus(b)}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition ${
+                                b.status === 'CLOSED'
+                                  ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/40 hover:bg-emerald-100'
+                                  : 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/40 hover:bg-amber-100'
+                              }`}>
+                              {b.status === 'CLOSED'
+                                ? <><Play className="w-3 h-3" /> Buka</>
+                                : <><Pause className="w-3 h-3" /> Tutup</>}
+                            </button>
+                            <button onClick={() => handleDeleteBroadcast(b)}
+                              className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/40 text-rose-700 dark:text-rose-300 text-[11px] font-bold flex items-center gap-1.5 transition">
+                              <Trash2 className="w-3 h-3" /> Hapus
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      {!canReply && isMine === false && b.status === 'ACTIVE' && myRepliesCount >= MAX_REPLIES_PER_USER && (
+                        <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2 italic">
+                          Anda sudah mencapai batas {MAX_REPLIES_PER_USER} balasan di broadcast ini.
+                        </p>
                       )}
-                      {canReply && (
-                        <button onClick={() => { setReplyTo(n); setReplyText(''); }}
-                          className="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-300 dark:border-blue-500/40 text-blue-700 dark:text-blue-300 font-bold text-[10px] flex items-center gap-1">
-                          <Reply className="w-3 h-3" /> Balas
-                        </button>
-                      )}
-                      <button onClick={() => handleDeleteOne(n)}
-                        className="px-3 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-700 dark:text-rose-300 font-bold text-[10px] flex items-center gap-1">
-                        <Trash2 className="w-3 h-3" /> Hapus
-                      </button>
                     </div>
                   </div>
                 </div>
+
+                {/* Reply Form */}
+                {replyTarget === b.id && canReply && (
+                  <div className="px-5 pb-5">
+                    <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/40 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                          <Reply className="w-3.5 h-3.5" /> Balas Broadcast
+                        </span>
+                        <span className="text-[10px] text-blue-700 dark:text-blue-300">
+                          {myRepliesCount}/{MAX_REPLIES_PER_USER} balasan
+                        </span>
+                      </div>
+                      <textarea rows={3} value={replyText} onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="Tulis balasan sopan (maks 300 karakter)..."
+                        maxLength={MAX_REPLY_LENGTH}
+                        className="w-full p-2.5 rounded-xl border border-blue-200 dark:border-blue-500/40 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-400/30" />
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          {replyText.length}/{MAX_REPLY_LENGTH}
+                        </span>
+                        {replyText && containsBadWord(replyText).has && (
+                          <span className="text-[10px] font-bold text-rose-600 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Mengandung kata tidak pantas
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => { setReplyTarget(null); setReplyText(''); }}
+                          className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700">
+                          Batal
+                        </button>
+                        <button onClick={() => handleSendReply(b.id)}
+                          disabled={replySending || !replyText.trim() || containsBadWord(replyText).has}
+                          className="px-4 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-bold text-[11px] disabled:opacity-50 flex items-center gap-1.5">
+                          <Send className="w-3 h-3" />
+                          {replySending ? 'Mengirim...' : 'Kirim Balasan'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Replies List */}
+                {isExpanded && (
+                  <div className="px-5 pb-5 border-t border-slate-100 dark:border-slate-700 pt-4">
+                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">
+                      💬 Balasan ({bReplies.length})
+                    </p>
+                    {bReplies.length === 0 ? (
+                      <p className="text-xs text-slate-400 italic text-center py-4">
+                        Belum ada balasan.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {bReplies.map(r => (
+                          <div key={r.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                r.userRole === b.senderRole
+                                  ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40'
+                                  : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-600'
+                              }`}>
+                                {r.userRole}
+                              </span>
+                              {r.userDivision && (
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                  {r.userDivision}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                                {r.userName}
+                              </span>
+                              <span className="text-[10px] text-slate-400 ml-auto flex items-center gap-1">
+                                <Clock className="w-2.5 h-2.5" />
+                                {new Date(r.createdAt).toLocaleString('id-ID', {
+                                  day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-line">
+                              {r.content}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* MODAL BALAS */}
-      {replyTo && (
+      {/* ============================================================ */}
+      {/* MODAL COMPOSE */}
+      {/* ============================================================ */}
+      {isComposeOpen && canBroadcast && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Reply className="w-5 h-5 text-blue-500" /> Balas Notifikasi
-              </h3>
-              <button onClick={() => setReplyTo(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[95vh] flex flex-col overflow-hidden">
 
-            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-              <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Notifikasi:</p>
-              <p className="text-xs font-bold text-slate-900 dark:text-white">{replyTo.title}</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{replyTo.message}</p>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
-              <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                <strong>Penting:</strong> Balasan akan dibaca Guru/Pengurus. Gunakan bahasa sopan.
-                Kata kasar/makian otomatis <strong>ditolak sistem</strong>.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Balasan Anda <span className="text-rose-500">*</span>
-              </label>
-              <textarea rows={4} value={replyText} onChange={(e) => setReplyText(e.target.value)}
-                placeholder="Tulis balasan sopan (maks 300 karakter)..."
-                maxLength={300}
-                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
-              <div className="flex items-center justify-between mt-1">
-                <p className="text-[10px] text-slate-400">
-                  {replyText.length}/300 karakter
-                </p>
-                {replyText && containsBadWord(replyText).has && (
-                  <p className="text-[10px] font-bold text-rose-600 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" /> Mengandung kata tidak pantas
-                  </p>
-                )}
+            <div className="p-5 bg-gradient-to-r from-indigo-700 to-purple-800 text-white shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="p-2.5 rounded-2xl bg-white/20 backdrop-blur-sm">
+                    <Megaphone className="w-6 h-6" />
+                  </span>
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">Broadcast</span>
+                    <h3 className="text-lg font-black mt-0.5">Buat Pesan Siaran</h3>
+                  </div>
+                </div>
+                <button onClick={() => setIsComposeOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-white/20 transition">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-              <button type="button" onClick={() => setReplyTo(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+
+              {/* Judul */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Judul Broadcast <span className="text-rose-500">*</span>
+                </label>
+                <input type="text" required value={composeTitle}
+                  onChange={(e) => setComposeTitle(e.target.value)}
+                  placeholder="Contoh: Rapat Pleno Tambahan Hari Sabtu"
+                  maxLength={100}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                <p className="text-[10px] text-slate-400 mt-0.5">{composeTitle.length}/100</p>
+              </div>
+
+              {/* Priority */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Prioritas
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['NORMAL', 'PENTING', 'URGENT'] as BroadcastPriority[]).map(p => {
+                    const info = PRIORITY_CONFIG[p];
+                    const Icon = info.icon;
+                    const isSel = composePriority === p;
+                    return (
+                      <button key={p} type="button" onClick={() => setComposePriority(p)}
+                        className={`p-2.5 rounded-xl border-2 text-xs font-bold transition flex items-center justify-center gap-1.5 ${
+                          isSel ? `${info.bg} ${info.color} ${info.border}` : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}>
+                        <Icon className="w-3.5 h-3.5" />
+                        {info.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Target Scope */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Tujuan Broadcast <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button"
+                    onClick={() => setComposeTargetScope('SEMUA')}
+                    className={`p-3 rounded-xl border-2 text-left transition flex items-center gap-2 ${
+                      composeTargetScope === 'SEMUA'
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10'
+                        : 'border-slate-200 dark:border-slate-700'
+                    }`}>
+                    <div className={`p-0.5 rounded-md ${composeTargetScope === 'SEMUA' ? 'bg-indigo-500 text-white' : 'border-2 border-slate-300'}`}>
+                      {composeTargetScope === 'SEMUA' ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5" /> Semua Siswa
+                      </p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Dikirim ke seluruh siswa kelas
+                      </p>
+                    </div>
+                  </button>
+
+                  <button type="button"
+                    onClick={() => setComposeTargetScope('CUSTOM')}
+                    className={`p-3 rounded-xl border-2 text-left transition flex items-center gap-2 ${
+                      composeTargetScope === 'CUSTOM'
+                        ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10'
+                        : 'border-slate-200 dark:border-slate-700'
+                    }`}>
+                    <div className={`p-0.5 rounded-md ${composeTargetScope === 'CUSTOM' ? 'bg-indigo-500 text-white' : 'border-2 border-slate-300'}`}>
+                      {composeTargetScope === 'CUSTOM' ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
+                    </div>
+                    <div>
+                      <p className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
+                        <Target className="w-3.5 h-3.5" /> Peran / Divisi Tertentu
+                      </p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Pilih beberapa peran atau divisi
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Custom Target — Peran */}
+              {composeTargetScope === 'CUSTOM' && (
+                <>
+                  <div>
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                      <Crown className="w-3.5 h-3.5 text-amber-500" /> Peran Penerima
+                      {composeTargetRoles.length > 0 && (
+                        <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md">
+                          {composeTargetRoles.length} dipilih
+                        </span>
+                      )}
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {ROLE_LIST.map(r => {
+                        const sel = composeTargetRoles.includes(r);
+                        return (
+                          <button key={r} type="button"
+                            onClick={() => setComposeTargetRoles(prev =>
+                              prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]
+                            )}
+                            className={`p-2 rounded-lg border-2 text-[10px] font-bold transition text-left flex items-center gap-1.5 ${
+                              sel ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}>
+                            {sel ? <CheckSquare className="w-3 h-3 shrink-0" /> : <Square className="w-3 h-3 shrink-0" />}
+                            <span className="truncate">{r}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                      <Building2 className="w-3.5 h-3.5 text-purple-500" /> Divisi Penerima
+                      {composeTargetDivisions.length > 0 && (
+                        <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded-md">
+                          {composeTargetDivisions.length} dipilih
+                        </span>
+                      )}
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {DIVISION_LIST.map(d => {
+                        const sel = composeTargetDivisions.includes(d);
+                        return (
+                          <button key={d} type="button"
+                            onClick={() => setComposeTargetDivisions(prev =>
+                              prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]
+                            )}
+                            className={`p-2 rounded-lg border-2 text-[10px] font-bold transition text-left flex items-center gap-1.5 ${
+                              sel ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300'
+                                : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                            }`}>
+                            {sel ? <CheckSquare className="w-3 h-3 shrink-0" /> : <Square className="w-3 h-3 shrink-0" />}
+                            <span className="truncate">{d}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Isi Pesan */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Isi Pesan <span className="text-rose-500">*</span>
+                </label>
+                <textarea rows={5} required value={composeContent}
+                  onChange={(e) => setComposeContent(e.target.value)}
+                  placeholder="Tuliskan isi pesan broadcast secara jelas dan ringkas..."
+                  maxLength={500}
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white leading-relaxed" />
+                <div className="flex items-center justify-between mt-1">
+                  <p className="text-[10px] text-slate-400">{composeContent.length}/500</p>
+                  {composeContent && containsBadWord(composeContent).has && (
+                    <p className="text-[10px] font-bold text-rose-600 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> Mengandung kata tidak pantas
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview penerima */}
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/40 flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <p className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
+                  Broadcast akan dikirim ke <strong>{previewRecipientCount} siswa</strong>
+                  {composeTargetScope === 'CUSTOM' && ' (hasil filter peran/divisi)'}
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/40 flex items-start gap-2">
+                <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-blue-900 dark:text-blue-200 leading-relaxed">
+                  <strong>Catatan:</strong> Penerima dapat membalas maksimal 3× per broadcast.
+                  Balasan Anda sebagai pengirim akan terlihat oleh semua penerima.
+                </p>
+              </div>
+
+            </div>
+
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 shrink-0">
+              <button type="button" onClick={() => setIsComposeOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
                 Batal
               </button>
-              <button type="button" onClick={handleSendReply}
-                disabled={replySending || !replyText.trim() || containsBadWord(replyText).has}
-                className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+              <button type="button" onClick={handleSendBroadcast}
+                disabled={submitting || !composeTitle.trim() || !composeContent.trim() ||
+                  (composeTargetScope === 'CUSTOM' && composeTargetRoles.length === 0 && composeTargetDivisions.length === 0) ||
+                  containsBadWord(composeContent).has || containsBadWord(composeTitle).has}
+                className="px-5 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 <Send className="w-3.5 h-3.5" />
-                {replySending ? 'Mengirim...' : 'Kirim Balasan'}
+                {submitting ? 'Mengirim...' : `Kirim ke ${previewRecipientCount} Siswa`}
               </button>
             </div>
           </div>
@@ -476,6 +1029,3 @@ export const BroadcastModule: React.FC = () => {
     </div>
   );
 };
-
-// Alias untuk kompatibilitas jika masih ada import lama
-export const NotificationPage = BroadcastModule;
