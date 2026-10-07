@@ -10,11 +10,11 @@ import { useToast } from '../common/Toast';
 import { UserRole, DivisionType, UserProfile } from '../../core/types';
 import {
   collection, query, where, onSnapshot, doc, setDoc, deleteDoc,
-  getDocs, writeBatch, orderBy, limit,
+  getDocs, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import {
-  recordAuditLog, fetchUsersByClass, notifyTeachers,
+  recordAuditLog, fetchUsersByClass,
 } from '../../services/firestoreService';
 
 // =====================================================
@@ -162,7 +162,6 @@ export const BroadcastModule: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [isComposeOpen, setIsComposeOpen] = useState(false);
 
-  // Form compose
   const [composeTitle, setComposeTitle] = useState('');
   const [composeContent, setComposeContent] = useState('');
   const [composePriority, setComposePriority] = useState<BroadcastPriority>('NORMAL');
@@ -171,16 +170,12 @@ export const BroadcastModule: React.FC = () => {
   const [composeTargetDivisions, setComposeTargetDivisions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  // Reply form
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
 
   const canBroadcast = !!user && CAN_BROADCAST_ROLES.includes(user.role);
 
-  // =====================================================
-  // SUBSCRIBE
-  // =====================================================
   useEffect(() => {
     if (!activeClass || !user) return;
 
@@ -190,7 +185,6 @@ export const BroadcastModule: React.FC = () => {
     );
     const unsub = onSnapshot(q, snap => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as BroadcastMessage));
-      // Sort: terbaru duluan
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       setBroadcasts(list);
       setLoading(false);
@@ -201,7 +195,6 @@ export const BroadcastModule: React.FC = () => {
     return () => unsub();
   }, [activeClass, user]);
 
-  // Subscribe replies untuk broadcast yang di-expand
   useEffect(() => {
     if (!expandedId) return;
     const q = query(
@@ -215,16 +208,7 @@ export const BroadcastModule: React.FC = () => {
     return () => unsub();
   }, [expandedId]);
 
-  // =====================================================
-  // FILTER BROADCAST
-  // =====================================================
   const visibleBroadcasts = broadcasts.filter(b => {
-    // User bisa lihat kalau:
-    // 1. Dia pengirim
-    // 2. Target SEMUA
-    // 3. targetRoles includes user.role
-    // 4. targetDivisions includes user.divisionName
-    // 5. recipientIds includes user.uid
     const isSender = b.senderId === user?.uid;
     const isAll = b.targetScope === 'SEMUA';
     const isTargetRole = b.targetRoles?.includes(user?.role || '');
@@ -256,14 +240,11 @@ export const BroadcastModule: React.FC = () => {
      b.recipientIds?.includes(user?.uid || ''))
   ).length;
 
-  // =====================================================
-  // HITUNG PENERIMA DARI TARGET
-  // =====================================================
   const computeRecipients = (): string[] => {
     const recipientIds = new Set<string>();
     users.forEach(u => {
       if (u.role === 'Guru Pengampu' || u.role === 'Admin' || u.role === 'Super Admin') return;
-      if (u.uid === user?.uid) return; // jangan kirim ke diri sendiri
+      if (u.uid === user?.uid) return;
 
       if (composeTargetScope === 'SEMUA') {
         recipientIds.add(u.uid);
@@ -277,9 +258,6 @@ export const BroadcastModule: React.FC = () => {
 
   const previewRecipientCount = computeRecipients().length;
 
-  // =====================================================
-  // SEND BROADCAST
-  // =====================================================
   const handleSendBroadcast = async () => {
     if (!user || !activeClass) return;
 
@@ -327,7 +305,6 @@ export const BroadcastModule: React.FC = () => {
         createdAt: new Date().toISOString(),
       });
 
-      // Kirim notifikasi ke penerima
       if (recipientIds.length > 0) {
         const batch = writeBatch(db);
         const nowStr = new Date().toISOString();
@@ -371,9 +348,6 @@ export const BroadcastModule: React.FC = () => {
     }
   };
 
-  // =====================================================
-  // SEND REPLY
-  // =====================================================
   const handleSendReply = async (broadcastId: string) => {
     if (!user || !activeClass) return;
     const text = replyText.trim();
@@ -389,7 +363,6 @@ export const BroadcastModule: React.FC = () => {
       return;
     }
 
-    // Cek limit
     const myReplies = (replies[broadcastId] || []).filter(r => r.userId === user.uid);
     if (myReplies.length >= MAX_REPLIES_PER_USER) {
       showToast(`Maksimal ${MAX_REPLIES_PER_USER} balasan per broadcast.`, 'warning');
@@ -418,7 +391,6 @@ export const BroadcastModule: React.FC = () => {
         createdAt: new Date().toISOString(),
       });
 
-      // Notifikasi ke pengirim broadcast (kalau bukan diri sendiri)
       if (broadcast.senderId !== user.uid) {
         const notifRef = doc(collection(db, 'notifications'));
         await setDoc(notifRef, {
@@ -444,9 +416,6 @@ export const BroadcastModule: React.FC = () => {
     }
   };
 
-  // =====================================================
-  // DELETE / CLOSE
-  // =====================================================
   const handleDeleteBroadcast = async (b: BroadcastMessage) => {
     if (!user) return;
     const canDel = b.senderId === user.uid ||
@@ -456,13 +425,11 @@ export const BroadcastModule: React.FC = () => {
     if (!confirm(`Hapus broadcast "${b.title}"?\n\nSemua balasan juga akan terhapus.`)) return;
 
     try {
-      // Hapus replies dulu
       const repliesSnap = await getDocs(collection(db, 'broadcasts', b.id, 'replies'));
       const batch = writeBatch(db);
       repliesSnap.docs.forEach(d => batch.delete(d.ref));
       await batch.commit();
 
-      // Hapus broadcast
       await deleteDoc(doc(db, 'broadcasts', b.id));
       showToast('Broadcast dihapus.', 'info');
     } catch (err: any) {
@@ -495,12 +462,8 @@ export const BroadcastModule: React.FC = () => {
     }
   };
 
-  // =====================================================
-  // RENDER
-  // =====================================================
   return (
     <div className="space-y-6">
-      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl border border-indigo-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -541,7 +504,6 @@ export const BroadcastModule: React.FC = () => {
         )}
       </div>
 
-      {/* FILTER + SEARCH */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
@@ -568,7 +530,6 @@ export const BroadcastModule: React.FC = () => {
         </div>
       </div>
 
-      {/* LIST */}
       {loading ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
@@ -612,7 +573,6 @@ export const BroadcastModule: React.FC = () => {
                     : b.priority === 'PENTING' ? 'border-amber-300 dark:border-amber-500/40'
                     : 'border-slate-200 dark:border-slate-700'
                 }`}>
-                {/* Header Broadcast */}
                 <div className="p-5">
                   <div className="flex items-start gap-3">
                     <span className={`p-2.5 rounded-xl border shrink-0 ${prio.bg} ${prio.color} ${prio.border}`}>
@@ -657,7 +617,6 @@ export const BroadcastModule: React.FC = () => {
                         {b.content}
                       </p>
 
-                      {/* Action Buttons */}
                       <div className="flex items-center gap-2 mt-3 flex-wrap">
                         <button onClick={() => setExpandedId(isExpanded ? null : b.id)}
                           className="px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-bold flex items-center gap-1.5 transition">
@@ -693,7 +652,7 @@ export const BroadcastModule: React.FC = () => {
                         )}
                       </div>
 
-                      {!canReply && isMine === false && b.status === 'ACTIVE' && myRepliesCount >= MAX_REPLIES_PER_USER && (
+                      {!canReply && !isMine && b.status === 'ACTIVE' && myRepliesCount >= MAX_REPLIES_PER_USER && (
                         <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-2 italic">
                           Anda sudah mencapai batas {MAX_REPLIES_PER_USER} balasan di broadcast ini.
                         </p>
@@ -702,7 +661,6 @@ export const BroadcastModule: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Reply Form */}
                 {replyTarget === b.id && canReply && (
                   <div className="px-5 pb-5">
                     <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/40 space-y-2">
@@ -744,7 +702,6 @@ export const BroadcastModule: React.FC = () => {
                   </div>
                 )}
 
-                {/* Replies List */}
                 {isExpanded && (
                   <div className="px-5 pb-5 border-t border-slate-100 dark:border-slate-700 pt-4">
                     <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">
@@ -796,9 +753,6 @@ export const BroadcastModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
-      {/* MODAL COMPOSE */}
-      {/* ============================================================ */}
       {isComposeOpen && canBroadcast && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[95vh] flex flex-col overflow-hidden">
@@ -823,7 +777,6 @@ export const BroadcastModule: React.FC = () => {
 
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
 
-              {/* Judul */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Judul Broadcast <span className="text-rose-500">*</span>
@@ -836,7 +789,6 @@ export const BroadcastModule: React.FC = () => {
                 <p className="text-[10px] text-slate-400 mt-0.5">{composeTitle.length}/100</p>
               </div>
 
-              {/* Priority */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Prioritas
@@ -859,7 +811,6 @@ export const BroadcastModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* Target Scope */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Tujuan Broadcast <span className="text-rose-500">*</span>
@@ -907,7 +858,6 @@ export const BroadcastModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* Custom Target — Peran */}
               {composeTargetScope === 'CUSTOM' && (
                 <>
                   <div>
@@ -970,7 +920,6 @@ export const BroadcastModule: React.FC = () => {
                 </>
               )}
 
-              {/* Isi Pesan */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Isi Pesan <span className="text-rose-500">*</span>
@@ -990,7 +939,6 @@ export const BroadcastModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* Preview penerima */}
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/40 flex items-center gap-2">
                 <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <p className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
