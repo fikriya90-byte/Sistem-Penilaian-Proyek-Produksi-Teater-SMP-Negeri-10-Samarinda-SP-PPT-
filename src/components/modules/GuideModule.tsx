@@ -6,6 +6,7 @@ import {
   Palette, Scissors, Package, ShieldCheck, Lock, KeyRound, Eye,
   FileText, Briefcase, Layers, TrendingUp, Bell, Info, AlertTriangle,
   ArrowRight, UserCheck, Target, Play,
+  CheckSquare,
 } from 'lucide-react';
 import { APP_CONFIG } from '../../core/constants';
 import { useAuth } from '../../core/authContext';
