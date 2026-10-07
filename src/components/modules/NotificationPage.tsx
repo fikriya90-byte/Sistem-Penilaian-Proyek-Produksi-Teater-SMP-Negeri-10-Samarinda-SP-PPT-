@@ -53,6 +53,9 @@ const sanitizeText = (text: string): string => {
   return result;
 };
 
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 export const NotificationPage: React.FC = () => {
   const { user, classes } = useAuth();
   const { showToast } = useToast();
@@ -230,6 +233,7 @@ export const NotificationPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-900 via-slate-900 to-indigo-950 text-white shadow-xl border border-blue-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -264,6 +268,7 @@ export const NotificationPage: React.FC = () => {
         </div>
       </div>
 
+      {/* FILTER KELAS */}
       {availableClasses.length > 0 && (
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -302,6 +307,7 @@ export const NotificationPage: React.FC = () => {
         </div>
       )}
 
+      {/* SEARCH + FILTER */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
@@ -321,15 +327,35 @@ export const NotificationPage: React.FC = () => {
         </div>
       </div>
 
+      {/* COUNTER */}
+      {(classFilter !== 'ALL' || filter !== 'ALL' || searchQuery) && (
+        <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 flex items-center justify-between text-xs">
+          <span className="font-semibold text-purple-800 dark:text-purple-200 flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5" />
+            Menampilkan {filtered.length} dari {notifications.length} notifikasi
+            {classFilter !== 'ALL' && (
+              <span className="bg-purple-200 dark:bg-purple-500/30 text-purple-900 dark:text-purple-200 px-2 py-0.5 rounded-md">
+                Kelas: {availableClasses.find(c => c.id === classFilter)?.name}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {/* LIST */}
       {loading ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
-          <p className="text-xs text-slate-400">Memuat...</p>
+          <p className="text-xs text-slate-400">Memuat notifikasi...</p>
         </div>
       ) : filtered.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <Bell className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Tidak Ada Notifikasi</h3>
+          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
+            {filter === 'UNREAD' ? 'Tidak Ada Notifikasi Belum Dibaca' :
+             searchQuery ? 'Tidak Ada Hasil Pencarian' :
+             'Belum Ada Notifikasi'}
+          </h3>
         </div>
       ) : (
         <div className="space-y-2">
@@ -397,6 +423,7 @@ export const NotificationPage: React.FC = () => {
         </div>
       )}
 
+      {/* MODAL BALAS */}
       {replyTo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto space-y-4">
@@ -409,11 +436,13 @@ export const NotificationPage: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Notifikasi:</p>
               <p className="text-xs font-bold text-slate-900 dark:text-white">{replyTo.title}</p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{replyTo.message}</p>
             </div>
+
             <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
               <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
@@ -421,6 +450,7 @@ export const NotificationPage: React.FC = () => {
                 Kata kasar/makian otomatis <strong>ditolak sistem</strong>.
               </p>
             </div>
+
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Balasan Anda <span className="text-rose-500">*</span>
@@ -430,7 +460,9 @@ export const NotificationPage: React.FC = () => {
                 maxLength={300}
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
               <div className="flex items-center justify-between mt-1">
-                <p className="text-[10px] text-slate-400">{replyText.length}/300 karakter</p>
+                <p className="text-[10px] text-slate-400">
+                  {replyText.length}/300 karakter
+                </p>
                 {replyText && containsBadWord(replyText).has && (
                   <p className="text-[10px] font-bold text-rose-600 flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> Mengandung kata tidak pantas
@@ -438,6 +470,7 @@ export const NotificationPage: React.FC = () => {
                 )}
               </div>
             </div>
+
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
               <button type="button" onClick={() => setReplyTo(null)}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
