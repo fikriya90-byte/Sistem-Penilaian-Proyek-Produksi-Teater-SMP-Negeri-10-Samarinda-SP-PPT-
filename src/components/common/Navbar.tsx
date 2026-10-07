@@ -40,6 +40,17 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
     return () => unsub();
   }, [user]);
 
+  // Tutup notif menu saat resize ke desktop kalau terbuka di mobile
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 640) {
+        // Biarkan terbuka di desktop
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const handleReadNotif = async (n: SystemNotification) => {
@@ -202,7 +213,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
 
             {/* RIGHT */}
             <div className="flex items-center gap-1 sm:gap-2">
-              {/* Theme */}
               <button
                 onClick={toggleTheme}
                 className="flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/30 transition"
@@ -212,7 +222,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
                 <span className="hidden sm:inline text-[11px] font-bold">{themeLabel}</span>
               </button>
 
-              {/* Notification */}
+              {/* NOTIFICATION */}
               <div className="relative">
                 <button
                   onClick={() => setShowNotifMenu(!showNotifMenu)}
@@ -228,119 +238,144 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
                 </button>
 
                 {showNotifMenu && (
-                  <div className="absolute right-0 mt-2 w-[22rem] sm:w-[26rem] bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 z-50 max-h-[85vh] flex flex-col">
-                    <div className="p-3 border-b border-slate-100 dark:border-slate-700">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
-                          <Bell className="w-4 h-4" /> Notifikasi
-                          {unreadCount > 0 && (
-                            <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded-full">
-                              {unreadCount} baru
-                            </span>
-                          )}
-                        </span>
-                        <button
-                          onClick={() => onNavigate('notifikasi')}
-                          className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
-                        >
-                          Lihat Semua
-                        </button>
-                      </div>
+                  <>
+                    {/* Overlay untuk close saat klik di luar — khusus mobile */}
+                    <div
+                      className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 sm:hidden"
+                      onClick={() => setShowNotifMenu(false)}
+                    />
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={handleMarkAllRead}
-                          disabled={markingAll || unreadCount === 0}
-                          className="flex-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <CheckCheck className="w-3.5 h-3.5" />
-                          Tandai Semua Dibaca
-                        </button>
-                      </div>
-
-                      <div className="relative mt-2">
-                        <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-                        <input
-                          type="text"
-                          placeholder="Cari notifikasi..."
-                          value={notifSearch}
-                          onChange={(e) => setNotifSearch(e.target.value)}
-                          className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-[11px] font-semibold text-slate-800 dark:text-white"
-                        />
-                      </div>
-
-                      <div className="flex items-center gap-1 mt-2 overflow-x-auto scrollbar-none">
-                        {([
-                          { val: 'ALL', label: 'Semua' },
-                          { val: 'UNREAD', label: 'Belum' },
-                          { val: 'TUGAS', label: 'Tugas' },
-                          { val: 'REMINDER', label: 'Reminder' },
-                          { val: 'INFO', label: 'Info' },
-                          { val: 'URGENT', label: 'Urgent' },
-                        ] as { val: NotifFilter; label: string }[]).map(f => (
+                    {/* Dropdown notifikasi — responsif untuk mobile & desktop */}
+                    <div className={`
+                      fixed sm:absolute
+                      z-50
+                      /* Mobile: full-screen panel dari kanan */
+                      sm:right-0 sm:top-auto sm:mt-2 sm:max-w-[26rem]
+                      right-2 left-2 top-20
+                      sm:left-auto
+                      /* Desktop: normal dropdown */
+                      sm:w-[26rem]
+                      /* Mobile: panel besar */
+                      w-auto
+                      bg-white dark:bg-slate-800 sm:rounded-2xl rounded-2xl
+                      shadow-2xl border border-slate-200 dark:border-slate-700
+                      max-h-[calc(100vh-6rem)] sm:max-h-[85vh]
+                      flex flex-col
+                      overflow-hidden
+                    `}>
+                      <div className="p-3 border-b border-slate-100 dark:border-slate-700">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                            <Bell className="w-4 h-4" /> Notifikasi
+                            {unreadCount > 0 && (
+                              <span className="text-[10px] font-bold bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 px-1.5 py-0.5 rounded-full">
+                                {unreadCount} baru
+                              </span>
+                            )}
+                          </span>
                           <button
-                            key={f.val}
-                            onClick={() => setNotifFilter(f.val)}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap transition ${
-                              notifFilter === f.val
-                                ? 'bg-slate-900 dark:bg-slate-700 text-white'
-                                : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300'
-                            }`}
+                            onClick={() => { onNavigate('notifikasi'); setShowNotifMenu(false); }}
+                            className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
                           >
-                            {f.label}
+                            Lihat Semua
                           </button>
-                        ))}
-                      </div>
-                    </div>
+                        </div>
 
-                    <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
-                      {filteredNotifications.length === 0 ? (
-                        <p className="text-center text-xs text-slate-400 py-8">
-                          {notifFilter === 'UNREAD' ? 'Tidak ada notifikasi belum dibaca.' : 'Tidak ada notifikasi.'}
-                        </p>
-                      ) : (
-                        filteredNotifications.slice(0, 20).map(n => (
-                          <div
-                            key={n.id}
-                            onClick={() => handleReadNotif(n)}
-                            className={`p-3 cursor-pointer transition ${
-                              n.read ? 'hover:bg-slate-50 dark:hover:bg-slate-700/40' : 'bg-blue-50/40 dark:bg-blue-500/10 hover:bg-blue-50 dark:hover:bg-blue-500/20'
-                            }`}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleMarkAllRead}
+                            disabled={markingAll || unreadCount === 0}
+                            className="flex-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
-                            <div className="flex items-center justify-between text-[10px] mb-1">
-                              <span className={`font-bold px-2 py-0.5 rounded-md ${getCategoryColor(n.category)}`}>
-                                {n.category}
-                              </span>
-                              <span className="text-slate-400">
-                                {new Date(n.createdAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                              </span>
+                            <CheckCheck className="w-3.5 h-3.5" />
+                            Tandai Semua Dibaca
+                          </button>
+                        </div>
+
+                        <div className="relative mt-2">
+                          <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Cari notifikasi..."
+                            value={notifSearch}
+                            onChange={(e) => setNotifSearch(e.target.value)}
+                            className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-[11px] font-semibold text-slate-800 dark:text-white"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-1 mt-2 overflow-x-auto scrollbar-none">
+                          {([
+                            { val: 'ALL', label: 'Semua' },
+                            { val: 'UNREAD', label: 'Belum' },
+                            { val: 'TUGAS', label: 'Tugas' },
+                            { val: 'REMINDER', label: 'Reminder' },
+                            { val: 'INFO', label: 'Info' },
+                            { val: 'URGENT', label: 'Urgent' },
+                          ] as { val: NotifFilter; label: string }[]).map(f => (
+                            <button
+                              key={f.val}
+                              onClick={() => setNotifFilter(f.val)}
+                              className={`px-2 py-1 rounded-lg text-[10px] font-bold whitespace-nowrap transition ${
+                                notifFilter === f.val
+                                  ? 'bg-slate-900 dark:bg-slate-700 text-white'
+                                  : 'bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700">
+                        {filteredNotifications.length === 0 ? (
+                          <p className="text-center text-xs text-slate-400 py-8">
+                            {notifFilter === 'UNREAD' ? 'Tidak ada notifikasi belum dibaca.' : 'Tidak ada notifikasi.'}
+                          </p>
+                        ) : (
+                          filteredNotifications.slice(0, 30).map(n => (
+                            <div
+                              key={n.id}
+                              onClick={() => handleReadNotif(n)}
+                              className={`p-3 cursor-pointer transition ${
+                                n.read ? 'hover:bg-slate-50 dark:hover:bg-slate-700/40' : 'bg-blue-50/40 dark:bg-blue-500/10 hover:bg-blue-50 dark:hover:bg-blue-500/20'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-[10px] mb-1">
+                                <span className={`font-bold px-2 py-0.5 rounded-md ${getCategoryColor(n.category)}`}>
+                                  {n.category}
+                                </span>
+                                <span className="text-slate-400">
+                                  {new Date(n.createdAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className={`text-xs font-medium line-clamp-1 ${n.read ? 'text-slate-700 dark:text-slate-300' : 'text-slate-900 dark:text-white font-bold'}`}>
+                                {n.title}
+                              </p>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
+                                {n.message}
+                              </p>
                             </div>
-                            <p className={`text-xs font-medium line-clamp-1 ${n.read ? 'text-slate-700 dark:text-slate-300' : 'text-slate-900 dark:text-white font-bold'}`}>
-                              {n.title}
-                            </p>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mt-0.5">
-                              {n.message}
-                            </p>
-                          </div>
-                        ))
+                          ))
+                        )}
+                      </div>
+
+                      {filteredNotifications.length > 30 && (
+                        <div className="p-2 border-t border-slate-100 dark:border-slate-700 text-center">
+                          <button
+                            onClick={() => { onNavigate('notifikasi'); setShowNotifMenu(false); }}
+                            className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            Lihat semua {filteredNotifications.length} notifikasi
+                          </button>
+                        </div>
                       )}
                     </div>
-
-                    {filteredNotifications.length > 20 && (
-                      <div className="p-2 border-t border-slate-100 dark:border-slate-700 text-center">
-                        <button
-                          onClick={() => onNavigate('notifikasi')}
-                          className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                        >
-                          Lihat semua {filteredNotifications.length} notifikasi
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  </>
                 )}
               </div>
 
-              {/* Logout — sekarang dengan konfirmasi */}
+              {/* LOGOUT */}
               <button
                 onClick={() => setShowLogoutConfirm(true)}
                 className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition"
@@ -353,7 +388,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
         </div>
       </header>
 
-      {/* Konfirmasi Logout */}
       {showLogoutConfirm && (
         <LogoutConfirmModal
           onConfirm={handleConfirmLogout}
