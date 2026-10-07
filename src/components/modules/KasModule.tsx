@@ -11,15 +11,12 @@ import { useToast } from '../common/Toast';
 import { UserProfile } from '../../core/types';
 import {
   doc, collection, setDoc, updateDoc, deleteDoc, getDocs, query, where,
-  onSnapshot, writeBatch, increment,
+  onSnapshot, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
-// =====================================================
-// TIPE DATA
-// =====================================================
 type PeriodType = 'WEEKLY' | 'BIWEEKLY' | 'TEN_DAYS' | 'MANUAL';
 type Category = 'DIVISI' | 'PERAN' | 'UMUM';
 
@@ -89,6 +86,13 @@ export const KasModule: React.FC = () => {
   const [now, setNow] = useState(new Date());
   const [submitting, setSubmitting] = useState(false);
 
+  // Edit period modal
+  const [editingPeriod, setEditingPeriod] = useState<KasPeriod | null>(null);
+  const [editPeriodLabel, setEditPeriodLabel] = useState('');
+  const [editPeriodStart, setEditPeriodStart] = useState('');
+  const [editPeriodEnd, setEditPeriodEnd] = useState('');
+  const [editPeriodDeadline, setEditPeriodDeadline] = useState('');
+
   // Cash entry modal
   const [isCashModalOpen, setIsCashModalOpen] = useState(false);
   const [editingCash, setEditingCash] = useState<CashEntry | null>(null);
@@ -102,29 +106,25 @@ export const KasModule: React.FC = () => {
   const [cashNotes, setCashNotes] = useState('');
   const [cashDate, setCashDate] = useState(new Date().toISOString().slice(0, 10));
 
-  // Form aktivasi
   const [actTitle, setActTitle] = useState('Kas Produksi Teater');
   const [actAmount, setActAmount] = useState<number>(0);
   const [actPeriodType, setActPeriodType] = useState<PeriodType>('WEEKLY');
   const [actDeadline, setActDeadline] = useState('');
   const [actDesc, setActDesc] = useState('');
 
-  // Form manual period
   const [newPeriodLabel, setNewPeriodLabel] = useState('');
   const [newPeriodStart, setNewPeriodStart] = useState('');
   const [newPeriodEnd, setNewPeriodEnd] = useState('');
   const [newPeriodDeadline, setNewPeriodDeadline] = useState('');
 
-  // Permission: hanya Bendahara (atau Guru/Admin) yang bisa edit
   const canManage = isBendahara || isGuruPengampu || isAdminRole;
-  const isViewOnly = !canManage; // Guru melihat saja, siswa melihat kas sendiri
+  const isViewOnly = !canManage;
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
 
-  // Subscribe kas setting
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'kasSettings'), where('classId', '==', activeClass.id));
@@ -144,7 +144,6 @@ export const KasModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // Subscribe periods
   useEffect(() => {
     if (!kasSetting) { setPeriods([]); return; }
     const q = query(collection(db, 'kasPeriods'), where('kasId', '==', kasSetting.id));
@@ -157,7 +156,6 @@ export const KasModule: React.FC = () => {
     return () => unsub();
   }, [kasSetting]);
 
-  // Subscribe payments
   useEffect(() => {
     if (!kasSetting) { setPayments([]); return; }
     const q = query(collection(db, 'kasPayments'), where('kasId', '==', kasSetting.id));
@@ -167,7 +165,6 @@ export const KasModule: React.FC = () => {
     return () => unsub();
   }, [kasSetting]);
 
-  // Subscribe cash entries
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'cashEntries'), where('classId', '==', activeClass.id));
@@ -262,6 +259,86 @@ export const KasModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
+  // ==========================================
+  // EDIT PERIODE (FITUR BARU)
+  // ==========================================
+  const openEditPeriod = (p: KasPeriod) => {
+    setEditingPeriod(p);
+    setEditPeriodLabel(p.label);
+    setEditPeriodStart(p.startDate ? p.startDate.slice(0, 10) : '');
+    setEditPeriodEnd(p.endDate ? p.endDate.slice(0, 10) : '');
+    setEditPeriodDeadline(p.deadline ? p.deadline.slice(0, 16) : '');
+  };
+
+  const handleSavePeriodEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPeriod || !user) return;
+    if (!editPeriodLabel.trim()) {
+      showToast('Label periode wajib diisi.', 'warning'); return;
+    }
+    setSubmitting(true);
+    try {
+      await updateDoc(doc(db, 'kasPeriods', editingPeriod.id), {
+        label: editPeriodLabel.trim(),
+        startDate: editPeriodStart ? new Date(editPeriodStart).toISOString() : editingPeriod.startDate,
+        endDate: editPeriodEnd ? new Date(editPeriodEnd).toISOString() : editingPeriod.endDate,
+        deadline: editPeriodDeadline ? new Date(editPeriodDeadline).toISOString() : editingPeriod.deadline,
+        updatedAt: new Date().toISOString(),
+      });
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'KasPeriod', targetId: editingPeriod.id,
+        details: `Edit periode ${editingPeriod.periodNumber}: ${editPeriodLabel}`,
+      });
+      showToast('Periode berhasil diperbarui!', 'success');
+      setEditingPeriod(null);
+    } catch (err: any) {
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    } finally { setSubmitting(false); }
+  };
+
+  const handleDeletePeriod = async (p: KasPeriod) => {
+    if (!user) return;
+    // Cek apakah ada pembayaran di periode ini
+    const paymentsInPeriod = payments.filter(x => x.periodId === p.id);
+    const paidCount = paymentsInPeriod.filter(x => x.paid).length;
+
+    if (paidCount > 0) {
+      showToast(
+        `Periode ini memiliki ${paidCount} pembayaran. Hapus/batalkan pembayaran dulu jika ingin hapus periode.`,
+        'warning'
+      );
+      return;
+    }
+
+    if (!confirm(
+      `Hapus periode "${p.label}" (Periode ${p.periodNumber})?\n\n` +
+      `Tindakan ini tidak bisa dibatalkan. Data centang kas di periode ini akan hilang.`
+    )) return;
+
+    try {
+      // Hapus semua payments di periode ini
+      const batch = writeBatch(db);
+      paymentsInPeriod.forEach(pay => batch.delete(doc(db, 'kasPayments', pay.id)));
+      // Hapus periode
+      batch.delete(doc(db, 'kasPeriods', p.id));
+      await batch.commit();
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'DELETE', targetType: 'KasPeriod', targetId: p.id,
+        details: `Hapus periode ${p.periodNumber}: ${p.label}`,
+      });
+
+      showToast('Periode dihapus.', 'info');
+      if (activePeriodId === p.id) {
+        setActivePeriodId(periods.length > 0 ? periods[0].id : null);
+      }
+    } catch (err: any) {
+      showToast('Gagal hapus periode: ' + (err?.message || 'Unknown'), 'error');
+    }
+  };
+
   const handleUpdateSetting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!kasSetting || !user) return;
@@ -306,9 +383,6 @@ export const KasModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // ==========================================
-  // CENTANG PEMBAYARAN
-  // ==========================================
   const handleTogglePayment = async (student: UserProfile) => {
     if (!canManage || !user || !kasSetting || !activePeriodId) return;
     const key = `${kasSetting.id}_${activePeriodId}_${student.uid}`;
@@ -363,9 +437,6 @@ export const KasModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + (err?.message || 'Unknown'), 'error'); }
   };
 
-  // ==========================================
-  // BUKU KAS (PEMASUKAN/PENGELUARAN)
-  // ==========================================
   const openCashModal = (type: 'INCOME' | 'EXPENSE', editEntry?: CashEntry) => {
     if (editEntry) {
       setEditingCash(editEntry);
@@ -435,9 +506,6 @@ export const KasModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // ==========================================
-  // HITUNGAN
-  // ==========================================
   const students = users.filter(u =>
     u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   );
@@ -464,9 +532,6 @@ export const KasModule: React.FC = () => {
   const filteredCashEntries = cashEntries
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  // ==========================================
-  // EXPORT
-  // ==========================================
   const handleExportBukuKas = () => {
     const sheet1 = {
       name: 'Pemasukan',
@@ -521,12 +586,8 @@ export const KasModule: React.FC = () => {
     showToast('Buku kas diexport ke Excel!', 'success');
   };
 
-  // ==========================================
-  // RENDER
-  // ==========================================
   return (
     <div className="space-y-6">
-      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-900 via-slate-900 to-slate-800 text-white shadow-xl border border-emerald-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -569,7 +630,6 @@ export const KasModule: React.FC = () => {
         </div>
       </div>
 
-      {/* SALDO OVERVIEW — visible untuk semua */}
       {kasSetting && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div className="p-4 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-white shadow-md">
@@ -597,7 +657,6 @@ export const KasModule: React.FC = () => {
         </div>
       )}
 
-      {/* TAB */}
       {kasSetting && (
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => setActiveTab('periode')}
@@ -619,9 +678,6 @@ export const KasModule: React.FC = () => {
         </div>
       )}
 
-      {/* ======================================== */}
-      {/* TAB PERIODE */}
-      {/* ======================================== */}
       {activeTab === 'periode' && kasSetting && kasSetting.active && (
         <>
           {isOverdue && (
@@ -634,7 +690,6 @@ export const KasModule: React.FC = () => {
             </div>
           )}
 
-          {/* Pengaturan kas */}
           <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="flex-1">
@@ -668,7 +723,6 @@ export const KasModule: React.FC = () => {
             </div>
           </div>
 
-          {/* FORM EDIT */}
           {isEditing && canManage && (
             <form onSubmit={handleUpdateSetting} className="p-5 rounded-3xl bg-white border-2 border-amber-300 shadow-md space-y-3">
               <h3 className="text-sm font-extrabold text-slate-900">⚙️ Edit Pengaturan Kas</h3>
@@ -716,7 +770,6 @@ export const KasModule: React.FC = () => {
             </form>
           )}
 
-          {/* Pilih periode */}
           <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h3 className="text-xs font-bold text-slate-600 uppercase">📅 Pilih Periode</h3>
@@ -744,21 +797,38 @@ export const KasModule: React.FC = () => {
                   const isActive = p.id === activePeriodId;
                   const pc = payments.filter(x => x.periodId === p.id && x.paid).length;
                   return (
-                    <button key={p.id} onClick={() => setActivePeriodId(p.id)}
-                      className={`min-w-[140px] p-3 rounded-2xl border-2 text-left transition ${
-                        isActive ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-amber-300'
-                      }`}>
-                      <p className="text-[10px] font-bold text-slate-500">Periode {p.periodNumber}</p>
-                      <p className="text-xs font-black text-slate-900 truncate mt-0.5">{p.label}</p>
-                      <p className="text-[10px] text-emerald-700 font-bold mt-1">{pc}/{students.length} bayar</p>
-                    </button>
+                    <div key={p.id} className="relative shrink-0">
+                      <button onClick={() => setActivePeriodId(p.id)}
+                        className={`min-w-[160px] p-3 rounded-2xl border-2 text-left transition ${
+                          isActive ? 'border-amber-500 bg-amber-50' : 'border-slate-200 hover:border-amber-300'
+                        }`}>
+                        <p className="text-[10px] font-bold text-slate-500">Periode {p.periodNumber}</p>
+                        <p className="text-xs font-black text-slate-900 truncate mt-0.5">{p.label}</p>
+                        <p className="text-[10px] text-emerald-700 font-bold mt-1">{pc}/{students.length} bayar</p>
+                      </button>
+                      {canManage && (
+                        <div className="absolute top-1 right-1 flex gap-0.5">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openEditPeriod(p); }}
+                            className="p-1 rounded-md bg-blue-500 text-white hover:bg-blue-600 shadow-sm"
+                            title="Edit periode">
+                            <Edit3 className="w-2.5 h-2.5" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeletePeriod(p); }}
+                            className="p-1 rounded-md bg-rose-500 text-white hover:bg-rose-600 shadow-sm"
+                            title="Hapus periode">
+                            <Trash2 className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
             )}
           </div>
 
-          {/* Tambah manual period */}
           {isAddingPeriod && kasSetting.periodType === 'MANUAL' && (
             <form onSubmit={handleAddManualPeriod} className="p-5 rounded-3xl bg-white border-2 border-emerald-300 shadow-md space-y-3">
               <h3 className="text-sm font-extrabold">➕ Tambah Periode Manual</h3>
@@ -792,7 +862,6 @@ export const KasModule: React.FC = () => {
             </form>
           )}
 
-          {/* Reminder */}
           {canManage && studentsWithoutPaid.length > 0 && (
             <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2">
@@ -808,7 +877,6 @@ export const KasModule: React.FC = () => {
             </div>
           )}
 
-          {/* Tabel Siswa */}
           <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="p-3 border-b border-slate-100 flex items-center gap-2">
               <Search className="w-4 h-4 text-slate-400" />
@@ -872,9 +940,6 @@ export const KasModule: React.FC = () => {
         </>
       )}
 
-      {/* ======================================== */}
-      {/* TAB BUKU KAS */}
-      {/* ======================================== */}
       {activeTab === 'buku-kas' && kasSetting && (
         <>
           {canManage && (
@@ -967,7 +1032,6 @@ export const KasModule: React.FC = () => {
         </>
       )}
 
-      {/* BELUM ADA KAS */}
       {!kasSetting && (
         <div className="p-8 rounded-3xl bg-white border border-slate-200 shadow-sm text-center">
           <Wallet className="w-16 h-16 mx-auto text-slate-300 mb-3" />
@@ -988,7 +1052,6 @@ export const KasModule: React.FC = () => {
         </div>
       )}
 
-      {/* KAS NONAKTIF */}
       {kasSetting && !kasSetting.active && (
         <div className="p-8 rounded-3xl bg-amber-50 border-2 border-amber-300 text-center">
           <PowerOff className="w-14 h-14 mx-auto text-amber-500 mb-3" />
@@ -1003,7 +1066,6 @@ export const KasModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL AKTIVASI */}
       {isActivating && !kasSetting && canManage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleActivate} className="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6 my-auto max-h-[92vh] overflow-y-auto">
@@ -1072,7 +1134,73 @@ export const KasModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL CASH ENTRY */}
+      {/* MODAL EDIT PERIODE — FITUR BARU */}
+      {editingPeriod && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+          <form onSubmit={handleSavePeriodEdit}
+            className="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6 my-auto max-h-[92vh] overflow-y-auto space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-blue-500" /> Edit Periode {editingPeriod.periodNumber}
+              </h3>
+              <button type="button" onClick={() => setEditingPeriod(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
+              <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-blue-900">
+                Edit label, tanggal mulai/selesai, dan tenggat waktu periode ini. Perubahan langsung terlihat oleh siswa.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Label Periode <span className="text-rose-500">*</span>
+              </label>
+              <input type="text" required value={editPeriodLabel}
+                onChange={(e) => setEditPeriodLabel(e.target.value)}
+                placeholder="Contoh: Kas Konsumsi Gladi Resik"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Tanggal Mulai</label>
+                <input type="date" value={editPeriodStart}
+                  onChange={(e) => setEditPeriodStart(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Tanggal Selesai</label>
+                <input type="date" value={editPeriodEnd}
+                  onChange={(e) => setEditPeriodEnd(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold" />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Tenggat Pembayaran</label>
+              <input type="datetime-local" value={editPeriodDeadline}
+                onChange={(e) => setEditPeriodDeadline(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-semibold" />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <button type="button" onClick={() => setEditingPeriod(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
+              <button type="submit" disabled={submitting}
+                className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                <Save className="w-3.5 h-3.5" />
+                {submitting ? 'Menyimpan...' : 'Simpan Perubahan'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {isCashModalOpen && canManage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleSaveCash} className="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6 my-auto max-h-[92vh] overflow-y-auto space-y-3">
@@ -1089,7 +1217,6 @@ export const KasModule: React.FC = () => {
               </button>
             </div>
 
-            {/* Kategori */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
               <div className="grid grid-cols-3 gap-2">
