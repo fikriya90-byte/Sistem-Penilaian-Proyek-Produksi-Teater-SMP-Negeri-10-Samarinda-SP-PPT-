@@ -162,7 +162,7 @@ const DeadlineCopyModal: React.FC<{
           });
 
           const newRef = doc(collection(db, 'deadlines'));
-          await setDoc(newRef, {
+          const copyData: any = {
             id: newRef.id,
             classId: targetClassId,
             title: source.title,
@@ -170,8 +170,6 @@ const DeadlineCopyModal: React.FC<{
             dueDate: source.dueDate,
             priority: source.priority,
             targetScope: source.targetScope,
-            targetDivision: targetDivision,
-            targetRole: targetRole,
             targetUserIds: Array.from(recipientIds),
             stage: (source as any).stage,
             isCritical: (source as any).isCritical || false,
@@ -179,7 +177,11 @@ const DeadlineCopyModal: React.FC<{
             creatorName: user.displayName,
             creatorRole: user.role,
             createdAt: new Date().toISOString(),
-          });
+          };
+          // Hanya set field jika ada nilainya (Firestore tidak terima undefined)
+          if (targetRole) copyData.targetRole = targetRole;
+          if (targetDivision) copyData.targetDivision = targetDivision;
+          await setDoc(newRef, copyData);
           totalCreated++;
 
           if (recipientIds.size > 0) {
@@ -784,7 +786,7 @@ export const DeadlineModule: React.FC = () => {
         });
 
         const newRef = doc(collection(db, 'deadlines'));
-        await setDoc(newRef, {
+        const deadlineData: any = {
           id: newRef.id,
           classId: activeClass.id,
           title: tpl.title,
@@ -793,8 +795,6 @@ export const DeadlineModule: React.FC = () => {
           priority: tpl.priority,
           targetScope: targetScope,
           targetUserIds: Array.from(recipientIds),
-          targetRole: targetRole,
-          targetDivision: targetDivision,
           stage: selectedStage,
           isCritical: tpl.isCritical || false,
           createdBy: user.uid,
@@ -802,7 +802,11 @@ export const DeadlineModule: React.FC = () => {
           creatorRole: user.role,
           createdAt: new Date().toISOString(),
           templateReference: tpl.reference,
-        });
+        };
+        // Hanya set field jika ada nilainya (Firestore tidak terima undefined)
+        if (targetRole) deadlineData.targetRole = targetRole;
+        if (targetDivision) deadlineData.targetDivision = targetDivision;
+        await setDoc(newRef, deadlineData);
 
         recipientIds.forEach(id => allRecipientIds.add(id));
         totalNotif += recipientIds.size;
@@ -917,7 +921,7 @@ export const DeadlineModule: React.FC = () => {
       const subId = `${selectedDeadline.id}_${user.uid}`;
       const dueMs = new Date(selectedDeadline.dueDate || 0).getTime();
       const isLate = !isNaN(dueMs) && dueMs < Date.now();
-      await setDoc(doc(db, 'deadlineSubmissions', subId), {
+      const submissionData: any = {
         id: subId,
         deadlineId: selectedDeadline.id,
         classId: activeClass.id,
@@ -928,10 +932,14 @@ export const DeadlineModule: React.FC = () => {
         proofUrl: proofUrl.trim(),
         proofNote: proofNote.trim(),
         extensionRequested: askExtension,
-        extensionReason: askExtension ? extensionReason.trim() : undefined,
         updatedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
-      });
+      };
+      // Hanya set extensionReason jika ada isinya (Firestore tidak terima undefined)
+      if (askExtension && extensionReason.trim()) {
+        submissionData.extensionReason = extensionReason.trim();
+      }
+      await setDoc(doc(db, 'deadlineSubmissions', subId), submissionData);
       showToast('Bukti dikirim!', 'success');
       setIsSubmitOpen(false);
       setSelectedDeadline(null);
