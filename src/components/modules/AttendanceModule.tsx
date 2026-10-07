@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, CheckCircle, Clock, Lock, MapPin, PlusCircle, UserCheck,
-  Users, XCircle, X, Save,
+  Users, XCircle, X, Save, Info,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
@@ -39,6 +39,9 @@ export const AttendanceModule: React.FC = () => {
   const [myStatus, setMyStatus] = useState<AttendanceStatus>('Hadir');
   const [myNote, setMyNote] = useState('');
   const [isSubmittingCheckin, setIsSubmittingCheckin] = useState(false);
+
+  // Apakah user adalah Guru/Pengurus (tidak isi presensi)
+  const isTeacherOrStaff = isTeacher || isGuruPengampu || isAdminRole;
 
   useEffect(() => {
     if (!activeClass) return;
@@ -232,7 +235,9 @@ export const AttendanceModule: React.FC = () => {
                 Presensi & Absensi Digital
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                Pencatatan kehadiran resmi per kegiatan latihan, rapat, dan produksi
+                {isTeacherOrStaff
+                  ? 'Kelola sesi presensi & pantau kehadiran siswa'
+                  : 'Pencatatan kehadiran resmi per kegiatan latihan, rapat, dan produksi'}
               </p>
             </div>
           </div>
@@ -411,7 +416,10 @@ export const AttendanceModule: React.FC = () => {
                 )}
               </div>
 
-              {activeSession.isOpen && (
+              {/* ================================================== */}
+              {/* FORM CHECK-IN UNTUK SISWA SAJA */}
+              {/* ================================================== */}
+              {activeSession.isOpen && !isTeacherOrStaff && (
                 <div className="p-4 rounded-2xl bg-amber-500/10 dark:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/40 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="font-extrabold text-xs text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
@@ -447,6 +455,24 @@ export const AttendanceModule: React.FC = () => {
                       className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-bold text-xs transition disabled:opacity-50">
                       {isSubmittingCheckin ? 'Menyimpan...' : 'Kirim Kehadiran Saya'}
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ================================================== */}
+              {/* INFO PANEL UNTUK GURU / ADMIN — TIDAK PERLU ISI PRESENSI */}
+              {/* ================================================== */}
+              {activeSession.isOpen && isTeacherOrStaff && (
+                <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3">
+                  <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+                    <p className="font-bold">
+                      Anda sebagai {user?.role} tidak perlu mengisi presensi.
+                    </p>
+                    <p className="text-[11px] mt-0.5">
+                      Tugas Anda adalah <strong>membuka / menutup sesi</strong> dan <strong>memantau rekap kehadiran</strong> siswa di tabel bawah ini.
+                      Untuk melihat statistik lengkap, buka menu <strong>Statistik Presensi</strong>.
+                    </p>
                   </div>
                 </div>
               )}
