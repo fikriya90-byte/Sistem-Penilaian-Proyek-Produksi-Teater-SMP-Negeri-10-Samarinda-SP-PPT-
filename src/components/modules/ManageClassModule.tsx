@@ -3,7 +3,7 @@ import {
   Plus, Users, BookOpen, Edit3, Trash2, Hash, Sparkles, X,
   ChevronRight, Copy, RefreshCw, AlertTriangle, GraduationCap,
   Search, Save, UserCog, Camera, TrendingUp, ArrowLeft, Check,
-  Eye, EyeOff, KeyRound, ShieldAlert, Send, Wrench,
+  Eye, EyeOff, KeyRound, ShieldAlert, Send, Wrench, Mail, Phone,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -59,17 +59,22 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
   const [passwordModal, setPasswordModal] = useState<CredentialView | null>(null);
   const [resettingId, setResettingId] = useState<string | null>(null);
 
+  // State edit siswa
   const [editName, setEditName] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editRole, setEditRole] = useState<UserRole>('Pemeran');
+  const [editEmail, setEditEmail] = useState('');
+
+  // State konfirmasi hapus siswa
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deletingStudent, setDeletingStudent] = useState(false);
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [taskCompletions, setTaskCompletions] = useState<Record<string, any>>({});
   const [studentCountMap, setStudentCountMap] = useState<Record<string, number>>({});
 
-  // ============================================================
-  // HITUNG JUMLAH SISWA RIIL PER KELAS (dari koleksi users)
-  // ============================================================
+  // Hitung jumlah siswa per kelas
   useEffect(() => {
     if (classes.length === 0) return;
     const unsubs: (() => void)[] = [];
@@ -113,9 +118,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     return () => { unsub1(); unsub2(); };
   }, [activeClass]);
 
-  // ============================================================
-  // LOAD DATA
-  // ============================================================
   const loadStudents = async () => {
     if (!activeClass) return;
     setLoadingStudents(true);
@@ -147,9 +149,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     }
   };
 
-  // ============================================================
-  // HITUNG PROGRESS SISWA
-  // ============================================================
   const getStudentProgress = (s: UserProfile) => {
     const myTasks = tasks.filter(t =>
       t.assigneeId === s.uid ||
@@ -174,9 +173,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     return { avg, mahir, tertinggal, belum };
   })();
 
-  // ============================================================
-  // GENERATE KODE KELAS
-  // ============================================================
   const generateCode = () => {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
     let a = ''; for (let i = 0; i < 4; i++) a += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -185,9 +181,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     return `${prefix}-${a}${b}`.slice(0, 12);
   };
 
-  // ============================================================
-  // MODAL HANDLERS
-  // ============================================================
   const openCreate = () => {
     setEditingClass(null);
     setFormName('');
@@ -207,6 +200,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     setEditName(s.displayName || '');
     setEditPhone(s.phone || '');
     setEditRole((s.role as UserRole) || 'Pemeran');
+    setEditEmail(s.email || '');
     setIsEditStudentOpen(true);
   };
 
@@ -224,11 +218,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     });
   };
 
-  // ============================================================
-  // HAPUS KELAS
-  // ============================================================
   const handleDelete = async (c: ClassRoom) => {
-    // Cek jumlah siswa
     const userQ = query(collection(db, 'users'), where('classId', '==', c.id));
     const userSnap = await getDocs(userQ);
     const studentCount = userSnap.docs.filter(d => {
@@ -244,7 +234,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
       return;
     }
 
-    // Konfirmasi ketik kode
     const confirmCode = prompt(
       `HAPUS KELAS "${c.name}"?\n\n` +
       `⚠️ Tindakan ini TIDAK BISA DIBATALKAN!\n\n` +
@@ -252,7 +241,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
       `(Ketik persis sama, huruf besar/kecil tidak masalah)`
     );
 
-    if (confirmCode === null) return; // Cancel
+    if (confirmCode === null) return;
 
     if (confirmCode.trim().toUpperCase() !== c.code.toUpperCase()) {
       showToast('Kode kelas tidak cocok. Penghapusan dibatalkan.', 'error');
@@ -273,9 +262,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     }
   };
 
-  // ============================================================
-  // SIMPAN KELAS
-  // ============================================================
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -311,28 +297,57 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
   };
 
   // ============================================================
-  // SIMPAN SISWA
+  // SIMPAN EDIT SISWA (nama, email, telepon, peran)
   // ============================================================
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !selectedStudent) return;
+
+    const emailChanged = editEmail.trim().toLowerCase() !== (selectedStudent.email || '').toLowerCase();
+
+    if (emailChanged && !editEmail.includes('@')) {
+      showToast('Format email tidak valid.', 'warning');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const division = getDivisionFromRole(editRole);
-      await updateDoc(doc(db, 'users', selectedStudent.uid), {
+      const updateData: any = {
         displayName: editName.trim(),
         phone: editPhone.trim(),
         role: editRole,
         divisionId: division.id,
         divisionName: division.name,
         updatedAt: new Date().toISOString(),
-      });
+      };
+
+      // Update email jika berubah
+      if (emailChanged) {
+        updateData.email = editEmail.trim().toLowerCase();
+      }
+
+      await updateDoc(doc(db, 'users', selectedStudent.uid), updateData);
+
+      // Update email di userCredentials juga
+      if (emailChanged) {
+        try {
+          await updateDoc(doc(db, 'userCredentials', selectedStudent.uid), {
+            email: editEmail.trim().toLowerCase(),
+          });
+        } catch { /* non-fatal */ }
+      }
+
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'UPDATE', targetType: 'User', targetId: selectedStudent.uid,
-        details: `Edit siswa: ${editName} → role: ${editRole}`,
+        details: `Edit siswa: ${editName} → role: ${editRole}${emailChanged ? ` | email → ${editEmail}` : ''}`,
       });
-      showToast(`Data ${editName} berhasil diperbarui!`, 'success');
+
+      showToast(
+        `Data ${editName} berhasil diperbarui!${emailChanged ? ' Email juga diperbarui di Firestore.' : ''}`,
+        'success'
+      );
       setIsEditStudentOpen(false);
       setSelectedStudent(null);
       loadStudents();
@@ -356,21 +371,49 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     }
   };
 
-  const handleDeleteStudent = async (s: UserProfile) => {
-    if (!confirm(`Hapus profil siswa ${s.displayName}?\n\nCatatan: Akun Firebase Auth tidak ikut terhapus.`)) return;
-    try {
-      await deleteDoc(doc(db, 'users', s.uid));
-      try { await deleteDoc(doc(db, 'userCredentials', s.uid)); } catch { /* ignore */ }
-      showToast(`Profil ${s.displayName} dihapus.`, 'info');
-      loadStudents();
-    } catch (err: any) {
-      showToast('Gagal menghapus: ' + (err?.message || 'Unknown'), 'error');
-    }
+  // ============================================================
+  // BUKA MODAL KONFIRMASI HAPUS
+  // ============================================================
+  const handleDeleteStudent = (s: UserProfile) => {
+    setSelectedStudent(s);
+    setDeleteConfirmText('');
+    setShowDeleteConfirm(true);
   };
 
   // ============================================================
-  // RESET PASSWORD SISWA
+  // KONFIRMASI HAPUS SISWA (dengan verifikasi ketik nama)
   // ============================================================
+  const handleConfirmDeleteStudent = async () => {
+    if (!selectedStudent || !user) return;
+
+    if (deleteConfirmText.trim().toLowerCase() !== selectedStudent.displayName.trim().toLowerCase()) {
+      showToast('Nama tidak cocok. Ketik persis nama siswa.', 'error');
+      return;
+    }
+
+    setDeletingStudent(true);
+    try {
+      await deleteDoc(doc(db, 'users', selectedStudent.uid));
+      try { await deleteDoc(doc(db, 'userCredentials', selectedStudent.uid)); } catch { /* ignore */ }
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'DELETE', targetType: 'User', targetId: selectedStudent.uid,
+        details: `Hapus profil siswa: ${selectedStudent.displayName} (${selectedStudent.email})`,
+      });
+
+      showToast(`Profil ${selectedStudent.displayName} berhasil dihapus.`, 'info');
+      setShowDeleteConfirm(false);
+      setSelectedStudent(null);
+      setDeleteConfirmText('');
+      loadStudents();
+    } catch (err: any) {
+      showToast('Gagal menghapus: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setDeletingStudent(false);
+    }
+  };
+
   const handleResetPassword = async (s: UserProfile) => {
     if (!confirm(
       `Kirim link reset password ke ${s.displayName}?\n\n` +
@@ -383,7 +426,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
       const res = await resetStudentPassword(s.email);
       if (res.success) {
         showToast(res.message, 'success');
-        // Kirim notifikasi ke siswa
         try {
           const notifRef = doc(collection(db, 'notifications'));
           await setDoc(notifRef, {
@@ -408,17 +450,11 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     }
   };
 
-  // ============================================================
-  // MASUK KELAS
-  // ============================================================
   const handleEnterClass = (c: ClassRoom) => {
     setActiveClass(c);
     showToast(`Masuk ke kelas ${c.name}`, 'success');
   };
 
-  // ============================================================
-  // COPY CODE
-  // ============================================================
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -430,9 +466,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     }
   };
 
-  // ============================================================
-  // REFRESH
-  // ============================================================
   const handleRefresh = async () => {
     setRefreshing(true);
     await reloadClasses();
@@ -444,9 +477,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     showToast('Data diperbarui.', 'info');
   };
 
-  // ============================================================
-  // TOMBOL KEMBALI
-  // ============================================================
   const handleBack = () => {
     if (onNavigate) {
       onNavigate('dashboard');
@@ -455,9 +485,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     }
   };
 
-  // ============================================================
-  // FILTER SISWA
-  // ============================================================
   const filteredStudents = students.filter(s => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
@@ -469,9 +496,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
 
   return (
     <div className="space-y-6">
-      {/* ======================================================== */}
-      {/* HEADER dengan TOMBOL KEMBALI */}
-      {/* ======================================================== */}
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="flex items-start gap-3">
@@ -486,7 +511,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
               </span>
               <h2 className="text-xl font-black text-white mt-1">Kelola Kelas & Siswa</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Kelola kelas, kode pendaftaran, akun siswa, lihat password, reset password, & progress
+                Kelola kelas, kode pendaftaran, akun siswa, lihat password, reset, edit email, & hapus
               </p>
             </div>
           </div>
@@ -505,9 +530,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </div>
       </div>
 
-      {/* ======================================================== */}
       {/* TAB SWITCHER */}
-      {/* ======================================================== */}
       <div className="flex items-center gap-2 flex-wrap">
         <button onClick={() => setActiveTab('kelas')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
@@ -531,9 +554,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </button>
       </div>
 
-      {/* ======================================================== */}
       {/* TAB: KELAS */}
-      {/* ======================================================== */}
       {activeTab === 'kelas' && (
         <>
           {classes.length === 0 ? (
@@ -586,7 +607,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                         </div>
                       )}
 
-                      {/* KODE KELAS — klik untuk salin */}
                       <button onClick={() => handleCopy(c.code)}
                         className={`mt-3 w-full p-2.5 rounded-xl border flex items-center justify-between transition ${
                           isCopied
@@ -638,9 +658,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </>
       )}
 
-      {/* ======================================================== */}
       {/* TAB: SISWA */}
-      {/* ======================================================== */}
       {activeTab === 'siswa' && (
         <>
           {!activeClass ? (
@@ -788,7 +806,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                               </td>
                               <td className="py-3.5 px-4">
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                                  {/* Lihat Password */}
                                   <button onClick={() => handleViewPassword(s)}
                                     className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
                                       hasPwd
@@ -799,7 +816,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                                     <KeyRound className="w-3 h-3" /> Lihat
                                   </button>
 
-                                  {/* Reset Password */}
                                   <button onClick={() => handleResetPassword(s)}
                                     disabled={isResetting}
                                     className="px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 dark:bg-orange-500/20 dark:hover:bg-orange-500/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-500/40 text-[11px] font-bold transition flex items-center gap-1 disabled:opacity-50"
@@ -811,13 +827,11 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                                     )}
                                   </button>
 
-                                  {/* Edit */}
                                   <button onClick={() => openEditStudent(s)}
                                     className="px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/20 dark:hover:bg-blue-500/30 text-blue-700 dark:text-blue-300 text-[11px] font-bold transition flex items-center gap-1">
                                     <UserCog className="w-3 h-3" /> Edit
                                   </button>
 
-                                  {/* Hapus */}
                                   <button onClick={() => handleDeleteStudent(s)}
                                     className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/20 transition"
                                     title="Hapus profil siswa">
@@ -838,9 +852,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </>
       )}
 
-      {/* ======================================================== */}
       {/* MODAL FORM KELAS */}
-      {/* ======================================================== */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
@@ -898,12 +910,10 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </div>
       )}
 
-      {/* ======================================================== */}
       {/* MODAL EDIT SISWA */}
-      {/* ======================================================== */}
       {isEditStudentOpen && selectedStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                 <UserCog className="w-5 h-5 text-blue-500" /> Edit Siswa
@@ -913,11 +923,13 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                 <X className="w-5 h-5" />
               </button>
             </div>
+
             <div className="mb-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-[11px]">
               <p className="text-slate-500 dark:text-slate-400">
-                Email: <span className="font-mono text-slate-700 dark:text-slate-300">{selectedStudent.email}</span>
+                UID: <span className="font-mono text-slate-700 dark:text-slate-300">{selectedStudent.uid.slice(0, 16)}...</span>
               </p>
             </div>
+
             <form onSubmit={handleSaveStudent} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -926,12 +938,30 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                 <input type="text" required value={editName} onChange={(e) => setEditName(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
+
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">No. WhatsApp</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> Email Siswa
+                  <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400">(ubah jika perlu)</span>
+                </label>
+                <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="nama.siswa@email.com"
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                  ⚠️ Mengubah email di sini mengubah <strong>profil Firestore</strong>.
+                  Untuk mengubah email login (Firebase Auth), harus via Firebase Console.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Phone className="w-3.5 h-3.5" /> No. WhatsApp
+                </label>
                 <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)}
                   placeholder="0812..."
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Role / Peran <span className="text-rose-500">*</span>
@@ -948,6 +978,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                   Divisi otomatis disesuaikan dengan role.
                 </p>
               </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
                 <button type="button" onClick={() => setIsEditStudentOpen(false)}
                   className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -964,9 +995,82 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </div>
       )}
 
-      {/* ======================================================== */}
+      {/* MODAL KONFIRMASI HAPUS SISWA */}
+      {showDeleteConfirm && selectedStudent && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-rose-200 dark:border-rose-500/40 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-extrabold text-rose-900 dark:text-rose-300 flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-rose-500" />
+                Hapus Siswa?
+              </h3>
+              <button onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 mb-3">
+              <p className="text-xs text-rose-900 dark:text-rose-200 font-bold">
+                ⚠️ Tindakan ini tidak bisa dibatalkan.
+              </p>
+              <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1 leading-relaxed">
+                Profil <strong>{selectedStudent.displayName}</strong> ({selectedStudent.email}) akan dihapus dari sistem.
+                Data nilai, tugas, dan presensi <strong>tidak</strong> akan ikut terhapus (masih ada di Firestore).
+              </p>
+            </div>
+
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Ketik nama siswa persis untuk konfirmasi:
+            </label>
+            <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 mb-2 text-xs font-mono text-slate-700 dark:text-slate-300 select-all">
+              {selectedStudent.displayName}
+            </div>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Ketik nama siswa di sini..."
+              autoFocus
+              className={`w-full px-3.5 py-2.5 rounded-xl border-2 font-semibold text-sm text-slate-800 dark:text-white bg-white dark:bg-slate-800 transition ${
+                deleteConfirmText.length === 0
+                  ? 'border-slate-200 dark:border-slate-700'
+                  : deleteConfirmText.trim().toLowerCase() === selectedStudent.displayName.trim().toLowerCase()
+                  ? 'border-emerald-500'
+                  : 'border-rose-300'
+              }`}
+            />
+
+            {deleteConfirmText.length > 0 && deleteConfirmText.trim().toLowerCase() !== selectedStudent.displayName.trim().toLowerCase() && (
+              <p className="text-[11px] text-rose-600 mt-1 font-bold">
+                ❌ Nama tidak cocok.
+              </p>
+            )}
+            {deleteConfirmText.length > 0 && deleteConfirmText.trim().toLowerCase() === selectedStudent.displayName.trim().toLowerCase() && (
+              <p className="text-[11px] text-emerald-600 mt-1 font-bold">
+                ✅ Nama cocok. Anda dapat menghapus.
+              </p>
+            )}
+
+            <div className="flex gap-2 pt-4 mt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                Batal
+              </button>
+              <button
+                onClick={handleConfirmDeleteStudent}
+                disabled={deletingStudent || deleteConfirmText.trim().toLowerCase() !== selectedStudent.displayName.trim().toLowerCase()}
+                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+                <Trash2 className="w-3.5 h-3.5" />
+                {deletingStudent ? 'Menghapus...' : 'Hapus Permanen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MODAL LIHAT PASSWORD */}
-      {/* ======================================================== */}
       {passwordModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-amber-300 dark:border-amber-500/40 p-6">
@@ -1024,9 +1128,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         </div>
       )}
 
-      {/* ======================================================== */}
       {/* PHOTO MODAL */}
-      {/* ======================================================== */}
       {photoModalStudent && (
         <PhotoUploadModal
           currentPhotoUrl={photoModalStudent.photoURL}
