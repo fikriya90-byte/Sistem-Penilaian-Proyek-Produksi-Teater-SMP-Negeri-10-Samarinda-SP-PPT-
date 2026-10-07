@@ -196,7 +196,7 @@ const DeadlineCopyModal: React.FC<{
                 message: `${user.displayName} mengirim deadline untuk ${targetClass.name}: "${source.title}"`,
                 category: 'Tugas',
                 read: false,
-                link: 'deadline',
+                link: 'tugas',
                 createdAt: nowStr,
               });
             });
@@ -822,7 +822,7 @@ export const DeadlineModule: React.FC = () => {
             classId: activeClass.id,
             title: `${success} Deadline Baru`,
             message: `${user.displayName} mengirim ${success} deadline (${selectedStage}).`,
-            category: 'Tugas', read: false, link: 'deadline',
+            category: 'Tugas', read: false, link: 'tugas',
             createdAt: nowStr,
           });
         });
@@ -867,7 +867,7 @@ export const DeadlineModule: React.FC = () => {
       });
 
       const newRef = doc(collection(db, 'deadlines'));
-      await setDoc(newRef, {
+      const manualData: any = {
         id: newRef.id,
         classId: activeClass.id,
         title: manualTitle.trim(),
@@ -883,7 +883,15 @@ export const DeadlineModule: React.FC = () => {
         creatorRole: user.role,
         createdAt: new Date().toISOString(),
         isManual: true,
-      });
+      };
+      // Untuk manual dengan custom target, simpan juga peran/divisi yang dipilih
+      if (!manualTargetAll) {
+        const roles = manualTargets.filter(t => t.type === 'PERAN').map(t => t.name);
+        const divisions = manualTargets.filter(t => t.type === 'DIVISI').map(t => t.name);
+        if (roles.length > 0) manualData.targetRoles = roles;
+        if (divisions.length > 0) manualData.targetDivisions = divisions;
+      }
+      await setDoc(newRef, manualData);
 
       if (recipientIds.size > 0) {
         const batch = writeBatch(db);
@@ -896,7 +904,7 @@ export const DeadlineModule: React.FC = () => {
             classId: activeClass.id,
             title: 'Deadline Baru',
             message: `${user.displayName}: "${manualTitle.trim()}"`,
-            category: 'Tugas', read: false, link: 'deadline',
+            category: 'Tugas', read: false, link: 'tugas',
             createdAt: nowStr,
           });
         });
@@ -986,17 +994,57 @@ export const DeadlineModule: React.FC = () => {
     }
   };
 
+  // ============================================================
+  // FILTER DEADLINES BERDASARKAN PERAN / DIVISI / USER
+  // ============================================================
   const visibleDeadlines = deadlines.filter(d => {
+    // Filter tahap
     if (filterStage !== 'ALL') {
       const dStage = (d as any).stage;
       if (dStage && dStage !== filterStage) return false;
     }
-    if (!canCreate && (d as any).status === 'CANCELLED') return false;
-    if (!canCreate && user) {
-      const tu: string[] = (d as any).targetUserIds || [];
-      if (d.targetScope === 'CUSTOM' && tu.length > 0 && !tu.includes(user.uid)) return false;
+
+    // Guru/Admin bisa lihat semua
+    if (canCreate) return true;
+
+    // Status CANCELLED: siswa tidak perlu lihat
+    if ((d as any).status === 'CANCELLED') return false;
+
+    if (!user) return false;
+
+    const dScope = d.targetScope as string;
+    const dRole = (d as any).targetRole as string | undefined;
+    const dDivision = (d as any).targetDivision as string | undefined;
+    const dTargetUserIds: string[] = (d as any).targetUserIds || [];
+    const dTargetRoles: string[] = (d as any).targetRoles || [];
+    const dTargetDivisions: string[] = (d as any).targetDivisions || [];
+
+    // 1. SEMUA → semua siswa bisa lihat
+    if (dScope === 'SEMUA') return true;
+
+    // 2. PERAN (template) → cocokkan role
+    if (dScope === 'PERAN') {
+      if (dRole && dRole === user.role) return true;
+      return false;
     }
-    return true;
+
+    // 3. DIVISI (template) → cocokkan divisi
+    if (dScope === 'DIVISI') {
+      if (dDivision && dDivision === user.divisionName) return true;
+      return false;
+    }
+
+    // 4. CUSTOM (manual multi-target) → cek apakah user ada di recipientIds
+    if (dScope === 'CUSTOM') {
+      // Kalau manual punya list roles/divisions, cek juga (untuk backward-compat)
+      if (dTargetRoles.length > 0 && dTargetRoles.includes(user.role)) return true;
+      if (dTargetDivisions.length > 0 && user.divisionName && dTargetDivisions.includes(user.divisionName)) return true;
+      // Kalau tidak ada roles/divisions, fallback ke recipientIds
+      if (dTargetUserIds.length === 0) return true;
+      return dTargetUserIds.includes(user.uid);
+    }
+
+    return false;
   });
 
   return (
@@ -1065,9 +1113,13 @@ export const DeadlineModule: React.FC = () => {
       {visibleDeadlines.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <Timer className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Deadline</h3>
+          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
+            {canCreate ? 'Belum Ada Deadline' : 'Tidak Ada Deadline untuk Anda'}
+          </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {canCreate ? 'Klik "Buat Manual" atau "Dari Template".' : 'Tunggu instruksi Guru Pengampu.'}
+            {canCreate
+              ? 'Klik "Buat Manual" atau "Dari Template".'
+              : `Belum ada tugas yang ditugaskan untuk peran "${user?.role}" Anda.`}
           </p>
         </div>
       ) : (
