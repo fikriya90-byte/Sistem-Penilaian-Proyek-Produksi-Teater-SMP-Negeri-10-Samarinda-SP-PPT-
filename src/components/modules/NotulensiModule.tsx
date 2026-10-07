@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   FileText, Plus, X, Save, Trash2, Edit3, Calendar, Users, Clock,
-  Search, Download, ExternalLink, User, CheckCircle, AlertTriangle,
-  Printer, Link2, Upload,
+  Search, ExternalLink, User, CheckCircle, AlertTriangle,
+  Printer, Link2, Upload, Info, Eye,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import {
-  collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc,
+  collection, query, where, onSnapshot, doc, setDoc, deleteDoc,
+  writeBatch, getDocs,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
@@ -34,13 +35,18 @@ interface NotulensiItem {
   updatedAt?: string;
 }
 
-const CAN_CREATE_NOTULENSI = [
-  'Sekretaris', 'Guru Pengampu', 'Guru Pembina',
-  'Admin', 'Super Admin', 'Pimpinan Produksi',
+// HANYA role ini yang bisa buat/edit/hapus notulen
+const CAN_MANAGE_NOTULENSI = [
+  'Sekretaris',
+  'Guru Pengampu',
+  'Guru Pembina',
+  'Admin',
+  'Super Admin',
+  'Pimpinan Produksi',
 ];
 
 export const NotulensiModule: React.FC = () => {
-  const { user, activeClass, isSekretaris, isGuruPengampu, isAdminRole, isPimprod } = useAuth();
+  const { user, activeClass, isGuruPengampu, isAdminRole, isPimprod, isSekretaris } = useAuth();
   const { showToast } = useToast();
 
   const [items, setItems] = useState<NotulensiItem[]>([]);
@@ -51,7 +57,6 @@ export const NotulensiModule: React.FC = () => {
   const [editingItem, setEditingItem] = useState<NotulensiItem | null>(null);
   const [detailItem, setDetailItem] = useState<NotulensiItem | null>(null);
 
-  // Form
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState('14:00');
@@ -65,10 +70,10 @@ export const NotulensiModule: React.FC = () => {
   const [attachmentName, setAttachmentName] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const canManage = !!user && (
-    CAN_CREATE_NOTULENSI.includes(user.role) ||
-    user.role.startsWith('Koordinator ')
-  );
+  // ============================================================
+  // PERMISSION: HANYA Sekretaris + Guru/Admin/Pimprod yang bisa kelola
+  // ============================================================
+  const canManage = !!user && CAN_MANAGE_NOTULENSI.includes(user.role);
 
   useEffect(() => {
     if (!activeClass) return;
@@ -125,9 +130,16 @@ export const NotulensiModule: React.FC = () => {
     );
   };
 
+  // ============================================================
+  // HANDLE SAVE + KIRIM NOTIFIKASI KE SEMUA SISWA (kalau baru)
+  // ============================================================
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
+    if (!canManage) {
+      showToast('Hanya Sekretaris yang dapat mengisi notulensi.', 'warning');
+      return;
+    }
     if (!title.trim() || !agenda.trim() || !discussion.trim() || !decisions.trim()) {
       showToast('Judul, agenda, pembahasan, dan keputusan wajib diisi.', 'warning');
       return;
@@ -135,6 +147,7 @@ export const NotulensiModule: React.FC = () => {
 
     setSubmitting(true);
     try {
+      const isNew = !editingItem;
       const id = editingItem?.id || doc(collection(db, 'notulensi')).id;
       const data: NotulensiItem = {
         id,
@@ -158,6 +171,43 @@ export const NotulensiModule: React.FC = () => {
       };
       await setDoc(doc(db, 'notulensi', id), data, { merge: true });
 
+      // ============================================================
+      // NOTIFIKASI KE SEMUA SISWA — hanya saat BUAT BARU
+      // ============================================================
+      if (isNew) {
+        try {
+          const recipients = users.filter(u =>
+            u.role !== 'Guru Pengampu' &&
+            u.role !== 'Admin' &&
+            u.role !== 'Super Admin' &&
+            u.uid !== user.uid
+          );
+
+          if (recipients.length > 0) {
+            const batch = writeBatch(db);
+            const nowStr = new Date().toISOString();
+            recipients.forEach(r => {
+              const notifRef = doc(collection(db, 'notifications'));
+              batch.set(notifRef, {
+                id: notifRef.id,
+                userId: r.uid,
+                classId: activeClass.id,
+                title: `📝 Notulen Baru: ${title.trim()}`,
+                message: `Sekretaris ${user.displayName} mencatat notulen rapat "${title.trim()}" (${new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long' })}). Buka menu Notulensi untuk membaca detailnya.`,
+                category: 'Pengumuman',
+                read: false,
+                link: 'notulensi',
+                createdAt: nowStr,
+              });
+            });
+            await batch.commit();
+            console.log(`Notifikasi notulen terkirim ke ${recipients.length} siswa.`);
+          }
+        } catch (err) {
+          console.warn('Gagal kirim notifikasi notulen:', err);
+        }
+      }
+
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: editingItem ? 'UPDATE' : 'CREATE',
@@ -165,7 +215,12 @@ export const NotulensiModule: React.FC = () => {
         details: `${editingItem ? 'Edit' : 'Buat'} notulen: "${title}"`,
       });
 
-      showToast(`Notulen ${editingItem ? 'diperbarui' : 'disimpan'}!`, 'success');
+      showToast(
+        isNew
+          ? `Notulen tersimpan & notifikasi terkirim ke semua siswa!`
+          : 'Notulen diperbarui!',
+        'success'
+      );
       setIsModalOpen(false);
     } catch (err: any) {
       showToast('Gagal simpan: ' + (err?.message || 'Unknown'), 'error');
@@ -176,6 +231,10 @@ export const NotulensiModule: React.FC = () => {
 
   const handleDelete = async (item: NotulensiItem) => {
     if (!user) return;
+    if (!canManage) {
+      showToast('Hanya Sekretaris yang dapat menghapus notulensi.', 'warning');
+      return;
+    }
     if (!confirm(`Hapus notulen "${item.title}"?\n\nTindakan ini tidak bisa dibatalkan.`)) return;
     try {
       await deleteDoc(doc(db, 'notulensi', item.id));
@@ -225,20 +284,20 @@ export const NotulensiModule: React.FC = () => {
     <div><strong>Hadir</strong>: ${attendeeNames || 'Tidak ada data'}</div>
   </div>
   <div class="section">
-    <div class="section-title">📋 AGENDA RAPAT</div>
+    <div class="section-title">AGENDA RAPAT</div>
     <div class="section-content">${item.agenda}</div>
   </div>
   <div class="section">
-    <div class="section-title">💬 PEMBAHASAN</div>
+    <div class="section-title">PEMBAHASAN</div>
     <div class="section-content">${item.discussion}</div>
   </div>
   <div class="section">
-    <div class="section-title">✅ KEPUTUSAN</div>
+    <div class="section-title">KEPUTUSAN</div>
     <div class="section-content">${item.decisions}</div>
   </div>
   ${item.attachmentUrl ? `
   <div class="section">
-    <div class="section-title">📎 LAMPIRAN</div>
+    <div class="section-title">LAMPIRAN</div>
     <div class="section-content"><a href="${item.attachmentUrl}">${item.attachmentName || 'Link Lampiran'}</a></div>
   </div>` : ''}
   <div class="footer">
@@ -263,18 +322,6 @@ export const NotulensiModule: React.FC = () => {
            it.location.toLowerCase().includes(q);
   });
 
-  if (!isSekretaris && !isGuruPengampu && !isAdminRole && !isPimprod && !canManage) {
-    return (
-      <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-        <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-        <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Akses Terbatas</h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          Hanya Sekretaris, Guru, dan Pimpinan Produksi yang dapat mengakses notulensi.
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* HEADER */}
@@ -290,10 +337,13 @@ export const NotulensiModule: React.FC = () => {
               </span>
               <h2 className="text-xl font-black text-white mt-1">Notulen Rapat & Diskusi</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Catatan resmi setiap rapat pleno, koordinasi, dan briefing produksi
+                {canManage
+                  ? 'Catatan resmi rapat — Anda dapat mengelola notulen'
+                  : 'Catatan resmi rapat — mode lihat saja'}
               </p>
             </div>
           </div>
+
           {canManage && (
             <button onClick={openCreate}
               className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
@@ -301,6 +351,17 @@ export const NotulensiModule: React.FC = () => {
             </button>
           )}
         </div>
+
+        {/* Info View-Only untuk yang tidak berwenang */}
+        {!canManage && (
+          <div className="mt-3 p-2.5 rounded-xl bg-white/10 border border-white/20 text-[11px] text-slate-200 flex items-start gap-2">
+            <Eye className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Anda dapat <strong>membaca semua notulen</strong> rapat.
+              Yang berhak membuat & mengedit: <strong>Sekretaris</strong> (dibantu Guru/Pimpinan Produksi).
+            </span>
+          </div>
+        )}
       </div>
 
       {/* SEARCH */}
@@ -328,7 +389,6 @@ export const NotulensiModule: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {filtered.map(it => {
             const attendeeCount = (it.attendees || []).length;
-            const itemCanEdit = it.createdBy === user?.uid || isGuruPengampu || isAdminRole || isPimprod;
             return (
               <div key={it.id}
                 className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition space-y-3">
@@ -375,7 +435,7 @@ export const NotulensiModule: React.FC = () => {
                     title="Cetak / PDF">
                     <Printer className="w-3.5 h-3.5" />
                   </button>
-                  {itemCanEdit && (
+                  {canManage && (
                     <>
                       <button onClick={() => openEdit(it)}
                         className="px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 font-bold text-xs flex items-center justify-center transition"
@@ -434,24 +494,24 @@ export const NotulensiModule: React.FC = () => {
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800">
-                <p className="text-[11px] font-bold text-blue-700 dark:text-blue-300 uppercase mb-1">📋 Agenda</p>
+                <p className="text-[11px] font-bold text-blue-700 dark:text-blue-300 uppercase mb-1">Agenda</p>
                 <p className="text-xs leading-relaxed whitespace-pre-line">{detailItem.agenda}</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800">
-                <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase mb-1">💬 Pembahasan</p>
+                <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase mb-1">Pembahasan</p>
                 <p className="text-xs leading-relaxed whitespace-pre-line">{detailItem.discussion}</p>
               </div>
 
               <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase mb-1">✅ Keputusan</p>
+                <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase mb-1">Keputusan</p>
                 <p className="text-xs leading-relaxed whitespace-pre-line text-amber-900 dark:text-amber-200">{detailItem.decisions}</p>
               </div>
 
               {detailItem.attendees.length > 0 && (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800">
                   <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase mb-2">
-                    👥 Hadir ({detailItem.attendees.length} peserta)
+                    Hadir ({detailItem.attendees.length} peserta)
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {detailItem.attendees.map(uid => {
@@ -490,7 +550,7 @@ export const NotulensiModule: React.FC = () => {
         </div>
       )}
 
-      {/* FORM MODAL */}
+      {/* FORM MODAL — hanya untuk yang berwenang */}
       {isModalOpen && canManage && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleSave}
@@ -518,6 +578,15 @@ export const NotulensiModule: React.FC = () => {
             </div>
 
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              {!editingItem && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
+                  <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                    <strong>Info:</strong> Setelah Anda klik Simpan, <strong>semua siswa akan menerima notifikasi</strong> otomatis tentang notulen baru ini.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Judul / Topik Rapat <span className="text-rose-500">*</span>
@@ -602,7 +671,9 @@ export const NotulensiModule: React.FC = () => {
                   </div>
                 </div>
                 <div className="max-h-48 overflow-y-auto p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
-                  {students.map(u => {
+                  {students.length === 0 ? (
+                    <p className="text-[11px] text-slate-400 italic text-center py-3">Belum ada data siswa.</p>
+                  ) : students.map(u => {
                     const sel = attendees.includes(u.uid);
                     return (
                       <button type="button" key={u.uid} onClick={() => toggleAttendee(u.uid)}
@@ -652,7 +723,7 @@ export const NotulensiModule: React.FC = () => {
               <button type="submit" disabled={submitting}
                 className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 <Save className="w-3.5 h-3.5" />
-                {submitting ? 'Menyimpan...' : (editingItem ? 'Perbarui Notulen' : 'Simpan Notulen')}
+                {submitting ? 'Menyimpan...' : (editingItem ? 'Perbarui Notulen' : 'Simpan & Kirim Notifikasi')}
               </button>
             </div>
           </form>
