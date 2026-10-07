@@ -5,6 +5,7 @@ import {
   Camera, Flag, Users, CheckCircle, AlertTriangle, Layers,
   TrendingUp, ClipboardList, Target, Star, Play, Package, Music,
   RefreshCw, Plus, X, Save,
+  CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -959,7 +960,7 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
 };
 
 // =====================================================
-// ANGGOTA DASHBOARD
+// ANGGOTA DASHBOARD — INI YANG SEBELUMNYA ERROR (CheckSquare)
 // =====================================================
 const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { user } = useAuth();
