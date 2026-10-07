@@ -48,6 +48,7 @@ import { ContentScheduleModule } from './components/modules/ContentScheduleModul
 import { DivisionScheduleModule } from './components/modules/DivisionScheduleModule';
 import { DirectorTimelineModule } from './components/modules/DirectorTimelineModule';
 import { DeadlineModule } from './components/modules/DeadlineModule';
+import { NotulensiModule } from './components/modules/NotulensiModule';
 
 // ============================================================
 // RAB MODULE — lazy (karena opsional, kalau belum ada tidak crash)
@@ -155,6 +156,7 @@ const MainLayout: React.FC = () => {
                currentModule === 'division-schedule' ? <DivisionScheduleModule /> :
                currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
                currentModule === 'progress-tugas' ? <TaskProgressModule /> :
+               currentModule === 'notulensi' ? <NotulensiModule /> :
                currentModule === 'rab' ? (
                  <Suspense fallback={<LoadingFallback />}>
                    <RABModule />
@@ -245,6 +247,9 @@ const MainLayout: React.FC = () => {
       case 'backup': return <BackupModule />;
       case 'pengaturan': return <SettingsModule />;
       case 'panduan': return <GuideModule />;
+
+      // Notulensi
+      case 'notulensi': return <NotulensiModule />;
 
       // Default
       default: return <DashboardModule onNavigate={setCurrentModule} />;
