@@ -75,7 +75,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [activeClass, _setActiveClass] = useState<ClassRoom | null>(null);
   const [loading, setLoading] = useState(true);
-
   const restoreClassRef = useRef(false);
 
   useEffect(() => {
@@ -134,12 +133,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Reset restore flag saat ganti user
+  // Reset flag saat ganti user
   useEffect(() => {
     restoreClassRef.current = false;
   }, [user?.uid]);
 
-  // Restore activeClass dari localStorage — HANYA SEKALI per user
+  // Restore activeClass dari localStorage — SEKALI per user
   useEffect(() => {
     if (!user || classes.length === 0) return;
     if (restoreClassRef.current) return;
@@ -149,7 +148,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user.role === 'Admin' ||
       user.role === 'Super Admin';
 
-    // 1. Coba restore dari localStorage
     let savedId: string | null = null;
     try { savedId = localStorage.getItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
 
@@ -163,7 +161,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try { localStorage.removeItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
     }
 
-    // 2. Fallback siswa: auto-set kelas
     if (!isTeacherRole && user.classId) {
       const match = classes.find(c => c.id === user.classId);
       if (match) _setActiveClass(match);
