@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import {
   Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
   Loader2,
@@ -11,11 +11,9 @@ import { Sidebar } from './components/common/Sidebar';
 import { LoginModal } from './components/auth/LoginModal';
 import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
 import { TeacherClassPicker } from './components/common/TeacherClassPicker';
+import { StudentWelcomePage } from './components/welcome/StudentWelcomePage';
 import { DashboardReminder } from './components/common/DashboardReminder';
 
-// ============================================================
-// MODUL UTAMA
-// ============================================================
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
 import { MyGradeModule } from './components/modules/MyGradeModule';
@@ -53,22 +51,14 @@ import { NotulensiModule } from './components/modules/NotulensiModule';
 const RABModule = lazy(() =>
   import('./components/modules/RABModule')
     .then(m => ({ default: m.RABModule }))
-    .catch(err => {
-      console.warn('RABModule belum tersedia:', err);
-      return Promise.resolve({
-        default: () => (
-          <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-            <Calculator className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-            <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
-              Modul RAB belum tersedia
-            </p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Silakan hubungi Guru/Admin untuk mengaktifkan modul ini.
-            </p>
-          </div>
-        ),
-      });
-    })
+    .catch(() => Promise.resolve({
+      default: () => (
+        <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
+          <Calculator className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Modul RAB belum tersedia</p>
+        </div>
+      ),
+    }))
 );
 
 const LoadingFallback: React.FC = () => (
@@ -78,65 +68,108 @@ const LoadingFallback: React.FC = () => (
   </div>
 );
 
-// ============================================================
-// KEY UNTUK PERSISTENSI NAVIGASI
-// ============================================================
 const NAV_STORAGE_KEY = 'spppt-current-module';
 
-// ============================================================
-// MAIN LAYOUT
-// ============================================================
-const MainLayout: React.FC = () => {
-  const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout } = useAuth();
+// ═══════════════════════════════════════════════════════════
+// WELCOME LAYOUT
+// ═══════════════════════════════════════════════════════════
+const WelcomeLayout: React.FC<{
+  onEnterClass: (c: any) => void;
+  onNavigate: (m: string) => void;
+  currentModule: string;
+}> = ({ onEnterClass, onNavigate, currentModule }) => {
+  const { isGuruPengampu, isAdminRole } = useAuth();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // Inisialisasi dari localStorage agar halaman bertahan setelah refresh
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
+      <Navbar
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        onNavigate={onNavigate}
+        view="welcome"
+      />
+      <div className="flex-1 flex max-w-7xl w-full mx-auto">
+        <Sidebar
+          currentModule={currentModule}
+          onNavigate={onNavigate}
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          mode="welcome"
+        />
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
+          {isGuruPengampu || isAdminRole ? (
+            <TeacherClassPicker onEnterClass={onEnterClass} embedded />
+          ) : (
+            <StudentWelcomePage onEnterClass={onEnterClass} onNavigate={onNavigate} />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════
+// MAIN LAYOUT
+// ═══════════════════════════════════════════════════════════
+const MainLayout: React.FC = () => {
+  const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
+
   const [currentModule, setCurrentModule] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem(NAV_STORAGE_KEY);
-      return saved || 'dashboard';
-    } catch {
-      return 'dashboard';
-    }
+    try { return localStorage.getItem(NAV_STORAGE_KEY) || 'dashboard'; }
+    catch { return 'dashboard'; }
   });
+  const [view, setView] = useState<'welcome' | 'in-class'>('welcome');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
+  const viewInitRef = useRef(false);
 
-  // Simpan setiap kali modul berubah
   useEffect(() => {
-    try {
-      localStorage.setItem(NAV_STORAGE_KEY, currentModule);
-    } catch { /* ignore */ }
+    try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
   }, [currentModule]);
 
-  // Flag verifikasi login
   useEffect(() => {
     if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
       setShowLoginConfirm(true);
     }
   }, [user]);
 
-  // ⚠️ HANYA reset ke dashboard saat GANTI KELAS (bukan saat refresh)
-  // Deteksi ganti kelas dengan membandingkan activeClass.id sebelumnya
-  const prevClassIdRef = React.useRef<string | null>(null);
-  useEffect(() => {
-    const currentId = activeClass?.id || null;
-    const prevId = prevClassIdRef.current;
+  // Reset init flag saat ganti user
+  useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
-    // Kalau sebelumnya sudah ada kelas dan sekarang ganti kelas → reset ke dashboard
-    if (prevId && currentId && prevId !== currentId) {
-      setCurrentModule('dashboard');
+  // Init view sekali per user
+  useEffect(() => {
+    if (!user) return;
+    if (viewInitRef.current) return;
+
+    const isGuruOrAdmin = isGuruPengampu || isAdminRole;
+
+    if (isGuruOrAdmin) {
+      // Guru/Admin: kalau sudah ada activeClass → in-class, kalau tidak → welcome
+      setView(activeClass ? 'in-class' : 'welcome');
+    } else {
+      // Siswa: selalu welcome dulu
+      setView('welcome');
     }
-    prevClassIdRef.current = currentId;
-  }, [activeClass?.id]);
+    viewInitRef.current = true;
+  }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
+
+  const handleEnterClass = (c: any) => {
+    setActiveClass(c);
+    setView('in-class');
+    setCurrentModule('dashboard');
+  };
+
+  const handleExitClass = () => {
+    setView('welcome');
+    setCurrentModule('dashboard');
+  };
 
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
         <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
         <h2 className="text-lg font-black tracking-tight text-amber-400">Memuat SP-PPT...</h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Sistem Penilaian Produksi Teater SMPN 10 Samarinda
-        </p>
+        <p className="text-xs text-slate-400 mt-1">Sistem Penilaian Produksi Teater SMPN 10 Samarinda</p>
       </div>
     );
   }
@@ -154,19 +187,15 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
-  // ADMIN LAYOUT
+  // ═══════ ADMIN ═══════
   if (isAdminRole) {
     return (
       <>
         <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
           <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
           <div className="flex-1 flex max-w-7xl w-full mx-auto">
-            <Sidebar
-              currentModule={currentModule}
-              onNavigate={setCurrentModule}
-              isOpen={isSidebarOpen}
-              onClose={() => setIsSidebarOpen(false)}
-            />
+            <Sidebar currentModule={currentModule} onNavigate={setCurrentModule}
+              isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
             <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
               {currentModule === 'pengaturan' ? <SettingsModule /> :
                currentModule === 'backup' ? <BackupModule /> :
@@ -180,28 +209,31 @@ const MainLayout: React.FC = () => {
                currentModule === 'progress-tugas' ? <TaskProgressModule /> :
                currentModule === 'notulensi' ? <NotulensiModule /> :
                currentModule === 'rab' ? (
-                 <Suspense fallback={<LoadingFallback />}>
-                   <RABModule />
-                 </Suspense>
+                 <Suspense fallback={<LoadingFallback />}><RABModule /></Suspense>
                ) :
                <AdminModule />}
             </main>
           </div>
         </div>
-
         {showLoginConfirm && user && (
-          <LoginConfirmModal
-            user={user}
-            onYes={handleLoginConfirmYes}
-            onNo={handleLoginConfirmNo}
-          />
+          <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
         )}
       </>
     );
   }
 
-  if (isGuruPengampu && !activeClass) return <TeacherClassPicker />;
+  // ═══════ WELCOME VIEW ═══════
+  if (view === 'welcome') {
+    return (
+      <WelcomeLayout
+        onEnterClass={handleEnterClass}
+        onNavigate={setCurrentModule}
+        currentModule={currentModule}
+      />
+    );
+  }
 
+  // ═══════ IN-CLASS VIEW ═══════
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -211,11 +243,7 @@ const MainLayout: React.FC = () => {
       case 'absensi': return <AttendanceModule />;
       case 'statistik-absensi': return <AttendanceStatsModule />;
       case 'kas': return <KasModule />;
-      case 'rab': return (
-        <Suspense fallback={<LoadingFallback />}>
-          <RABModule />
-        </Suspense>
-      );
+      case 'rab': return <Suspense fallback={<LoadingFallback />}><RABModule /></Suspense>;
       case 'tugas': return <DeadlineModule />;
       case 'progress-tugas': return <TaskProgressModule />;
       case 'jadwal': return <ScheduleModule />;
@@ -251,6 +279,8 @@ const MainLayout: React.FC = () => {
         <Navbar
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           onNavigate={setCurrentModule}
+          view="in-class"
+          onExitClass={handleExitClass}
         />
 
         <div className="flex-1 flex max-w-7xl w-full mx-auto">
@@ -259,6 +289,7 @@ const MainLayout: React.FC = () => {
             onNavigate={setCurrentModule}
             isOpen={isSidebarOpen}
             onClose={() => setIsSidebarOpen(false)}
+            mode="in-class"
           />
           <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
             {renderCurrentModule()}
@@ -268,76 +299,46 @@ const MainLayout: React.FC = () => {
         <DashboardReminder onNavigate={setCurrentModule} />
 
         <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
-          <button
-            onClick={() => setCurrentModule('informasi')}
+          <button onClick={() => setCurrentModule('informasi')}
             className="p-3 sm:p-3.5 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xl border border-amber-400 flex items-center justify-center transition group hover:scale-105"
-            title="Papan Pengumuman"
-          >
+            title="Papan Pengumuman">
             <Megaphone className="w-5 h-5" />
           </button>
-          <button
-            onClick={() => setCurrentModule('struktur')}
+          <button onClick={() => setCurrentModule('struktur')}
             className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
-            title="Kerabat Kerja"
-          >
+            title="Kerabat Kerja">
             <Users className="w-5 h-5" />
           </button>
-          <button
-            onClick={() => setCurrentModule('aduan')}
+          <button onClick={() => setCurrentModule('aduan')}
             className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition group hover:scale-105"
-            title="Aduan Cepat"
-          >
+            title="Aduan Cepat">
             <MessageSquare className="w-5 h-5" />
           </button>
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
-          <button
-            onClick={() => setCurrentModule('dashboard')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
+          <button onClick={() => setCurrentModule('dashboard')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Home className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Beranda</span>
           </button>
-
-          <button
-            onClick={() => setCurrentModule('informasi')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
+          <button onClick={() => setCurrentModule('informasi')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Megaphone className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Info</span>
           </button>
-
-          <button
-            onClick={() => setCurrentModule('notifikasi')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
+          <button onClick={() => setCurrentModule('notifikasi')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Bell className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Notif</span>
           </button>
-
-          <button
-            onClick={() => setCurrentModule('kas')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
+          <button onClick={() => setCurrentModule('kas')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Wallet className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Kas</span>
           </button>
-
-          <button
-            onClick={() => setCurrentModule('rab')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${
-              currentModule === 'rab' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
+          <button onClick={() => setCurrentModule('rab')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'rab' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Calculator className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">RAB</span>
           </button>
@@ -345,11 +346,7 @@ const MainLayout: React.FC = () => {
       </div>
 
       {showLoginConfirm && user && (
-        <LoginConfirmModal
-          user={user}
-          onYes={handleLoginConfirmYes}
-          onNo={handleLoginConfirmNo}
-        />
+        <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
       )}
     </>
   );
