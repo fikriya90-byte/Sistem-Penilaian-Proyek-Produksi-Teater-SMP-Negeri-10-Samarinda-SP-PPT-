@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -68,11 +68,15 @@ const normalizeRole = (role: string): UserRole => {
   return role as UserRole;
 };
 
+const ACTIVE_CLASS_KEY = (uid: string) => `spppt-active-class-${uid}`;
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
-  const [activeClass, setActiveClass] = useState<ClassRoom | null>(null);
+  const [activeClass, _setActiveClass] = useState<ClassRoom | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const restoreClassRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -107,17 +111,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.warn('Profil tidak ditemukan untuk UID:', fbUser.uid);
             try { await signOut(auth); } catch { /* ignore */ }
             setUser(null);
-            setActiveClass(null);
+            _setActiveClass(null);
           }
         } catch (err) {
           console.warn('Fetch profile error:', err);
           try { await signOut(auth); } catch { /* ignore */ }
           setUser(null);
-          setActiveClass(null);
+          _setActiveClass(null);
         }
       } else {
         setUser(null);
-        setActiveClass(null);
+        _setActiveClass(null);
       }
 
       clearTimeout(safetyTimer);
@@ -130,28 +134,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Reset restore flag saat ganti user
   useEffect(() => {
-    if (!user) return;
+    restoreClassRef.current = false;
+  }, [user?.uid]);
+
+  // Restore activeClass dari localStorage — HANYA SEKALI per user
+  useEffect(() => {
+    if (!user || classes.length === 0) return;
+    if (restoreClassRef.current) return;
+
     const isTeacherRole =
       user.role === 'Guru Pengampu' ||
       user.role === 'Admin' ||
       user.role === 'Super Admin';
-    if (isTeacherRole) {
-      setActiveClass(null);
-      return;
+
+    // 1. Coba restore dari localStorage
+    let savedId: string | null = null;
+    try { savedId = localStorage.getItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
+
+    if (savedId) {
+      const match = classes.find(c => c.id === savedId);
+      if (match && (isTeacherRole || match.id === user.classId)) {
+        _setActiveClass(match);
+        restoreClassRef.current = true;
+        return;
+      }
+      try { localStorage.removeItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
     }
-    if (user.classId && classes.length > 0) {
+
+    // 2. Fallback siswa: auto-set kelas
+    if (!isTeacherRole && user.classId) {
       const match = classes.find(c => c.id === user.classId);
-      if (match) setActiveClass(match);
+      if (match) _setActiveClass(match);
     }
+
+    restoreClassRef.current = true;
   }, [user, classes]);
+
+  // Wrapper setActiveClass yang auto-persist
+  const setActiveClass = useCallback((c: ClassRoom | null) => {
+    _setActiveClass(c);
+    if (user?.uid) {
+      try {
+        if (c) localStorage.setItem(ACTIVE_CLASS_KEY(user.uid), c.id);
+        else localStorage.removeItem(ACTIVE_CLASS_KEY(user.uid));
+      } catch { /* ignore */ }
+    }
+  }, [user?.uid]);
 
   const reloadClasses = async () => {
     const clsList = await fetchClasses();
     setClasses(clsList);
     if (activeClass) {
       const refreshed = clsList.find(c => c.id === activeClass.id);
-      if (refreshed) setActiveClass(refreshed);
+      if (refreshed) _setActiveClass(refreshed);
     }
   };
 
@@ -331,10 +368,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           details: 'Logout dari sistem',
         });
       } catch (_) { /* non-fatal */ }
+      try { localStorage.removeItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
     }
     try { await signOut(auth); } catch (_) { /* ignore */ }
     setUser(null);
-    setActiveClass(null);
+    _setActiveClass(null);
   };
 
   const updateKerabatKerja = async (newName: string): Promise<{ success: boolean; message: string }> => {
@@ -352,7 +390,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         targetId: activeClass.id,
         details: `Ubah nama kerabat kerja menjadi "${newName.trim()}"`,
       });
-      setActiveClass({ ...activeClass, kerabatKerja: newName.trim() });
+      _setActiveClass({ ...activeClass, kerabatKerja: newName.trim() });
       setClasses(prev => prev.map(c => c.id === activeClass.id ? { ...c, kerabatKerja: newName.trim() } : c));
       return { success: true, message: 'Nama kerabat kerja berhasil diperbarui!' };
     } catch (err: any) {
@@ -366,7 +404,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await forceSeedDatabase();
     const clsList = await fetchClasses();
     setClasses(clsList);
-    setActiveClass(null);
+    _setActiveClass(null);
     setUser(null);
     setLoading(false);
   };
@@ -403,35 +441,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const myRole = user.role;
     const targetRole = target.role;
 
-    if (isGuruPengampu) {
-      return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
-    }
-    if (isAdminRole) {
-      return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
-    }
+    if (isGuruPengampu) return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
+    if (isAdminRole) return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
 
     if (myRole === 'Pimpinan Produksi') {
       return (
-        targetRole === 'Sutradara' ||
-        targetRole === 'Sekretaris' ||
-        targetRole === 'Bendahara' ||
-        targetRole === 'Koordinator Publikasi' ||
-        targetRole === 'Koordinator Perlengkapan'
+        targetRole === 'Sutradara' || targetRole === 'Sekretaris' || targetRole === 'Bendahara' ||
+        targetRole === 'Koordinator Publikasi' || targetRole === 'Koordinator Perlengkapan'
       );
     }
 
     if (myRole === 'Sutradara') {
       return (
-        targetRole === 'Pimpinan Produksi' ||
-        targetRole === 'Asisten Sutradara' ||
-        targetRole === 'Koordinator Tata Panggung' ||
-        targetRole === 'Koordinator Tata Busana' ||
-        targetRole === 'Koordinator Tata Rias' ||
-        targetRole === 'Koordinator Tata Musik' ||
-        targetRole === 'Anggota Tata Panggung' ||
-        targetRole === 'Anggota Tata Busana' ||
-        targetRole === 'Anggota Tata Rias' ||
-        targetRole === 'Anggota Tata Musik' ||
+        targetRole === 'Pimpinan Produksi' || targetRole === 'Asisten Sutradara' ||
+        targetRole === 'Koordinator Tata Panggung' || targetRole === 'Koordinator Tata Busana' ||
+        targetRole === 'Koordinator Tata Rias' || targetRole === 'Koordinator Tata Musik' ||
+        targetRole === 'Anggota Tata Panggung' || targetRole === 'Anggota Tata Busana' ||
+        targetRole === 'Anggota Tata Rias' || targetRole === 'Anggota Tata Musik' ||
         targetRole === 'Pemeran'
       );
     }
@@ -443,38 +469,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const divPrefix = myRole === 'Koordinator Publikasi' ? 'Anggota Publikasi' : 'Anggota Perlengkapan';
       return targetRole === divPrefix;
     }
-
     if (myRole === 'Koordinator Tata Panggung') return targetRole === 'Anggota Tata Panggung';
     if (myRole === 'Koordinator Tata Rias') return targetRole === 'Anggota Tata Rias';
     if (myRole === 'Koordinator Tata Busana') return targetRole === 'Anggota Tata Busana';
     if (myRole === 'Koordinator Tata Musik') return targetRole === 'Anggota Tata Musik';
 
-    if (myRole === 'Asisten Sutradara') {
-      return targetRole === 'Pemeran';
-    }
+    if (myRole === 'Asisten Sutradara') return targetRole === 'Pemeran';
 
     if (myRole.startsWith('Anggota ')) {
       const myDiv = user.divisionName || '';
       const targetDiv = target.divisionName || '';
       if (myDiv && targetDiv !== myDiv) return false;
-
       if (['Tata Panggung', 'Tata Busana', 'Tata Rias', 'Tata Musik & Suara'].includes(myDiv)) {
         if (targetRole === 'Sutradara') return true;
       }
-
       if (['Publikasi & Dokumentasi', 'Perlengkapan'].includes(myDiv)) {
         if (targetRole === 'Sutradara' || targetRole === 'Pimpinan Produksi') return false;
       }
-
       return targetRole.startsWith('Koordinator ') || targetRole.startsWith('Anggota ');
     }
 
     if (myRole === 'Pemeran') {
-      return (
-        targetRole === 'Sutradara' ||
-        targetRole === 'Asisten Sutradara' ||
-        targetRole === 'Pemeran'
-      );
+      return targetRole === 'Sutradara' || targetRole === 'Asisten Sutradara' || targetRole === 'Pemeran';
     }
 
     return false;
@@ -483,38 +499,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider
       value={{
-        user,
-        loading,
-        activeClass,
-        classes,
-        setActiveClass,
-        reloadClasses,
-        loginWithEmail,
-        registerUser,
-        logout,
-        resetDemoDatabase,
-        updateKerabatKerja,
-        isTeacher,
-        isGuruPengampu,
-        isAdminRole,
-        isPimprod,
-        isSekretaris,
-        isBendahara,
-        isSutradara,
-        isAsisten,
-        isKoordinator,
-        isAnggota,
-        isPemeran,
-        canEditKerabatKerja,
-        canCreateGeneralAttendance,
-        canCreateRehearsalAttendance,
-        canCreateDivisionAttendance,
-        canCreateGeneralSchedule,
-        canCreateInternalSchedule,
-        canCreateTask,
-        canCreateDeadline,
-        canCreateBroadcast,
-        canAssessTarget,
+        user, loading, activeClass, classes,
+        setActiveClass, reloadClasses, loginWithEmail, registerUser, logout,
+        resetDemoDatabase, updateKerabatKerja,
+        isTeacher, isGuruPengampu, isAdminRole, isPimprod, isSekretaris, isBendahara,
+        isSutradara, isAsisten, isKoordinator, isAnggota, isPemeran, canEditKerabatKerja,
+        canCreateGeneralAttendance, canCreateRehearsalAttendance, canCreateDivisionAttendance,
+        canCreateGeneralSchedule, canCreateInternalSchedule, canCreateTask,
+        canCreateDeadline, canCreateBroadcast, canAssessTarget,
       }}
     >
       {children}
