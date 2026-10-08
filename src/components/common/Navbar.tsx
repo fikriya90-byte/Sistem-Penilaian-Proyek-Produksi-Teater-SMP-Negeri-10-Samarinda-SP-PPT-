@@ -49,11 +49,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ✅ KLIK NOTIFIKASI → ARAHKAN KE HALAMAN NOTIFIKASI
+  // ✅ KLIK NOTIFIKASI → ARAHKAN KE HALAMAN TUJUAN (link) atau ke Notifikasi Saya
   const handleReadNotif = async (n: SystemNotification) => {
     await markNotificationAsRead(n.id);
-    onNavigate('notifikasi');
     setShowNotifMenu(false);
+
+    // Kalau notif punya link target → ke sana
+    if (n.link && n.link.trim()) {
+      onNavigate(n.link);
+    } else {
+      onNavigate('notifikasi');
+    }
   };
 
   const handleMarkAllRead = async () => {
