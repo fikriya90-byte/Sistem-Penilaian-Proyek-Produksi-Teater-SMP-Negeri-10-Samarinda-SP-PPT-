@@ -4,7 +4,7 @@ import {
   AlertTriangle, Check, BookOpen, ChevronRight, ChevronLeft, Sparkles, Target,
   ListChecks, Square, CheckSquare, User, Briefcase, Copy, FilePlus,
   Wand2, Loader2, Trash2, Pencil, Pause, Play, Ban, XCircle,
-  Info, Save, Star, FileText, Link2, MessageSquare,
+  Info, Save, Star, FileText, Link2, MessageSquare, Calendar,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -52,8 +52,10 @@ interface TargetItem {
   name: string;
 }
 
+type DueDateMode = 'PRESERVE' | 'SHIFT' | 'OVERRIDE';
+
 /* ============================================================
-   COPY MODAL
+   DUPLIKAT MODAL — 4 LANGKAH
    ============================================================ */
 const DeadlineCopyModal: React.FC<{
   allClasses: ClassRoom[];
@@ -65,10 +67,15 @@ const DeadlineCopyModal: React.FC<{
   const { user } = useAuth();
   const { showToast } = useToast();
 
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedDeadlineIds, setSelectedDeadlineIds] = useState<string[]>([]);
   const [selectedClassIds, setSelectedClassIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
+
+  const [dueDateMode, setDueDateMode] = useState<DueDateMode>('PRESERVE');
+  const [shiftDays, setShiftDays] = useState(0);
+  const [overrideDate, setOverrideDate] = useState('');
+
   const [recipientPreview, setRecipientPreview] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -94,6 +101,57 @@ const DeadlineCopyModal: React.FC<{
   const selectAllClasses = () => setSelectedClassIds(otherClasses.map(c => c.id));
   const deselectAllClasses = () => setSelectedClassIds([]);
 
+  const computeNewDueDate = (originalDue: string): string => {
+    if (dueDateMode === 'SHIFT') {
+      const d = new Date(originalDue);
+      d.setDate(d.getDate() + shiftDays);
+      return d.toISOString();
+    }
+    if (dueDateMode === 'OVERRIDE' && overrideDate) {
+      return new Date(overrideDate).toISOString();
+    }
+    return originalDue;
+  };
+
+  const getRecipientsForDeadline = (
+    source: DeadlineItem,
+    studentsInClass: UserProfile[]
+  ): Set<string> => {
+    const recipientIds = new Set<string>();
+    const dScope = source.targetScope as string;
+    const dRole = (source as any).targetRole as string | undefined;
+    const dDivision = (source as any).targetDivision as string | undefined;
+    const dTargetRoles: string[] = (source as any).targetRoles || [];
+    const dTargetDivisions: string[] = (source as any).targetDivisions || [];
+
+    studentsInClass.forEach(u => {
+      if (dScope === 'SEMUA') {
+        recipientIds.add(u.uid);
+        return;
+      }
+      if (dScope === 'PERAN') {
+        if (dRole && u.role === dRole) recipientIds.add(u.uid);
+        return;
+      }
+      if (dScope === 'DIVISI') {
+        if (dDivision && u.divisionName === dDivision) recipientIds.add(u.uid);
+        return;
+      }
+      if (dScope === 'CUSTOM') {
+        if (dTargetRoles.length > 0 && dTargetRoles.includes(u.role)) {
+          recipientIds.add(u.uid);
+          return;
+        }
+        if (dTargetDivisions.length > 0 && u.divisionName && dTargetDivisions.includes(u.divisionName)) {
+          recipientIds.add(u.uid);
+          return;
+        }
+      }
+    });
+
+    return recipientIds;
+  };
+
   useEffect(() => {
     if (selectedClassIds.length === 0 || selectedDeadlineIds.length === 0) {
       setRecipientPreview({});
@@ -104,37 +162,40 @@ const DeadlineCopyModal: React.FC<{
       for (const cid of selectedClassIds) {
         try {
           const users = await fetchUsersByClass(cid);
-          const targets = new Set<string>();
-          users.forEach(u => {
-            if (u.role === 'Guru Pengampu' || u.role === 'Admin' || u.role === 'Super Admin') return;
-            for (const did of selectedDeadlineIds) {
-              const d = deadlines.find(x => x.id === did);
-              if (!d) continue;
-              const targetRole = (d as any).targetRole;
-              const targetDivision = (d as any).targetDivision;
-              if (d.targetScope === 'SEMUA') { targets.add(u.uid); break; }
-              if (d.targetScope === 'PERAN' && targetRole && u.role === targetRole) { targets.add(u.uid); break; }
-              if (d.targetScope === 'DIVISI' && targetDivision && u.divisionName === targetDivision) { targets.add(u.uid); break; }
-              if (d.targetScope === 'CUSTOM') { targets.add(u.uid); break; }
-            }
-          });
-          preview[cid] = targets.size;
+          const students = users.filter(u =>
+            u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
+            u.role !== 'Admin' && u.role !== 'Super Admin'
+          );
+          const allTargets = new Set<string>();
+          for (const did of selectedDeadlineIds) {
+            const d = deadlines.find(x => x.id === did);
+            if (!d) continue;
+            const recipients = getRecipientsForDeadline(d, students);
+            recipients.forEach(r => allTargets.add(r));
+          }
+          preview[cid] = allTargets.size;
         } catch (err) {
           preview[cid] = 0;
         }
       }
       setRecipientPreview(preview);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClassIds, selectedDeadlineIds, deadlines]);
 
-  const handleCopy = async () => {
+  const handleDuplicate = async () => {
     if (!user) return;
     if (selectedDeadlineIds.length === 0) { showToast('Pilih minimal 1 deadline.', 'warning'); return; }
     if (selectedClassIds.length === 0) { showToast('Pilih minimal 1 kelas tujuan.', 'warning'); return; }
+    if (dueDateMode === 'OVERRIDE' && !overrideDate) {
+      showToast('Pilih tanggal baru terlebih dahulu.', 'warning');
+      return;
+    }
 
     setSubmitting(true);
     let totalCreated = 0;
     let totalNotif = 0;
+    let totalSkipped = 0;
 
     try {
       for (const targetClassId of selectedClassIds) {
@@ -143,31 +204,34 @@ const DeadlineCopyModal: React.FC<{
 
         const targetUsers = await fetchUsersByClass(targetClassId);
         const studentsTarget = targetUsers.filter(u =>
-          u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
+          u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
+          u.role !== 'Admin' && u.role !== 'Super Admin'
         );
 
         for (const deadlineId of selectedDeadlineIds) {
           const source = deadlines.find(d => d.id === deadlineId);
           if (!source) continue;
 
+          const recipientIds = getRecipientsForDeadline(source, studentsTarget);
+
+          if (recipientIds.size === 0 && source.targetScope === 'CUSTOM') {
+            totalSkipped++;
+            continue;
+          }
+
+          const newDueDate = computeNewDueDate(source.dueDate);
           const targetRole = (source as any).targetRole;
           const targetDivision = (source as any).targetDivision;
-
-          const recipientIds = new Set<string>();
-          studentsTarget.forEach(u => {
-            if (source.targetScope === 'SEMUA') recipientIds.add(u.uid);
-            else if (source.targetScope === 'PERAN' && targetRole && u.role === targetRole) recipientIds.add(u.uid);
-            else if (source.targetScope === 'DIVISI' && targetDivision && u.divisionName === targetDivision) recipientIds.add(u.uid);
-            else if (source.targetScope === 'CUSTOM') recipientIds.add(u.uid);
-          });
+          const targetRoles = (source as any).targetRoles;
+          const targetDivisions = (source as any).targetDivisions;
 
           const newRef = doc(collection(db, 'deadlines'));
-          const copyData: any = {
+          const newData: any = {
             id: newRef.id,
             classId: targetClassId,
             title: source.title,
             description: source.description,
-            dueDate: source.dueDate,
+            dueDate: newDueDate,
             priority: source.priority,
             targetScope: source.targetScope,
             targetUserIds: Array.from(recipientIds),
@@ -177,10 +241,14 @@ const DeadlineCopyModal: React.FC<{
             creatorName: user.displayName,
             creatorRole: user.role,
             createdAt: new Date().toISOString(),
+            duplicatedFrom: source.id,
           };
-          if (targetRole) copyData.targetRole = targetRole;
-          if (targetDivision) copyData.targetDivision = targetDivision;
-          await setDoc(newRef, copyData);
+          if (targetRole) newData.targetRole = targetRole;
+          if (targetDivision) newData.targetDivision = targetDivision;
+          if (targetRoles && targetRoles.length > 0) newData.targetRoles = targetRoles;
+          if (targetDivisions && targetDivisions.length > 0) newData.targetDivisions = targetDivisions;
+
+          await setDoc(newRef, newData);
           totalCreated++;
 
           if (recipientIds.size > 0) {
@@ -206,11 +274,15 @@ const DeadlineCopyModal: React.FC<{
         }
       }
 
-      showToast(`${totalCreated} deadline disalin. ${totalNotif} siswa menerima notifikasi.`, 'success');
+      let msg = `${totalCreated} deadline diduplikat. ${totalNotif} siswa menerima notifikasi.`;
+      if (totalSkipped > 0) {
+        msg += ` (${totalSkipped} di-skip karena target tidak cocok)`;
+      }
+      showToast(msg, 'success');
       onSuccess?.();
       onClose();
     } catch (err: any) {
-      showToast('Gagal menyalin: ' + (err?.message || 'Unknown'), 'error');
+      showToast('Gagal duplikat: ' + (err?.message || 'Unknown'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -228,8 +300,10 @@ const DeadlineCopyModal: React.FC<{
                 <Copy className="w-6 h-6" />
               </span>
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">Salin Deadline</span>
-                <h3 className="text-lg font-black mt-0.5">Langkah {step} dari 3</h3>
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-90">
+                  Duplikat Deadline
+                </span>
+                <h3 className="text-lg font-black mt-0.5">Langkah {step} dari 4</h3>
               </div>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/20 transition">
@@ -237,7 +311,7 @@ const DeadlineCopyModal: React.FC<{
             </button>
           </div>
           <div className="flex items-center gap-2 mt-4">
-            {[1, 2, 3].map(s => (
+            {[1, 2, 3, 4].map(s => (
               <div key={s} className={`flex-1 h-1.5 rounded-full transition ${s <= step ? 'bg-white' : 'bg-white/30'}`} />
             ))}
           </div>
@@ -247,7 +321,9 @@ const DeadlineCopyModal: React.FC<{
           {step === 1 && (
             <>
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">Pilih Deadline</h4>
+                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                  Pilih Deadline yang Mau Diduplikat
+                </h4>
                 <div className="flex items-center gap-2">
                   <button onClick={selectAllDeadlines} className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1">
                     <Check className="w-3 h-3" /> Semua
@@ -258,9 +334,15 @@ const DeadlineCopyModal: React.FC<{
                   </button>
                 </div>
               </div>
-              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                {deadlines.map(d => {
+              <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+                {deadlines.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic text-center py-8">Belum ada deadline.</p>
+                ) : deadlines.map(d => {
                   const isSelected = selectedDeadlineIds.includes(d.id);
+                  const targetInfo = d.targetScope === 'SEMUA' ? 'Semua Siswa'
+                    : d.targetScope === 'PERAN' ? `Peran: ${(d as any).targetRole || '-'}`
+                    : d.targetScope === 'DIVISI' ? `Divisi: ${(d as any).targetDivision || '-'}`
+                    : 'Custom';
                   return (
                     <button key={d.id} onClick={() => toggleDeadline(d.id)}
                       className={`w-full p-3 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
@@ -270,7 +352,10 @@ const DeadlineCopyModal: React.FC<{
                       <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
                         {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
                       </div>
-                      <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{d.title}</p>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{d.title}</p>
+                        <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-0.5 font-bold">{targetInfo}</p>
+                      </div>
                     </button>
                   );
                 })}
@@ -292,48 +377,212 @@ const DeadlineCopyModal: React.FC<{
                   </button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {otherClasses.map(c => {
-                  const isSelected = selectedClassIds.includes(c.id);
-                  return (
-                    <button key={c.id} onClick={() => toggleClass(c.id)}
-                      className={`p-4 rounded-2xl border-2 text-left transition ${
-                        isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
-                          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
-                      }`}>
-                      <div className="flex items-start gap-3">
-                        <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
-                          {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
+              {otherClasses.length === 0 ? (
+                <p className="text-xs text-slate-400 italic text-center py-8">
+                  Tidak ada kelas lain. Buat kelas lain dulu.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {otherClasses.map(c => {
+                    const isSelected = selectedClassIds.includes(c.id);
+                    const count = recipientPreview[c.id];
+                    return (
+                      <button key={c.id} onClick={() => toggleClass(c.id)}
+                        className={`p-4 rounded-2xl border-2 text-left transition ${
+                          isSelected ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                        }`}>
+                        <div className="flex items-start gap-3">
+                          <div className={`p-0.5 rounded-md shrink-0 mt-0.5 ${isSelected ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>
+                            {isSelected ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4 text-transparent" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-black text-slate-900 dark:text-white">{c.name}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{c.code}</p>
+                            {isSelected && count !== undefined && (
+                              <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+                                {count} siswa akan menerima
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm font-black text-slate-900 dark:text-white">{c.name}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{c.code}</p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </>
           )}
 
           {step === 3 && (
             <>
-              <h4 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">Konfirmasi</h4>
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10 border-2 border-purple-200 dark:border-purple-500/30">
+              <h4 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
+                Pengaturan Waktu & Tanggal
+              </h4>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                Pilih bagaimana tanggal deadline asli akan diterapkan pada deadline baru.
+              </p>
+
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setDueDateMode('PRESERVE')}
+                  className={`w-full p-4 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
+                    dueDateMode === 'PRESERVE'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/10'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                  }`}>
+                  <div className={`p-0.5 rounded-full shrink-0 mt-0.5 ${dueDateMode === 'PRESERVE' ? 'bg-purple-500 text-white' : 'border-2 border-slate-300'}`}>
+                    {dueDateMode === 'PRESERVE' ? <Check className="w-4 h-4" /> : <div className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5" /> Pertahankan Tanggal Asli
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                      Deadline baru akan menggunakan tanggal & waktu yang sama persis dengan asli.
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDueDateMode('SHIFT')}
+                  className={`w-full p-4 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
+                    dueDateMode === 'SHIFT'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/10'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                  }`}>
+                  <div className={`p-0.5 rounded-full shrink-0 mt-0.5 ${dueDateMode === 'SHIFT' ? 'bg-purple-500 text-white' : 'border-2 border-slate-300'}`}>
+                    {dueDateMode === 'SHIFT' ? <Check className="w-4 h-4" /> : <div className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" /> Geser Tanggal
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                      Tampilkan setelah tanggal asli, digeser maju/mundur beberapa hari.
+                    </p>
+                  </div>
+                </button>
+
+                {dueDateMode === 'SHIFT' && (
+                  <div className="p-4 rounded-xl bg-purple-50 dark:bg-purple-500/10 border-2 border-purple-200 dark:border-purple-500/30 space-y-2">
+                    <label className="block text-xs font-bold text-purple-900 dark:text-purple-200">
+                      Geser berapa hari?
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShiftDays(prev => prev - 1)}
+                        className="p-2 rounded-lg bg-white dark:bg-slate-700 border border-purple-200 dark:border-purple-500/40 text-purple-700 dark:text-purple-300 font-bold hover:bg-purple-100 transition">
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        value={shiftDays}
+                        onChange={(e) => setShiftDays(parseInt(e.target.value) || 0)}
+                        className="flex-1 px-3 py-2 rounded-xl border border-purple-200 dark:border-purple-500/40 bg-white dark:bg-slate-800 text-sm font-black text-center text-purple-900 dark:text-purple-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShiftDays(prev => prev + 1)}
+                        className="p-2 rounded-lg bg-white dark:bg-slate-700 border border-purple-200 dark:border-purple-500/40 text-purple-700 dark:text-purple-300 font-bold hover:bg-purple-100 transition">
+                        +
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-purple-700 dark:text-purple-300">
+                      Nilai positif = geser maju. Negatif = geser mundur.
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setDueDateMode('OVERRIDE')}
+                  className={`w-full p-4 rounded-2xl border-2 text-left transition flex items-start gap-3 ${
+                    dueDateMode === 'OVERRIDE'
+                      ? 'border-purple-500 bg-purple-50 dark:bg-purple-500/10'
+                      : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                  }`}>
+                  <div className={`p-0.5 rounded-full shrink-0 mt-0.5 ${dueDateMode === 'OVERRIDE' ? 'bg-purple-500 text-white' : 'border-2 border-slate-300'}`}>
+                    {dueDateMode === 'OVERRIDE' ? <Check className="w-4 h-4" /> : <div className="w-4 h-4" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5" /> Set Tanggal Baru
+                    </p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                      Semua deadline akan pakai tanggal & waktu yang Anda tentukan.
+                    </p>
+                  </div>
+                </button>
+
+                {dueDateMode === 'OVERRIDE' && (
+                  <div className="p-4 rounded-xl bg-purple-50 dark:bg-purple-500/10 border-2 border-purple-200 dark:border-purple-500/30 space-y-2">
+                    <label className="block text-xs font-bold text-purple-900 dark:text-purple-200">
+                      Tanggal & Waktu Baru
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={overrideDate}
+                      onChange={(e) => setOverrideDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-purple-200 dark:border-purple-500/40 bg-white dark:bg-slate-800 text-xs font-semibold"
+                    />
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {step === 4 && (
+            <>
+              <h4 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
+                Konfirmasi Duplikat
+              </h4>
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10 border-2 border-purple-200 dark:border-purple-500/30 space-y-4">
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div>
-                    <p className="text-[10px] font-bold text-purple-700 uppercase">Deadline</p>
+                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Deadline</p>
                     <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{selectedDeadlineIds.length}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-purple-700 uppercase">Kelas</p>
+                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Kelas</p>
                     <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{selectedClassIds.length}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-bold text-purple-700 uppercase">Siswa</p>
+                    <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase">Penerima</p>
                     <p className="text-2xl font-black text-purple-900 dark:text-purple-200">{totalRecipients}</p>
                   </div>
+                </div>
+
+                <div className="pt-3 border-t border-purple-200 dark:border-purple-500/30 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600 dark:text-slate-300 font-semibold">Mode Waktu:</span>
+                    <span className="font-bold text-purple-900 dark:text-purple-200">
+                      {dueDateMode === 'PRESERVE' ? 'Pertahankan Asli' :
+                       dueDateMode === 'SHIFT' ? `Geser ${shiftDays >= 0 ? '+' : ''}${shiftDays} hari` :
+                       'Set Tanggal Baru'}
+                    </span>
+                  </div>
+                  {dueDateMode === 'OVERRIDE' && overrideDate && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-600 dark:text-slate-300 font-semibold">Tanggal Baru:</span>
+                      <span className="font-bold text-purple-900 dark:text-purple-200">
+                        {new Date(overrideDate).toLocaleString('id-ID', {
+                          day: 'numeric', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
+                  <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                    Deadline akan dikirim <strong>hanya ke penerima yang sesuai peran/divisi</strong> dari deadline asli.
+                  </p>
                 </div>
               </div>
             </>
@@ -341,7 +590,9 @@ const DeadlineCopyModal: React.FC<{
         </div>
 
         <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t flex justify-between items-center gap-2 shrink-0">
-          <button onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">Batal</button>
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
+            Batal
+          </button>
           <div className="flex items-center gap-2">
             {step > 1 && (
               <button onClick={() => setStep((step - 1) as any)}
@@ -349,18 +600,22 @@ const DeadlineCopyModal: React.FC<{
                 <ChevronLeft className="w-3.5 h-3.5" /> Kembali
               </button>
             )}
-            {step < 3 && (
+            {step < 4 && (
               <button onClick={() => setStep((step + 1) as any)}
-                disabled={(step === 1 && selectedDeadlineIds.length === 0) || (step === 2 && selectedClassIds.length === 0)}
+                disabled={
+                  (step === 1 && selectedDeadlineIds.length === 0) ||
+                  (step === 2 && selectedClassIds.length === 0) ||
+                  (step === 3 && dueDateMode === 'OVERRIDE' && !overrideDate)
+                }
                 className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 Lanjut <ChevronRight className="w-3.5 h-3.5" />
               </button>
             )}
-            {step === 3 && (
-              <button onClick={handleCopy} disabled={submitting || totalRecipients === 0}
+            {step === 4 && (
+              <button onClick={handleDuplicate} disabled={submitting || totalRecipients === 0}
                 className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                <Send className="w-3.5 h-3.5" />
-                {submitting ? 'Menyalin...' : `Salin ke ${selectedClassIds.length} Kelas`}
+                <Copy className="w-3.5 h-3.5" />
+                {submitting ? 'Menduplikat...' : `Duplikat ke ${selectedClassIds.length} Kelas`}
               </button>
             )}
           </div>
@@ -390,12 +645,10 @@ export const DeadlineModule: React.FC = () => {
   const [now, setNow] = useState(new Date());
   const [submitting, setSubmitting] = useState(false);
 
-  // Note modal (opsional)
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteLink, setNoteLink] = useState('');
 
-  // Konfirmasi tandai selesai
   const [confirmDoneItem, setConfirmDoneItem] = useState<DeadlineItem | null>(null);
   const [quickDoneLoading, setQuickDoneLoading] = useState<string | null>(null);
 
@@ -468,7 +721,7 @@ export const DeadlineModule: React.FC = () => {
 
   const getCountdown = (dueDate?: string, status?: string) => {
     if (status === 'CANCELLED') {
-      return { text: 'DIBATALKAN — tidak perlu dikerjakan', color: 'text-slate-600 bg-slate-100 border-slate-300 dark:bg-slate-800 dark:text-slate-400' };
+      return { text: 'DIBATALKAN', color: 'text-slate-600 bg-slate-100 border-slate-300 dark:bg-slate-800 dark:text-slate-400' };
     }
     if (status === 'HOLD') {
       return { text: 'DITAHAN — countdown di-pause', color: 'text-amber-800 bg-amber-50 border-amber-300 dark:bg-amber-500/20 dark:text-amber-300' };
@@ -487,9 +740,6 @@ export const DeadlineModule: React.FC = () => {
     return { text: `${days} hari lagi`, color: 'text-slate-700 bg-slate-50 border-slate-200' };
   };
 
-  // ============================================================
-  // SIMPLE: Tandai Selesai (1 klik)
-  // ============================================================
   const handleQuickDone = async (d: DeadlineItem) => {
     if (!user || !activeClass) return;
     setQuickDoneLoading(d.id);
@@ -498,7 +748,7 @@ export const DeadlineModule: React.FC = () => {
       const dueMs = new Date(d.dueDate || 0).getTime();
       const isLate = !isNaN(dueMs) && dueMs < Date.now();
 
-      const submissionData: any = {
+      await setDoc(doc(db, 'deadlineSubmissions', subId), {
         id: subId,
         deadlineId: d.id,
         classId: activeClass.id,
@@ -511,8 +761,7 @@ export const DeadlineModule: React.FC = () => {
         extensionRequested: false,
         updatedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'deadlineSubmissions', subId), submissionData);
+      });
 
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
@@ -520,12 +769,7 @@ export const DeadlineModule: React.FC = () => {
         details: `Tandai selesai: "${d.title}"${isLate ? ' (terlambat)' : ''}`,
       });
 
-      showToast(
-        isLate
-          ? `✅ Tandai selesai (terlambat). Tetap semangat!`
-          : `✅ Mantap! Tugas selesai.`,
-        'success'
-      );
+      showToast(isLate ? `✅ Tandai selesai (terlambat).` : `✅ Mantap! Tugas selesai.`, 'success');
       setConfirmDoneItem(null);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
@@ -536,24 +780,16 @@ export const DeadlineModule: React.FC = () => {
 
   const handleUnmarkDone = async (d: DeadlineItem) => {
     if (!user) return;
-    if (!confirm(`Batalkan status selesai untuk "${d.title}"?\n\nAnda bisa menandai selesai lagi kapan saja.`)) return;
+    if (!confirm(`Batalkan status selesai untuk "${d.title}"?`)) return;
     try {
       const subId = `${d.id}_${user.uid}`;
       await deleteDoc(doc(db, 'deadlineSubmissions', subId));
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'DELETE', targetType: 'DeadlineSubmission', targetId: subId,
-        details: `Batalkan selesai: "${d.title}"`,
-      });
-      showToast('Status dibatalkan. Tugas kembali muncul.', 'info');
+      showToast('Status dibatalkan.', 'info');
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     }
   };
 
-  // ============================================================
-  // Catatan Opsional (tidak wajib)
-  // ============================================================
   const handleOpenNote = (d: DeadlineItem) => {
     const existing = mySubmissions[d.id];
     setSelectedDeadline(d);
@@ -570,7 +806,7 @@ export const DeadlineModule: React.FC = () => {
       const dueMs = new Date(selectedDeadline.dueDate || 0).getTime();
       const isLate = !isNaN(dueMs) && dueMs < Date.now();
 
-      const submissionData: any = {
+      await setDoc(doc(db, 'deadlineSubmissions', subId), {
         id: subId,
         deadlineId: selectedDeadline.id,
         classId: activeClass.id,
@@ -583,8 +819,7 @@ export const DeadlineModule: React.FC = () => {
         extensionRequested: false,
         updatedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'deadlineSubmissions', subId), submissionData);
+      });
       showToast('Catatan tersimpan!', 'success');
       setIsNoteOpen(false);
       setNoteText('');
@@ -745,23 +980,13 @@ export const DeadlineModule: React.FC = () => {
     if (!user) return;
     const isHeld = (d as any).status === 'HOLD';
     const newStatus = isHeld ? 'ACTIVE' : 'HOLD';
-    if (!confirm(
-      isHeld
-        ? `Aktifkan kembali deadline "${d.title}"?\n\nCountdown akan berjalan lagi.`
-        : `Tahan deadline "${d.title}"?\n\nCountdown akan di-pause — tidak dihitung overdue sementara.`
-    )) return;
-
+    if (!confirm(isHeld ? `Aktifkan kembali deadline "${d.title}"?` : `Tahan deadline "${d.title}"?`)) return;
     setActionLoading(d.id);
     try {
       await updateDoc(doc(db, 'deadlines', d.id), {
         status: newStatus,
         updatedAt: new Date().toISOString(),
         updatedBy: user.displayName,
-      });
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'UPDATE', targetType: 'Deadline', targetId: d.id,
-        details: `${isHeld ? 'Aktifkan' : 'Tahan'} deadline: ${d.title}`,
       });
       showToast(isHeld ? 'Deadline diaktifkan kembali.' : 'Deadline ditahan.', 'success');
     } catch (err: any) {
@@ -773,11 +998,7 @@ export const DeadlineModule: React.FC = () => {
 
   const handleCancelDeadline = async (d: DeadlineItem) => {
     if (!user) return;
-    if (!confirm(
-      `BATALKAN deadline "${d.title}"?\n\n` +
-      `Deadline akan ditandai "DIBATALKAN" — siswa tidak perlu mengerjakan.`
-    )) return;
-
+    if (!confirm(`BATALKAN deadline "${d.title}"?`)) return;
     setActionLoading(d.id);
     try {
       await updateDoc(doc(db, 'deadlines', d.id), {
@@ -785,11 +1006,6 @@ export const DeadlineModule: React.FC = () => {
         cancelledAt: new Date().toISOString(),
         cancelledBy: user.displayName,
         updatedAt: new Date().toISOString(),
-      });
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'UPDATE', targetType: 'Deadline', targetId: d.id,
-        details: `Batalkan deadline: ${d.title}`,
       });
       showToast('Deadline dibatalkan.', 'info');
     } catch (err: any) {
@@ -819,14 +1035,9 @@ export const DeadlineModule: React.FC = () => {
 
   const handleDeleteDeadline = async (d: DeadlineItem) => {
     if (!user) return;
-    if (!confirm(`Hapus deadline "${d.title}"?\n\nTindakan ini tidak bisa dibatalkan.`)) return;
+    if (!confirm(`Hapus deadline "${d.title}"?`)) return;
     try {
       await deleteDoc(doc(db, 'deadlines', d.id));
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'DELETE', targetType: 'Deadline', targetId: d.id,
-        details: `Hapus deadline: ${d.title}`,
-      });
       showToast('Deadline berhasil dihapus.', 'success');
     } catch (err: any) {
       showToast('Gagal hapus: ' + (err?.message || 'Unknown'), 'error');
@@ -938,12 +1149,6 @@ export const DeadlineModule: React.FC = () => {
         });
         await batch.commit();
       }
-
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'DeadlineBatch', targetId: 'batch',
-        details: `Kirim ${success} deadline ke ${totalNotif} penerima (${selectedStage})`,
-      });
 
       showToast(`${success} deadline dikirim ke ${totalNotif} penerima!`, 'success');
       setIsTemplateOpen(false);
@@ -1108,7 +1313,7 @@ export const DeadlineModule: React.FC = () => {
               <h2 className="text-xl font-black text-white mt-1">Tugas &amp; Deadline Produksi</h2>
               <p className="text-xs text-slate-300 mt-0.5">
                 {canCreate
-                  ? 'Buat dari template, input manual, atau salin ke kelas lain'
+                  ? 'Buat dari template, input manual, atau duplikat ke kelas lain'
                   : 'Tandai selesai dengan 1 klik — tidak perlu link apapun'}
               </p>
             </div>
@@ -1125,19 +1330,18 @@ export const DeadlineModule: React.FC = () => {
               </button>
               <button onClick={() => setIsCopyOpen(true)} disabled={deadlines.length === 0}
                 className="px-4 py-2.5 rounded-xl bg-purple-500 hover:bg-purple-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition">
-                <Copy className="w-4 h-4" /> Salin
+                <Copy className="w-4 h-4" /> Duplikat
               </button>
             </div>
           )}
         </div>
 
-        {/* Info untuk siswa */}
         {!canCreate && (
           <div className="mt-3 p-2.5 rounded-xl bg-white/10 border border-white/20 text-[11px] text-slate-200 flex items-start gap-2">
             <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>
-              <strong>Tips:</strong> Klik tombol besar <strong>"Tandai Selesai"</strong> jika sudah mengerjakan.
-              Tidak perlu upload link apapun. Kalau mau kasih catatan/link (opsional), klik "Tambah Catatan".
+              <strong>Tips:</strong> Klik tombol <strong>"Tandai Selesai"</strong> jika sudah mengerjakan.
+              Tidak perlu upload link. Kalau mau kasih catatan/link (opsional), klik "Tambah Catatan".
             </span>
           </div>
         )}
@@ -1260,37 +1464,28 @@ export const DeadlineModule: React.FC = () => {
                   {d.dueDate ? ` — ${new Date(d.dueDate).toLocaleString('id-ID')}` : ''}
                 </p>
 
-                {/* ============================================================ */}
-                {/* STUDENT VIEW — SIMPLE SUBMIT */}
-                {/* ============================================================ */}
                 {!canCreate && (
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-700 space-y-2">
                     {!isDone ? (
                       <>
-                        {/* Tombol besar Tandai Selesai */}
                         <button
                           onClick={() => setConfirmDoneItem(d)}
                           disabled={isLoadingQuick}
-                          className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-md transition disabled:opacity-50 active:scale-[0.98]"
-                        >
+                          className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-md transition disabled:opacity-50 active:scale-[0.98]">
                           {isLoadingQuick ? (
                             <><Loader2 className="w-5 h-5 animate-spin" /> Menyimpan...</>
                           ) : (
                             <><CheckCircle className="w-5 h-5" /> Tandai Selesai</>
                           )}
                         </button>
-
-                        {/* Tombol catatan opsional */}
                         <button
                           onClick={() => handleOpenNote(d)}
-                          className="w-full py-2 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition"
-                        >
+                          className="w-full py-2 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition">
                           <MessageSquare className="w-3.5 h-3.5" /> Tambah Catatan (Opsional)
                         </button>
                       </>
                     ) : (
                       <>
-                        {/* Sudah selesai — tampilkan status + batalkan */}
                         <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/40 flex items-center gap-2">
                           <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           <div className="flex-1 min-w-0">
@@ -1322,14 +1517,12 @@ export const DeadlineModule: React.FC = () => {
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             onClick={() => handleOpenNote(d)}
-                            className="py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-[11px] flex items-center justify-center gap-1 transition"
-                          >
+                            className="py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-[11px] flex items-center justify-center gap-1 transition">
                             <Pencil className="w-3 h-3" /> {mySub.proofNote || mySub.proofUrl ? 'Edit Catatan' : 'Tambah Catatan'}
                           </button>
                           <button
                             onClick={() => handleUnmarkDone(d)}
-                            className="py-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 font-bold text-[11px] flex items-center justify-center gap-1 transition"
-                          >
+                            className="py-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 font-bold text-[11px] flex items-center justify-center gap-1 transition">
                             <XCircle className="w-3 h-3" /> Batalkan
                           </button>
                         </div>
@@ -1338,38 +1531,31 @@ export const DeadlineModule: React.FC = () => {
                   </div>
                 )}
 
-                {/* ============================================================ */}
-                {/* GURU VIEW — FULL CONTROLS */}
-                {/* ============================================================ */}
                 {canCreate && (
                   <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700">
                     <div className="grid grid-cols-4 gap-1.5">
                       <button onClick={() => handleOpenEdit(d)}
                         disabled={actionLoading === d.id || (d as any).status === 'CANCELLED'}
-                        className="py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40"
-                        title="Edit deadline">
+                        className="py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40">
                         <Pencil className="w-3.5 h-3.5" /> Edit
                       </button>
 
                       {(d as any).status === 'CANCELLED' ? (
                         <button onClick={() => handleRestoreDeadline(d)}
                           disabled={actionLoading === d.id}
-                          className="py-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40"
-                          title="Aktifkan kembali">
+                          className="py-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40">
                           <Play className="w-3.5 h-3.5" /> Aktifkan
                         </button>
                       ) : (d as any).status === 'HOLD' ? (
                         <button onClick={() => handleToggleHold(d)}
                           disabled={actionLoading === d.id}
-                          className="py-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40"
-                          title="Aktifkan kembali">
+                          className="py-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40">
                           <Play className="w-3.5 h-3.5" /> Lanjut
                         </button>
                       ) : (
                         <button onClick={() => handleToggleHold(d)}
                           disabled={actionLoading === d.id}
-                          className="py-2 rounded-xl bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40"
-                          title="Tahan deadline">
+                          className="py-2 rounded-xl bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40">
                           <Pause className="w-3.5 h-3.5" /> Tahan
                         </button>
                       )}
@@ -1377,14 +1563,12 @@ export const DeadlineModule: React.FC = () => {
                       {(d as any).status !== 'CANCELLED' ? (
                         <button onClick={() => handleCancelDeadline(d)}
                           disabled={actionLoading === d.id}
-                          className="py-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40"
-                          title="Batalkan deadline">
+                          className="py-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 font-bold text-[10px] flex items-center justify-center gap-1 disabled:opacity-40">
                           <Ban className="w-3.5 h-3.5" /> Batal
                         </button>
                       ) : (
                         <button onClick={() => handleDeleteDeadline(d)}
-                          className="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-bold text-[10px] flex items-center justify-center gap-1"
-                          title="Hapus permanen">
+                          className="py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-bold text-[10px] flex items-center justify-center gap-1">
                           <Trash2 className="w-3.5 h-3.5" /> Hapus
                         </button>
                       )}
@@ -1409,9 +1593,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
       {/* MODAL KONFIRMASI TANDAI SELESAI */}
-      {/* ============================================================ */}
       {confirmDoneItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4">
@@ -1431,23 +1613,18 @@ export const DeadlineModule: React.FC = () => {
                   {confirmDoneItem.title}
                 </p>
               </div>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 italic">
-                Bisa dibatalkan jika salah klik
-              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => setConfirmDoneItem(null)}
-                className="py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition"
-              >
+                className="py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition">
                 Batal
               </button>
               <button
                 onClick={() => handleQuickDone(confirmDoneItem)}
                 disabled={quickDoneLoading === confirmDoneItem.id}
-                className="py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-xs shadow-md disabled:opacity-50 flex items-center justify-center gap-1.5 transition"
-              >
+                className="py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-xs shadow-md disabled:opacity-50 flex items-center justify-center gap-1.5 transition">
                 {quickDoneLoading === confirmDoneItem.id ? (
                   <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Menyimpan...</>
                 ) : (
@@ -1459,9 +1636,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================ */}
       {/* MODAL CATATAN OPSIONAL */}
-      {/* ============================================================ */}
       {isNoteOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto space-y-4">
@@ -1742,9 +1917,7 @@ export const DeadlineModule: React.FC = () => {
               <div className="flex items-center gap-2 mt-4">
                 {[1, 2, 3, 4].map(s => (
                   <div key={s} className={`flex-1 h-1.5 rounded-full transition ${
-                    s <= wizardStep
-                      ? `bg-gradient-to-r ${STAGE_INFO[selectedStage].gradient}`
-                      : 'bg-slate-200 dark:bg-slate-700'
+                    s <= wizardStep ? `bg-gradient-to-r ${STAGE_INFO[selectedStage].gradient}` : 'bg-slate-200 dark:bg-slate-700'
                   }`} />
                 ))}
               </div>
@@ -2156,7 +2329,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL COPY */}
+      {/* MODAL DUPLIKAT */}
       {isCopyOpen && (
         <DeadlineCopyModal
           allClasses={classes || []}
@@ -2164,7 +2337,7 @@ export const DeadlineModule: React.FC = () => {
           deadlines={deadlines}
           onClose={() => setIsCopyOpen(false)}
           onSuccess={() => {
-            showToast('Deadline disalin ke kelas lain!', 'success');
+            showToast('Deadline diduplikat ke kelas lain!', 'success');
           }}
         />
       )}
