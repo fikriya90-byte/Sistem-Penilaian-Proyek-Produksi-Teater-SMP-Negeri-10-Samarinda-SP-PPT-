@@ -4,7 +4,7 @@ import {
   Database, FileText, HelpCircle, MessageSquare, Music, Activity,
   Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
   Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
-  GraduationCap,
+  GraduationCap, Home, User as UserIcon,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -13,14 +13,52 @@ interface SidebarProps {
   onNavigate: (module: string) => void;
   isOpen: boolean;
   onClose: () => void;
+  mode?: 'welcome' | 'in-class';
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isOpen, onClose }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  currentModule,
+  onNavigate,
+  isOpen,
+  onClose,
+  mode = 'in-class',
+}) => {
   const { user, isGuruPengampu, isAdminRole } = useAuth();
   const role = user?.role || '';
 
-  const buildMenu = () => {
-    // ============ ADMIN ============
+  // ═══════════════════════════════════════════════
+  // MENU MODE: WELCOME (fitur sederhana)
+  // ═══════════════════════════════════════════════
+  const buildWelcomeMenu = () => {
+    // Guru/Admin welcome
+    if (isGuruPengampu) {
+      return [
+        { id: 'dashboard', label: 'Beranda & Kelola Kelas', icon: GraduationCap },
+        { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+        { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
+        { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
+        { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
+        { id: 'backup', label: 'Backup & Restore', icon: Database },
+        { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings },
+      ];
+    }
+
+    // Siswa welcome — fitur lebih sederhana
+    return [
+      { id: 'dashboard', label: 'Beranda Saya', icon: Home },
+      { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
+      { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+      { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
+      { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings },
+    ];
+  };
+
+  // ═══════════════════════════════════════════════
+  // MENU MODE: IN-CLASS (lengkap per role)
+  // ═══════════════════════════════════════════════
+  const buildInClassMenu = () => {
+    // ═══ ADMIN ═══
     if (isAdminRole) {
       return [
         { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck },
@@ -39,7 +77,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ GURU PENGAMPU ============
+    // ═══ GURU PENGAMPU ═══
     if (isGuruPengampu) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -68,7 +106,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ BENDAHARA ============
+    // ═══ BENDAHARA ═══
     if (role === 'Bendahara') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -96,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ PIMPINAN PRODUKSI ============
+    // ═══ PIMPINAN PRODUKSI ═══
     if (role === 'Pimpinan Produksi') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -122,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ SEKRETARIS / SUTRADARA / ASISTEN ============
+    // ═══ SEKRETARIS / SUTRADARA / ASISTEN ═══
     if (['Sekretaris', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -148,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ KOORDINATOR ============
+    // ═══ KOORDINATOR ═══
     if (role.startsWith('Koordinator ')) {
       const base = [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -185,7 +223,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       return [...base, ...extras, ...tail];
     }
 
-    // ============ ANGGOTA ============
+    // ═══ ANGGOTA ═══
     if (role.startsWith('Anggota ')) {
       const specific: Record<string, any[]> = {
         'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
@@ -218,7 +256,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ PEMAIN / PEMERAN ============
+    // ═══ PEMAIN / PEMERAN ═══
     if (role === 'Pemain' || role === 'Pemeran') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -241,7 +279,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       ];
     }
 
-    // ============ DEFAULT ============
+    // ═══ DEFAULT ═══
     return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
@@ -261,7 +299,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
     ];
   };
 
-  const navItems = buildMenu();
+  const navItems = mode === 'welcome' ? buildWelcomeMenu() : buildInClassMenu();
 
   return (
     <>
@@ -276,14 +314,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
       >
         <div className="flex flex-col h-full">
           <div className="p-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-700 lg:hidden">
-            <span className="font-extrabold text-base text-amber-600">Menu</span>
+            <span className="font-extrabold text-base text-amber-600">
+              {mode === 'welcome' ? 'Menu Beranda' : 'Menu Kelas'}
+            </span>
             <button onClick={onClose} className="p-1 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
               <X className="w-5 h-5" />
             </button>
           </div>
 
           <div className={`p-4 m-3 rounded-2xl text-white shadow-md ${
-            isAdminRole ? 'bg-gradient-to-br from-blue-900 to-blue-800' : 'bg-gradient-to-br from-slate-900 to-slate-800'
+            isAdminRole ? 'bg-gradient-to-br from-blue-900 to-blue-800' :
+            mode === 'welcome' ? 'bg-gradient-to-br from-amber-700 to-orange-800' :
+            'bg-gradient-to-br from-slate-900 to-slate-800'
           }`}>
             <div className="flex items-center gap-3">
               {user?.photoURL ? (
@@ -303,19 +345,25 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
                 </span>
               </div>
             </div>
-            {!isAdminRole && user?.divisionName && (
+            {!isAdminRole && user?.divisionName && mode === 'in-class' && (
               <p className="text-[10px] text-slate-400 mt-2 truncate font-medium">
                 Divisi: <span className="text-slate-200">{user.divisionName}</span>
+              </p>
+            )}
+            {mode === 'welcome' && (
+              <p className="text-[10px] text-amber-100/80 mt-2 italic">
+                Pilih kelas untuk mulai beraktivitas
               </p>
             )}
           </div>
 
           <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto">
-            {navItems.map(item => {
+            {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentModule === item.id;
               return (
-                <button key={item.id}
+                <button
+                  key={item.id}
                   onClick={() => { onNavigate(item.id); onClose(); }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${
                     isActive
@@ -323,7 +371,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentModule, onNavigate, isO
                         ? 'bg-blue-600 text-white font-bold shadow-sm'
                         : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
-                  }`}>
+                  }`}
+                >
                   <Icon className={`w-4 h-4 ${
                     isActive ? (isAdminRole ? 'text-white' : 'text-slate-950') : 'text-slate-500 dark:text-slate-400'
                   }`} />
