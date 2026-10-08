@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Bell, ChevronDown, LogOut, Menu, Sparkles, Users, Sun, Moon, Monitor,
-  CheckCheck, Search, Filter,
+  CheckCheck, Search, ArrowLeft, Home,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useTheme } from '../../core/themeContext';
@@ -16,11 +16,18 @@ import { LogoutConfirmModal } from '../auth/LogoutConfirmModal';
 interface NavbarProps {
   onToggleSidebar: () => void;
   onNavigate: (module: string) => void;
+  view?: 'welcome' | 'in-class';
+  onExitClass?: () => void;
 }
 
 type NotifFilter = 'ALL' | 'UNREAD' | 'TUGAS' | 'REMINDER' | 'INFO' | 'URGENT';
 
-export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  onToggleSidebar,
+  onNavigate,
+  view = 'in-class',
+  onExitClass,
+}) => {
   const { user, activeClass, classes, setActiveClass, logout, isGuruPengampu, isAdminRole } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { showToast } = useToast();
@@ -32,7 +39,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
   const [notifSearch, setNotifSearch] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
 
-  const canSwitchClass = isGuruPengampu || isAdminRole;
+  const canSwitchClass = (isGuruPengampu || isAdminRole) && view === 'in-class';
 
   useEffect(() => {
     if (!user) return;
@@ -40,22 +47,12 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
     return () => unsub();
   }, [user]);
 
-  // Tutup notif menu saat resize ke desktop kalau terbuka di mobile
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 640) {
-        // Biarkan terbuka di desktop
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   const unreadCount = notifications.filter(n => !n.read).length;
 
+  // ✅ KLIK NOTIFIKASI → ARAHKAN KE HALAMAN NOTIFIKASI
   const handleReadNotif = async (n: SystemNotification) => {
     await markNotificationAsRead(n.id);
-    if (n.link) onNavigate(n.link);
+    onNavigate('notifikasi');
     setShowNotifMenu(false);
   };
 
@@ -122,8 +119,20 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
       <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-700/80 shadow-sm">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 sm:h-20">
+
             {/* LEFT */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
+              {view === 'in-class' && onExitClass && (
+                <button
+                  onClick={onExitClass}
+                  className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/40 transition flex items-center gap-1"
+                  title="Kembali ke Beranda Utama"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span className="hidden sm:inline text-[11px] font-bold">Kembali</span>
+                </button>
+              )}
+
               <button
                 onClick={onToggleSidebar}
                 className="lg:hidden p-2 rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -147,7 +156,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
                     </span>
                   </div>
                   <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 font-medium truncate max-w-[170px] sm:max-w-xs">
-                    SMP Negeri 10 Samarinda
+                    {view === 'welcome' ? 'Beranda Utama' : 'SMP Negeri 10 Samarinda'}
                   </p>
                 </div>
               </div>
@@ -187,10 +196,10 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
                       ))}
                       <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
                         <button
-                          onClick={() => { setActiveClass(null); setShowClassMenu(false); }}
-                          className="w-full text-left px-3.5 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/20"
+                          onClick={() => { setShowClassMenu(false); if (onExitClass) onExitClass(); }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/20 flex items-center gap-1.5"
                         >
-                          Kembali ke Daftar Kelas
+                          <Home className="w-3.5 h-3.5" /> Kembali ke Beranda
                         </button>
                       </div>
                     </div>
@@ -199,15 +208,8 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
 
                 <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/20 border border-amber-500/20 dark:border-amber-500/30 text-xs font-semibold text-amber-800 dark:text-amber-300">
                   <Sparkles className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                  <span>Tahap: Pelaksanaan</span>
+                  <span>Di Kelas</span>
                 </div>
-              </div>
-            )}
-
-            {!canSwitchClass && activeClass && (
-              <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-500/20 border border-blue-200 dark:border-blue-500/30 text-xs font-semibold text-blue-800 dark:text-blue-300">
-                <Users className="w-3.5 h-3.5" />
-                <span>{activeClass.name}</span>
               </div>
             )}
 
@@ -239,29 +241,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
 
                 {showNotifMenu && (
                   <>
-                    {/* Overlay untuk close saat klik di luar — khusus mobile */}
                     <div
                       className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 sm:hidden"
                       onClick={() => setShowNotifMenu(false)}
                     />
 
-                    {/* Dropdown notifikasi — responsif untuk mobile & desktop */}
                     <div className={`
-                      fixed sm:absolute
-                      z-50
-                      /* Mobile: full-screen panel dari kanan */
-                      sm:right-0 sm:top-auto sm:mt-2 sm:max-w-[26rem]
-                      right-2 left-2 top-20
-                      sm:left-auto
-                      /* Desktop: normal dropdown */
-                      sm:w-[26rem]
-                      /* Mobile: panel besar */
-                      w-auto
+                      fixed sm:absolute z-50
+                      right-2 left-2 top-20 sm:left-auto sm:right-0 sm:top-auto sm:mt-2
+                      sm:w-[26rem] w-auto
                       bg-white dark:bg-slate-800 sm:rounded-2xl rounded-2xl
                       shadow-2xl border border-slate-200 dark:border-slate-700
                       max-h-[calc(100vh-6rem)] sm:max-h-[85vh]
-                      flex flex-col
-                      overflow-hidden
+                      flex flex-col overflow-hidden
                     `}>
                       <div className="p-3 border-b border-slate-100 dark:border-slate-700">
                         <div className="flex items-center justify-between mb-2">
@@ -281,16 +273,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
                           </button>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={handleMarkAllRead}
-                            disabled={markingAll || unreadCount === 0}
-                            className="flex-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <CheckCheck className="w-3.5 h-3.5" />
-                            Tandai Semua Dibaca
-                          </button>
-                        </div>
+                        <button
+                          onClick={handleMarkAllRead}
+                          disabled={markingAll || unreadCount === 0}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          Tandai Semua Dibaca
+                        </button>
 
                         <div className="relative mt-2">
                           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -375,7 +365,6 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar, onNavigate }) =
                 )}
               </div>
 
-              {/* LOGOUT */}
               <button
                 onClick={() => setShowLogoutConfirm(true)}
                 className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition"
