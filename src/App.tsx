@@ -72,6 +72,9 @@ const LoadingFallback: React.FC = () => (
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 
+// ═══════════════════════════════════════════════════════════
+// WELCOME LAYOUT — SEKARANG HANDLE currentModule
+// ═══════════════════════════════════════════════════════════
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
   onNavigate: (m: string) => void;
@@ -79,6 +82,27 @@ const WelcomeLayout: React.FC<{
 }> = ({ onEnterClass, onNavigate, currentModule }) => {
   const { isGuruPengampu, isAdminRole } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  // ✅ RENDER MODULE sesuai currentModule
+  const renderWelcomeModule = () => {
+    switch (currentModule) {
+      case 'informasi': return <InformationModule />;
+      case 'notifikasi': return <NotificationPage />;
+      case 'aktivitas': return <ActivityLogModule />;
+      case 'notulensi': return <NotulensiModule />;
+      case 'backup': return <BackupModule />;
+      case 'panduan': return <GuideModule />;
+      case 'pengaturan': return <SettingsModule />;
+      case 'dashboard':
+      default:
+        // Beranda → render kelas picker / student welcome
+        return isGuruPengampu || isAdminRole ? (
+          <TeacherClassPicker onEnterClass={onEnterClass} embedded />
+        ) : (
+          <StudentWelcomePage onEnterClass={onEnterClass} onNavigate={onNavigate} />
+        );
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
@@ -96,17 +120,16 @@ const WelcomeLayout: React.FC<{
           mode="welcome"
         />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-          {isGuruPengampu || isAdminRole ? (
-            <TeacherClassPicker onEnterClass={onEnterClass} embedded />
-          ) : (
-            <StudentWelcomePage onEnterClass={onEnterClass} onNavigate={onNavigate} />
-          )}
+          {renderWelcomeModule()}
         </main>
       </div>
     </div>
   );
 };
 
+// ═══════════════════════════════════════════════════════════
+// MAIN LAYOUT
+// ═══════════════════════════════════════════════════════════
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
 
@@ -179,6 +202,7 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
+  // ═══ ADMIN ═══
   if (isAdminRole) {
     return (
       <>
@@ -227,6 +251,7 @@ const MainLayout: React.FC = () => {
     );
   }
 
+  // ═══ WELCOME VIEW ═══
   if (view === 'welcome') {
     return (
       <WelcomeLayout
@@ -237,6 +262,7 @@ const MainLayout: React.FC = () => {
     );
   }
 
+  // ═══ IN-CLASS VIEW ═══
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
