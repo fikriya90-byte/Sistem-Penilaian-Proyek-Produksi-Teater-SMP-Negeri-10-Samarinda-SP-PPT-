@@ -167,7 +167,7 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* HERO — hanya tampil jika embedded (karena sudah ada Navbar) */}
+      {/* HERO — hanya tampil jika embedded */}
       {embedded && (
         <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-amber-950 text-white shadow-xl border border-amber-500/20">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
