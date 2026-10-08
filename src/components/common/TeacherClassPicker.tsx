@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  GraduationCap, Plus, LogOut, Users, BookOpen, ChevronRight, X,
-  Sparkles, Hash, ShieldCheck, Sun, Moon, Monitor, Copy, Check,
-  Trash2, AlertTriangle,
+  GraduationCap, Plus, Users, BookOpen, ChevronRight, X, Sparkles,
+  Hash, ShieldCheck, Copy, Check, Trash2, AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
-import { useTheme } from '../../core/themeContext';
-import { APP_CONFIG } from '../../core/constants';
 import { useToast } from './Toast';
 import { ClassRoom } from '../../core/types';
 import {
@@ -15,9 +12,16 @@ import {
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
 
-export const TeacherClassPicker: React.FC = () => {
-  const { user, classes, setActiveClass, reloadClasses, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+interface TeacherClassPickerProps {
+  onEnterClass?: (c: ClassRoom) => void;
+  embedded?: boolean;
+}
+
+export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
+  onEnterClass,
+  embedded = false,
+}) => {
+  const { user, classes, setActiveClass, reloadClasses } = useAuth();
   const { showToast } = useToast();
 
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -50,8 +54,12 @@ export const TeacherClassPicker: React.FC = () => {
   }, [classes]);
 
   const handleEnterClass = (c: ClassRoom) => {
-    setActiveClass(c);
-    showToast(`Masuk ke kelas ${c.name}`, 'success');
+    if (onEnterClass) {
+      onEnterClass(c);
+    } else {
+      setActiveClass(c);
+      showToast(`Masuk ke kelas ${c.name}`, 'success');
+    }
   };
 
   const generateCode = () => {
@@ -153,192 +161,156 @@ export const TeacherClassPicker: React.FC = () => {
     }
   };
 
-  const themeIcon =
-    theme === 'light' ? <Sun className="w-5 h-5" /> :
-    theme === 'dark' ? <Moon className="w-5 h-5" /> :
-    <Monitor className="w-5 h-5" />;
-  const themeLabel = theme === 'light' ? 'Terang' : theme === 'dark' ? 'Gelap' : 'Auto';
-
   const isCodeMatch = deleteTarget
     ? confirmCode.trim().toUpperCase() === deleteTarget.code.toUpperCase()
     : false;
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <img src={APP_CONFIG.logoSchool} alt="SMPN 10" className="w-11 h-11 object-contain" />
-            <img src={APP_CONFIG.logoMapel} alt="Seni Budaya" className="w-11 h-11 object-contain hidden sm:block" />
-            <div>
-              <h1 className="text-base font-black text-slate-900 dark:text-white tracking-tight">SP-PPT SAMARINDA</h1>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Sistem Penilaian Proyek Produksi Teater</p>
-            </div>
+    <div className="space-y-6">
+      {/* HERO — hanya tampil jika embedded (karena sudah ada Navbar) */}
+      {embedded && (
+        <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-amber-950 text-white shadow-xl border border-amber-500/20">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              Beranda Utama Guru
+            </span>
+            <span className="text-xs text-slate-400">T.A. 2025/2026</span>
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleTheme}
-              className="flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/30 transition"
-              title={`Tema: ${themeLabel}`}
-            >
-              {themeIcon}
-              <span className="hidden sm:inline text-[11px] font-bold">{themeLabel}</span>
-            </button>
-
-            <div className="hidden sm:block text-right mr-2">
-              <p className="text-xs font-bold text-slate-900 dark:text-white">{user?.displayName}</p>
-              <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40">
-                {user?.role}
-              </span>
-            </div>
-            <button
-              onClick={async () => { await logout(); showToast('Logout berhasil.', 'info'); }}
-              className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition"
-              title="Logout"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-lg mb-4">
-            <GraduationCap className="w-8 h-8" />
-          </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white tracking-tight">
-            Selamat Datang, {user?.displayName?.split(',')[0] || 'Guru'}!
-          </h2>
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 max-w-lg mx-auto">
-            Pilih kelas yang ingin Anda kelola untuk memulai aktivitas produksi teater.
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+            Selamat datang, {user?.displayName?.split(',')[0] || 'Guru'}!
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-xl leading-relaxed">
+            Pilih kelas yang ingin Anda kelola, atau buat kelas baru. Setelah masuk kelas,
+            sidebar akan menampilkan semua modul (Nilai, Absensi, Tugas, dll).
           </p>
         </div>
+      )}
 
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
-          <div className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
-            <Users className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-            <span>Daftar Kelas ({classes.length})</span>
-          </div>
+      {/* Baris aksi */}
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
+          <Users className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <span>Daftar Kelas ({classes.length})</span>
+        </div>
+        <button
+          onClick={() => setIsAddOpen(true)}
+          className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-md transition"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Tambah Kelas Baru</span>
+        </button>
+      </div>
+
+      {classes.length === 0 ? (
+        <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
+          <BookOpen className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Kelas</h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">Mulai dengan menambahkan kelas pertama.</p>
           <button
             onClick={() => setIsAddOpen(true)}
-            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-md transition"
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs"
           >
-            <Plus className="w-4 h-4" />
-            <span>Tambah Kelas Baru</span>
+            Tambah Kelas
           </button>
         </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {classes.map(c => {
+            const realCount = studentCountMap[c.id] ?? 0;
+            const isCopied = copiedCode === c.code;
+            return (
+              <div
+                key={c.id}
+                className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-amber-400 dark:hover:border-amber-500/50 hover:shadow-lg transition relative overflow-hidden group"
+              >
+                <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full -mr-12 -mt-12 group-hover:bg-amber-500/10 transition" />
 
-        {classes.length === 0 ? (
-          <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-            <BookOpen className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-            <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Kelas</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">Mulai dengan menambahkan kelas pertama.</p>
-            <button
-              onClick={() => setIsAddOpen(true)}
-              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs"
-            >
-              Tambah Kelas
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {classes.map(c => {
-              const realCount = studentCountMap[c.id] ?? 0;
-              const isCopied = copiedCode === c.code;
-              return (
-                <div
-                  key={c.id}
-                  className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-amber-400 dark:hover:border-amber-500/50 hover:shadow-lg transition relative overflow-hidden group"
-                >
-                  <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full -mr-12 -mt-12 group-hover:bg-amber-500/10 transition" />
-
-                  <div className="relative">
-                    <button onClick={() => handleEnterClass(c)} className="w-full text-left">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-black text-lg shadow-sm">
-                          {c.name.replace(/[^0-9A-Z]/gi, '').slice(-2) || 'IX'}
-                        </div>
-                        <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-amber-500 transition" />
+                <div className="relative">
+                  <button onClick={() => handleEnterClass(c)} className="w-full text-left">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-black text-lg shadow-sm">
+                        {c.name.replace(/[^0-9A-Z]/gi, '').slice(-2) || 'IX'}
                       </div>
+                      <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-amber-500 transition" />
+                    </div>
 
-                      <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">{c.name}</h3>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                        T.A. {c.academicYear}
-                      </p>
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">{c.name}</h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                      T.A. {c.academicYear}
+                    </p>
 
-                      {c.kerabatKerja && (
-                        <div className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
-                          <Sparkles className="w-3 h-3 text-amber-500 dark:text-amber-400" />
-                          <span className="truncate">{c.kerabatKerja}</span>
-                        </div>
+                    {c.kerabatKerja && (
+                      <div className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                        <Sparkles className="w-3 h-3 text-amber-500 dark:text-amber-400" />
+                        <span className="truncate">{c.kerabatKerja}</span>
+                      </div>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => handleCopyCode(c.code)}
+                    className={`mt-3 w-full p-2.5 rounded-xl border flex items-center justify-between transition ${
+                      isCopied
+                        ? 'bg-emerald-50 dark:bg-emerald-500/20 border-emerald-300 dark:border-emerald-500/40'
+                        : 'bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-500/10 border-slate-200 dark:border-slate-700 hover:border-amber-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Hash className="w-3.5 h-3.5 text-slate-400" />
+                      <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{c.code}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {isCopied ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span className="text-[10px] font-bold text-emerald-700">Tersalin!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-slate-400" />
+                          <span className="text-[10px] font-bold text-slate-500">Salin</span>
+                        </>
                       )}
-                    </button>
+                    </div>
+                  </button>
 
-                    <button
-                      onClick={() => handleCopyCode(c.code)}
-                      className={`mt-3 w-full p-2.5 rounded-xl border flex items-center justify-between transition ${
-                        isCopied
-                          ? 'bg-emerald-50 dark:bg-emerald-500/20 border-emerald-300 dark:border-emerald-500/40'
-                          : 'bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-500/10 border-slate-200 dark:border-slate-700 hover:border-amber-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <Hash className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{c.code}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {isCopied ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            <span className="text-[10px] font-bold text-emerald-700">Tersalin!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3 text-slate-400" />
-                            <span className="text-[10px] font-bold text-slate-500">Salin</span>
-                          </>
-                        )}
-                      </div>
-                    </button>
-
-                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-[11px]">
-                      <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
-                        <Users className="w-3 h-3" /> {realCount} siswa
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => openDeleteConfirm(c)}
-                          className="p-1.5 rounded-lg text-rose-500 hover:text-white hover:bg-rose-500 transition"
-                          title="Hapus kelas"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleEnterClass(c)}
-                          className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] flex items-center gap-1 transition"
-                        >
-                          Masuk <ChevronRight className="w-3 h-3" />
-                        </button>
-                      </div>
+                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-[11px]">
+                    <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
+                      <Users className="w-3 h-3" /> {realCount} siswa
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openDeleteConfirm(c); }}
+                        className="p-1.5 rounded-lg text-rose-500 hover:text-white hover:bg-rose-500 transition"
+                        title="Hapus kelas"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleEnterClass(c)}
+                        className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] flex items-center gap-1 transition"
+                      >
+                        Masuk <ChevronRight className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="mt-8 p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3 max-w-2xl mx-auto">
-          <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-          <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-            <strong>Bagikan kode kelas</strong> ke siswa agar mereka bisa mendaftar. Klik kotak kode untuk menyalin.
-            Untuk menghapus kelas, klik tombol <Trash2 className="w-3 h-3 inline" /> di kartu kelas.
-          </div>
+              </div>
+            );
+          })}
         </div>
-      </main>
+      )}
 
+      <div className="mt-6 p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3 max-w-2xl mx-auto">
+        <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+          <strong>Bagikan kode kelas</strong> ke siswa agar mereka bisa mendaftar. Klik kotak kode untuk menyalin.
+          Untuk menghapus kelas, klik tombol <Trash2 className="w-3 h-3 inline" /> di kartu kelas.
+        </div>
+      </div>
+
+      {/* ═══ MODAL TAMBAH KELAS ═══ */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
@@ -401,6 +373,7 @@ export const TeacherClassPicker: React.FC = () => {
         </div>
       )}
 
+      {/* ═══ MODAL HAPUS ═══ */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-rose-200 dark:border-rose-500/40 p-6">
