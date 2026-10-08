@@ -4,11 +4,9 @@ import {
   Loader2,
 } from 'lucide-react';
 
-// ═══════════════ CORE (di src/ langsung → pakai ./) ═══════════════
 import { AuthProvider, useAuth } from './core/authContext';
 import { ThemeProvider } from './core/themeContext';
 
-// ═══════════════ COMPONENTS (di src/components/ → pakai ./components/) ═══════════════
 import { ToastProvider } from './components/common/Toast';
 import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
@@ -18,7 +16,6 @@ import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 import { StudentWelcomePage } from './components/welcome/StudentWelcomePage';
 import { DashboardReminder } from './components/common/DashboardReminder';
 
-// ═══════════════ MODULES ═══════════════
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
 import { MyGradeModule } from './components/modules/MyGradeModule';
@@ -53,7 +50,6 @@ import { DirectorTimelineModule } from './components/modules/DirectorTimelineMod
 import { DeadlineModule } from './components/modules/DeadlineModule';
 import { NotulensiModule } from './components/modules/NotulensiModule';
 
-// ═══════════════ LAZY MODULE ═══════════════
 const RABModule = lazy(() =>
   import('./components/modules/RABModule')
     .then(m => ({ default: m.RABModule }))
@@ -76,9 +72,6 @@ const LoadingFallback: React.FC = () => (
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 
-// ═══════════════════════════════════════════════════════════
-// WELCOME LAYOUT
-// ═══════════════════════════════════════════════════════════
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
   onNavigate: (m: string) => void;
@@ -114,9 +107,6 @@ const WelcomeLayout: React.FC<{
   );
 };
 
-// ═══════════════════════════════════════════════════════════
-// MAIN LAYOUT
-// ═══════════════════════════════════════════════════════════
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
 
@@ -129,22 +119,18 @@ const MainLayout: React.FC = () => {
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
   const viewInitRef = useRef(false);
 
-  // Persist module
   useEffect(() => {
     try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
   }, [currentModule]);
 
-  // Login confirm
   useEffect(() => {
     if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
       setShowLoginConfirm(true);
     }
   }, [user]);
 
-  // Reset init flag saat ganti user
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
-  // Init view sekali per user
   useEffect(() => {
     if (!user) return;
     if (viewInitRef.current) return;
@@ -152,10 +138,8 @@ const MainLayout: React.FC = () => {
     const isGuruOrAdmin = isGuruPengampu || isAdminRole;
 
     if (isGuruOrAdmin) {
-      // Guru/Admin: kalau sudah ada activeClass → langsung in-class
       setView(activeClass ? 'in-class' : 'welcome');
     } else {
-      // Siswa: selalu welcome dulu
       setView('welcome');
     }
     viewInitRef.current = true;
@@ -172,7 +156,6 @@ const MainLayout: React.FC = () => {
     setCurrentModule('dashboard');
   };
 
-  // ═══ LOADING ═══
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
@@ -196,9 +179,6 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // ADMIN LAYOUT
-  // ═══════════════════════════════════════════════════════════
   if (isAdminRole) {
     return (
       <>
@@ -247,9 +227,6 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // WELCOME VIEW
-  // ═══════════════════════════════════════════════════════════
   if (view === 'welcome') {
     return (
       <WelcomeLayout
@@ -260,9 +237,6 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // IN-CLASS VIEW
-  // ═══════════════════════════════════════════════════════════
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -331,7 +305,6 @@ const MainLayout: React.FC = () => {
 
         <DashboardReminder onNavigate={setCurrentModule} />
 
-        {/* Floating Action Buttons */}
         <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
           <button
             onClick={() => setCurrentModule('informasi')}
@@ -356,7 +329,6 @@ const MainLayout: React.FC = () => {
           </button>
         </div>
 
-        {/* Bottom Navigation (Mobile) */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
           <button
             onClick={() => setCurrentModule('dashboard')}
