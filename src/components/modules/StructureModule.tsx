@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   ExternalLink, MessageCircle, Phone, Search, Share2, Sparkles,
-  Users, Camera, Upload, Pencil, Check, X, Lock, ShieldAlert,
-  Download, Eye,
+  Users, Camera, Upload, Pencil, Check, X, Lock, Download, Eye,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS } from '../../core/constants';
@@ -28,7 +27,7 @@ export const StructureModule: React.FC = () => {
   const [kerabatLogo, setKerabatLogo] = useState<string>('');
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
 
-  // ✅ State untuk view foto besar (dengan proteksi)
+  // ✅ State untuk view foto besar
   const [viewingPhoto, setViewingPhoto] = useState<{
     url: string;
     name: string;
@@ -40,10 +39,14 @@ export const StructureModule: React.FC = () => {
   const [kerabatDraft, setKerabatDraft] = useState('');
   const [savingKerabat, setSavingKerabat] = useState(false);
 
+  // Foto anggota: tetap seperti sekarang
   const canEditPhotos =
     isTeacher || isGuruPengampu || isAdminRole || isPimprod ||
     user?.role === 'Sutradara' ||
     (user?.role ? user.role.startsWith('Koordinator ') : false);
+
+  // 🎯 Logo kerabat kerja: HANYA Pimprod + Guru/Admin
+  const canEditKerabatLogo = isPimprod || isGuruPengampu || isAdminRole;
 
   useEffect(() => {
     if (!activeClass) return;
@@ -64,6 +67,42 @@ export const StructureModule: React.FC = () => {
       console.warn('Gagal load logo:', err);
     }
   };
+
+  // 🔒 Proteksi anti-screenshot & save
+  useEffect(() => {
+    const blockKeys = (e: KeyboardEvent) => {
+      if (e.key === 'PrintScreen' || e.code === 'PrintScreen') {
+        e.preventDefault();
+        try { navigator.clipboard.writeText(''); } catch { /* ignore */ }
+        if (viewingPhoto && !viewingPhoto.canDownload) {
+          showToast('🔒 Screenshot tidak diizinkan.', 'warning');
+        }
+        return;
+      }
+      const isCmd = e.ctrlKey || e.metaKey;
+      if (isCmd && ['p', 'P', 's', 'S'].includes(e.key)) {
+        if (viewingPhoto && !viewingPhoto.canDownload) {
+          e.preventDefault();
+          showToast('🔒 Tidak dapat disimpan/dicetak saat melihat foto profil.', 'warning');
+        }
+      }
+    };
+
+    const blockVisibility = () => {
+      if (document.hidden && viewingPhoto && !viewingPhoto.canDownload) {
+        setTimeout(() => {
+          setViewingPhoto(null);
+        }, 100);
+      }
+    };
+
+    window.addEventListener('keydown', blockKeys);
+    document.addEventListener('visibilitychange', blockVisibility);
+    return () => {
+      window.removeEventListener('keydown', blockKeys);
+      document.removeEventListener('visibilitychange', blockVisibility);
+    };
+  }, [viewingPhoto, showToast]);
 
   const handleSaveKerabatName = async () => {
     if (!kerabatDraft.trim()) {
@@ -131,7 +170,7 @@ export const StructureModule: React.FC = () => {
     setViewingPhoto({
       url: m.photoURL,
       name: m.displayName,
-      canDownload: false, // 🔒 Foto orang: TIDAK bisa download
+      canDownload: false,
     });
   };
 
@@ -144,7 +183,7 @@ export const StructureModule: React.FC = () => {
     setViewingPhoto({
       url: kerabatLogo,
       name: activeClass?.kerabatKerja || 'Logo Kerabat Kerja',
-      canDownload: true, // 🔓 Logo kerabat: boleh download
+      canDownload: true,
     });
   };
 
@@ -240,7 +279,7 @@ export const StructureModule: React.FC = () => {
                   <Sparkles className="w-8 h-8 text-white" />
                 )}
               </button>
-              {canEditPhotos && (
+              {canEditKerabatLogo && (
                 <button
                   onClick={(e) => { e.stopPropagation(); setIsLogoModalOpen(true); }}
                   className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600 transition"
@@ -311,7 +350,7 @@ export const StructureModule: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2">
-            {canEditPhotos && !kerabatLogo && (
+            {canEditKerabatLogo && !kerabatLogo && (
               <button
                 onClick={() => setIsLogoModalOpen(true)}
                 className="px-3 py-2 rounded-xl bg-amber-100 dark:bg-amber-500/20 hover:bg-amber-200 dark:hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1.5 border border-amber-300 dark:border-amber-500/40"
@@ -329,15 +368,6 @@ export const StructureModule: React.FC = () => {
             </button>
           </div>
         </div>
-      </div>
-
-      {/* 🔒 Banner Proteksi Foto */}
-      <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-        <ShieldAlert className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Perlindungan Foto:</strong> Foto profil anggota dilindungi — <strong>tidak bisa di-download</strong> untuk privasi.
-          Namun <strong>logo kerabat kerja</strong> bisa dilihat & diunduh karena untuk keperluan produksi.
-        </p>
       </div>
 
       {/* Filter Tabs */}
@@ -421,7 +451,7 @@ export const StructureModule: React.FC = () => {
                           alt={member.displayName}
                           draggable={false}
                           onContextMenu={(e) => e.preventDefault()}
-                          className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 dark:border-slate-700 select-none"
+                          className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 dark:border-slate-700 select-none print:hidden"
                           style={{
                             WebkitTouchCallout: 'none',
                             WebkitUserSelect: 'none',
@@ -433,7 +463,6 @@ export const StructureModule: React.FC = () => {
                           {member.displayName.charAt(0).toUpperCase()}
                         </div>
                       )}
-                      {/* Icon zoom hint */}
                       {member.photoURL && (
                         <span className="absolute -bottom-1 -left-1 p-1 rounded-full bg-slate-900/80 text-white opacity-0 group-hover:opacity-100 transition text-[8px]">
                           <Eye className="w-2.5 h-2.5" />
@@ -512,10 +541,10 @@ export const StructureModule: React.FC = () => {
         })}
       </div>
 
-      {/* ═══ MODAL VIEW FOTO (dengan proteksi) ═══ */}
+      {/* ═══ MODAL VIEW FOTO ═══ */}
       {viewingPhoto && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md"
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md print:hidden"
           onClick={() => setViewingPhoto(null)}
           onContextMenu={(e) => { if (!viewingPhoto.canDownload) e.preventDefault(); }}
         >
@@ -523,19 +552,17 @@ export const StructureModule: React.FC = () => {
             className="w-full max-w-3xl flex flex-col items-center gap-4 my-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="text-center">
               <h3 className="text-white font-black text-lg">{viewingPhoto.name}</h3>
               <p className="text-xs text-slate-400 mt-0.5">
                 {viewingPhoto.canDownload
                   ? '🔓 Logo kerabat — boleh diunduh'
-                  : '🔒 Foto profil — dilindungi, tidak bisa diunduh'}
+                  : '🔒 Foto profil — dilindungi'}
               </p>
             </div>
 
-            {/* Foto Besar */}
             <div
-              className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/10"
+              className={`relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/10 ${viewingPhoto.canDownload ? '' : 'print:hidden'}`}
               style={{
                 WebkitTouchCallout: viewingPhoto.canDownload ? 'default' : 'none',
                 WebkitUserSelect: viewingPhoto.canDownload ? 'auto' : 'none',
@@ -545,7 +572,7 @@ export const StructureModule: React.FC = () => {
               <img
                 src={viewingPhoto.url}
                 alt={viewingPhoto.name}
-                className="max-w-full max-h-[70vh] object-contain bg-slate-900"
+                className={`max-w-full max-h-[70vh] object-contain bg-slate-900 ${viewingPhoto.canDownload ? '' : 'print:hidden'}`}
                 draggable={viewingPhoto.canDownload}
                 onContextMenu={(e) => { if (!viewingPhoto.canDownload) e.preventDefault(); }}
                 style={{
@@ -557,7 +584,6 @@ export const StructureModule: React.FC = () => {
               />
             </div>
 
-            {/* Tombol Aksi */}
             <div className="flex items-center gap-2 flex-wrap justify-center">
               {viewingPhoto.canDownload && (
                 <button
@@ -574,15 +600,6 @@ export const StructureModule: React.FC = () => {
                 <X className="w-4 h-4" /> Tutup
               </button>
             </div>
-
-            {!viewingPhoto.canDownload && (
-              <div className="max-w-md p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
-                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-amber-200 leading-relaxed">
-                  <strong>Foto ini dilindungi.</strong> Download, klik kanan, dan long-press sudah dinonaktifkan untuk menghormati privasi pemilik foto.
-                </p>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -604,7 +621,7 @@ export const StructureModule: React.FC = () => {
                       alt={selectedMember.displayName}
                       draggable={false}
                       onContextMenu={(e) => e.preventDefault()}
-                      className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-md select-none"
+                      className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-md select-none print:hidden"
                       style={{
                         WebkitTouchCallout: 'none',
                         WebkitUserSelect: 'none',
