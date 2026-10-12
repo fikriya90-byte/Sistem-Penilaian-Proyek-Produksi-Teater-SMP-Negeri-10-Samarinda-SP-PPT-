@@ -24,7 +24,10 @@ const DIVISION_LIST: DivisionType[] = [
 ];
 
 export const DivisionScheduleModule: React.FC = () => {
-  const { user, activeClass, isGuruPengampu, isAdminRole, isPimprod } = useAuth();
+  const {
+    user, activeClass,
+    isGuruPengampu, isAdminRole, isPimprod, isSekretaris, isSutradara,
+  } = useAuth();
   const { showToast } = useToast();
 
   const [items, setItems] = useState<any[]>([]);
@@ -39,8 +42,20 @@ export const DivisionScheduleModule: React.FC = () => {
 
   const isKoordinator = user?.role.startsWith('Koordinator ') ?? false;
   const myDivision = user?.divisionName || '';
-  const isTeacherOrAdmin = isGuruPengampu || isAdminRole || isPimprod;
-  const canSeeAllDivisions = isTeacherOrAdmin;
+
+  // 🔑 Staff yang bisa lihat & isi SEMUA divisi
+  const isStaffFullAccess = isGuruPengampu || isAdminRole || isPimprod;
+  const canSeeAllDivisions = isStaffFullAccess;
+
+  // 🎯 Apakah user ini punya akses ke halaman ini?
+  const hasAnyAccess = (() => {
+    if (!user) return false;
+    if (isStaffFullAccess) return true;
+    if (isKoordinator && myDivision) return true;
+    if (myDivision) return true;
+    if (isSekretaris || isSutradara) return true;
+    return false;
+  })();
 
   // Set default divisi terpilih
   useEffect(() => {
@@ -48,8 +63,10 @@ export const DivisionScheduleModule: React.FC = () => {
       setSelectedDivision(myDivision);
     } else if (canSeeAllDivisions && DIVISION_LIST.length > 0) {
       setSelectedDivision(DIVISION_LIST[0]);
+    } else if ((isSekretaris || isSutradara) && DIVISION_LIST.length > 0) {
+      setSelectedDivision(DIVISION_LIST[0]);
     }
-  }, [myDivision, canSeeAllDivisions]);
+  }, [myDivision, canSeeAllDivisions, isSekretaris, isSutradara]);
 
   // Load jadwal sesuai divisi terpilih
   useEffect(() => {
@@ -67,12 +84,21 @@ export const DivisionScheduleModule: React.FC = () => {
     return () => unsub();
   }, [activeClass, selectedDivision]);
 
-  // Boleh nambah jadwal di divisi terpilih?
+  // Boleh tambah jadwal di divisi terpilih?
   const canAddHere = (() => {
     if (!user) return false;
-    if (isTeacherOrAdmin) return true; // Guru/Admin/Pimprod: semua divisi
-    if (isKoordinator && selectedDivision === myDivision) return true; // Koordinator: divisi sendiri
+    if (isStaffFullAccess) return true;
+    if (isKoordinator && selectedDivision === myDivision) return true;
     return false;
+  })();
+
+  // Daftar divisi yang bisa diakses
+  const accessibleDivisions = (() => {
+    if (canSeeAllDivisions) return DIVISION_LIST;
+    if (isKoordinator && myDivision) return [myDivision as DivisionType];
+    if (myDivision) return [myDivision as DivisionType];
+    if (isSekretaris || isSutradara) return DIVISION_LIST;
+    return [];
   })();
 
   const handleSave = async (e: React.FormEvent) => {
@@ -127,7 +153,7 @@ export const DivisionScheduleModule: React.FC = () => {
 
   const handleDelete = async (item: any) => {
     if (!user) return;
-    const canDel = item.authorName === user.displayName || isTeacherOrAdmin;
+    const canDel = item.authorName === user.displayName || isStaffFullAccess;
     if (!canDel) {
       showToast('Hanya pembuat atau Guru yang bisa menghapus.', 'warning');
       return;
@@ -141,12 +167,18 @@ export const DivisionScheduleModule: React.FC = () => {
     }
   };
 
-  // Kalau user tidak punya divisi & bukan guru → tidak bisa lihat apapun
-  if (!myDivision && !canSeeAllDivisions) {
+  // ❌ Tidak punya akses sama sekali
+  if (!hasAnyAccess) {
     return (
       <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
         <Lock className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-        <p className="text-sm text-slate-500">Anda belum terdaftar di divisi manapun</p>
+        <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+          Anda belum terdaftar di divisi manapun
+        </p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-md mx-auto">
+          Hubungi <strong>Guru Pengampu</strong> atau <strong>Pimpinan Produksi</strong> untuk
+          didaftarkan ke salah satu divisi produksi.
+        </p>
       </div>
     );
   }
@@ -163,8 +195,10 @@ export const DivisionScheduleModule: React.FC = () => {
               <p className="text-xs text-slate-300 flex items-center gap-1.5">
                 <Lock className="w-3 h-3" />
                 {canSeeAllDivisions
-                  ? 'Guru/Admin: bisa lihat & isi semua divisi'
-                  : `Jadwal khusus divisi ${myDivision}`}
+                  ? 'Guru/Admin/Pimprod: bisa lihat & isi semua divisi'
+                  : myDivision
+                  ? `Jadwal khusus divisi ${myDivision}`
+                  : 'Lihat jadwal semua divisi (mode lihat)'}
               </p>
             </div>
           </div>
@@ -180,40 +214,39 @@ export const DivisionScheduleModule: React.FC = () => {
       </div>
 
       {/* FILTER DIVISI */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="flex items-center gap-2 mb-2">
-          <Filter className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            {canSeeAllDivisions ? 'Pilih Divisi:' : 'Divisi Anda:'}
-          </span>
+      {accessibleDivisions.length > 0 && (
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+          <div className="flex items-center gap-2 mb-2">
+            <Filter className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              {accessibleDivisions.length > 1 ? 'Pilih Divisi:' : 'Divisi:'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            {accessibleDivisions.map(d => (
+              <button
+                key={d}
+                onClick={() => setSelectedDivision(d)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                  selectedDivision === d
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                }`}
+              >
+                <span>{d}</span>
+                {d === myDivision && (
+                  <span className="text-[9px] font-black px-1 py-0.5 rounded bg-amber-500 text-slate-950">
+                    Saya
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {(canSeeAllDivisions
-            ? DIVISION_LIST
-            : ([myDivision].filter(Boolean) as DivisionType[])
-          ).map(d => (
-            <button
-              key={d}
-              onClick={() => setSelectedDivision(d)}
-              className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
-                selectedDivision === d
-                  ? 'bg-purple-600 text-white shadow-sm'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              <span>{d}</span>
-              {d === myDivision && (
-                <span className="text-[9px] font-black px-1 py-0.5 rounded bg-amber-500 text-slate-950">
-                  Saya
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
+      )}
 
-      {/* INFO GURU */}
-      {canSeeAllDivisions && (
+      {/* INFO GURU/PIMPROD */}
+      {isStaffFullAccess && (
         <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
           <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
           <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
@@ -224,12 +257,22 @@ export const DivisionScheduleModule: React.FC = () => {
       )}
 
       {/* INFO KOORDINATOR */}
-      {isKoordinator && !canSeeAllDivisions && (
+      {isKoordinator && myDivision && (
         <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
           <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
           <p className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
             Anda koordinator <strong>{myDivision}</strong>. Anda bisa menambah jadwal untuk divisi Anda.
-            Jadwal ini akan terlihat oleh anggota divisi Anda.
+          </p>
+        </div>
+      )}
+
+      {/* INFO LIHAT-SAJA */}
+      {!canAddHere && !isKoordinator && !isStaffFullAccess && myDivision && (
+        <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-start gap-2">
+          <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+            Anda hanya bisa <strong>melihat</strong> jadwal divisi {myDivision}.
+            Yang bisa menambah: Koordinator, Guru, Pimprod.
           </p>
         </div>
       )}
@@ -238,7 +281,9 @@ export const DivisionScheduleModule: React.FC = () => {
       {items.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <Calendar className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-          <p className="text-sm text-slate-500">Belum ada jadwal untuk {selectedDivision}</p>
+          <p className="text-sm text-slate-500">
+            Belum ada jadwal untuk {selectedDivision || 'divisi ini'}
+          </p>
           {canAddHere && (
             <button
               onClick={() => setIsOpen(true)}
@@ -254,7 +299,7 @@ export const DivisionScheduleModule: React.FC = () => {
           subtitle={`${items.length} agenda — geser untuk melihat`}
         >
           {items.map((it: any) => {
-            const canDel = it.authorName === user?.displayName || isTeacherOrAdmin;
+            const canDel = it.authorName === user?.displayName || isStaffFullAccess;
             return (
               <div
                 key={it.id}
