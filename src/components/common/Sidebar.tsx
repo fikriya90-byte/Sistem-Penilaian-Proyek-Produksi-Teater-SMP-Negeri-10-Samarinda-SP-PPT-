@@ -27,7 +27,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const role = user?.role || '';
 
   // ═══════════════════════════════════════════════
-  // MENU WELCOME (fitur sederhana)
+  // MENU WELCOME
   // ═══════════════════════════════════════════════
   const buildWelcomeMenu = () => {
     if (isGuruPengampu) {
@@ -45,7 +45,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // Siswa welcome
     return [
       { id: 'dashboard', label: 'Beranda Saya', icon: Home },
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -56,7 +55,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // ═══════════════════════════════════════════════
-  // MENU IN-CLASS (lengkap per role)
+  // MENU IN-CLASS
   // ═══════════════════════════════════════════════
   const buildInClassMenu = () => {
     // ADMIN
@@ -179,6 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
         { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
         { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
+        { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
         { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
         { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
