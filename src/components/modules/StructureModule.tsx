@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   ExternalLink, MessageCircle, Phone, Search, Share2, Sparkles,
-  Users, Camera, Upload, Pencil, Check, X, Lock,
+  Users, Camera, Upload, Pencil, Check, X, Lock, ShieldAlert,
+  Download, Eye,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS } from '../../core/constants';
@@ -13,7 +14,10 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
 export const StructureModule: React.FC = () => {
-  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole, isPimprod, canEditKerabatKerja, updateKerabatKerja } = useAuth();
+  const {
+    user, activeClass, isTeacher, isGuruPengampu, isAdminRole, isPimprod,
+    canEditKerabatKerja, updateKerabatKerja,
+  } = useAuth();
   const { showToast } = useToast();
 
   const [members, setMembers] = useState<UserProfile[]>([]);
@@ -23,6 +27,13 @@ export const StructureModule: React.FC = () => {
   const [photoModalMember, setPhotoModalMember] = useState<UserProfile | null>(null);
   const [kerabatLogo, setKerabatLogo] = useState<string>('');
   const [isLogoModalOpen, setIsLogoModalOpen] = useState(false);
+
+  // ✅ State untuk view foto besar (dengan proteksi)
+  const [viewingPhoto, setViewingPhoto] = useState<{
+    url: string;
+    name: string;
+    canDownload: boolean;
+  } | null>(null);
 
   // Edit nama kerabat kerja
   const [isEditingKerabat, setIsEditingKerabat] = useState(false);
@@ -47,8 +58,7 @@ export const StructureModule: React.FC = () => {
     try {
       const snap = await getDoc(doc(db, 'classes', activeClass.id));
       if (snap.exists()) {
-        const data = snap.data();
-        setKerabatLogo(data.kerabatLogo || '');
+        setKerabatLogo(snap.data().kerabatLogo || '');
       }
     } catch (err) {
       console.warn('Gagal load logo:', err);
@@ -112,6 +122,48 @@ export const StructureModule: React.FC = () => {
     }
   };
 
+  // ✅ Buka foto profil besar — DENGAN proteksi
+  const handleViewMemberPhoto = (m: UserProfile) => {
+    if (!m.photoURL) {
+      showToast('Foto belum diupload.', 'info');
+      return;
+    }
+    setViewingPhoto({
+      url: m.photoURL,
+      name: m.displayName,
+      canDownload: false, // 🔒 Foto orang: TIDAK bisa download
+    });
+  };
+
+  // ✅ Buka logo kerabat — BOLEH download
+  const handleViewKerabatLogo = () => {
+    if (!kerabatLogo) {
+      showToast('Logo kerabat belum diupload.', 'info');
+      return;
+    }
+    setViewingPhoto({
+      url: kerabatLogo,
+      name: activeClass?.kerabatKerja || 'Logo Kerabat Kerja',
+      canDownload: true, // 🔓 Logo kerabat: boleh download
+    });
+  };
+
+  const handleDownload = (url: string, name: string) => {
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name.replace(/[^a-zA-Z0-9]/g, '_')}.jpg`;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast('Foto diunduh.', 'success');
+    } catch {
+      showToast('Gagal mengunduh.', 'error');
+    }
+  };
+
   const filteredMembers = members.filter(m => {
     if (selectedDivision !== 'ALL') {
       if (selectedDivision === 'Pengurus Inti') {
@@ -169,17 +221,28 @@ export const StructureModule: React.FC = () => {
       <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
+            {/* LOGO KERABAT — BOLEH diklik & didownload */}
             <div className="relative">
-              <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg border-4 border-white dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleViewKerabatLogo}
+                className="w-20 h-20 rounded-3xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg border-4 border-white dark:border-slate-800 overflow-hidden hover:scale-105 transition cursor-pointer"
+                title="Klik untuk lihat logo besar"
+              >
                 {kerabatLogo ? (
-                  <img src={kerabatLogo} alt="Logo Kerabat" className="w-full h-full rounded-3xl object-cover" />
+                  <img
+                    src={kerabatLogo}
+                    alt="Logo Kerabat"
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
                 ) : (
                   <Sparkles className="w-8 h-8 text-white" />
                 )}
-              </div>
+              </button>
               {canEditPhotos && (
                 <button
-                  onClick={() => setIsLogoModalOpen(true)}
+                  onClick={(e) => { e.stopPropagation(); setIsLogoModalOpen(true); }}
                   className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600 transition"
                   title="Ganti logo kerabat"
                 >
@@ -193,7 +256,6 @@ export const StructureModule: React.FC = () => {
                 Kerabat Kerja
               </span>
 
-              {/* Edit nama kerabat — hanya Guru/Pimprod */}
               {isEditingKerabat && canEditKerabatKerja ? (
                 <div className="flex items-center gap-2 mt-1">
                   <input
@@ -269,6 +331,15 @@ export const StructureModule: React.FC = () => {
         </div>
       </div>
 
+      {/* 🔒 Banner Proteksi Foto */}
+      <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
+        <ShieldAlert className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+        <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
+          <strong>Perlindungan Foto:</strong> Foto profil anggota dilindungi — <strong>tidak bisa di-download</strong> untuk privasi.
+          Namun <strong>logo kerabat kerja</strong> bisa dilihat & diunduh karena untuk keperluan produksi.
+        </p>
+      </div>
+
       {/* Filter Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         <button
@@ -336,20 +407,43 @@ export const StructureModule: React.FC = () => {
               <div>
                 <div className="flex items-start gap-3">
                   <div className="relative">
-                    {member.photoURL ? (
-                      <img
-                        src={member.photoURL}
-                        alt={member.displayName}
-                        className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 dark:border-slate-700"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-lg border border-slate-200 dark:border-slate-700">
-                        {member.displayName.charAt(0).toUpperCase()}
-                      </div>
-                    )}
+                    {/* FOTO PROFIL — KLIK untuk lihat besar (dilindungi) */}
+                    <button
+                      type="button"
+                      onClick={() => handleViewMemberPhoto(member)}
+                      className="relative block cursor-pointer hover:scale-105 transition"
+                      title={member.photoURL ? 'Klik untuk lihat foto besar' : 'Belum ada foto'}
+                      onContextMenu={(e) => e.preventDefault()}
+                    >
+                      {member.photoURL ? (
+                        <img
+                          src={member.photoURL}
+                          alt={member.displayName}
+                          draggable={false}
+                          onContextMenu={(e) => e.preventDefault()}
+                          className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 dark:border-slate-700 select-none"
+                          style={{
+                            WebkitTouchCallout: 'none',
+                            WebkitUserSelect: 'none',
+                            userSelect: 'none',
+                          }}
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-lg border border-slate-200 dark:border-slate-700 select-none">
+                          {member.displayName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      {/* Icon zoom hint */}
+                      {member.photoURL && (
+                        <span className="absolute -bottom-1 -left-1 p-1 rounded-full bg-slate-900/80 text-white opacity-0 group-hover:opacity-100 transition text-[8px]">
+                          <Eye className="w-2.5 h-2.5" />
+                        </span>
+                      )}
+                    </button>
+
                     {canEditThisPhoto && (
                       <button
-                        onClick={() => setPhotoModalMember(member)}
+                        onClick={(e) => { e.stopPropagation(); setPhotoModalMember(member); }}
                         className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-amber-500 text-white shadow-md hover:bg-amber-600 transition"
                         title="Ganti foto"
                       >
@@ -418,6 +512,81 @@ export const StructureModule: React.FC = () => {
         })}
       </div>
 
+      {/* ═══ MODAL VIEW FOTO (dengan proteksi) ═══ */}
+      {viewingPhoto && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md"
+          onClick={() => setViewingPhoto(null)}
+          onContextMenu={(e) => { if (!viewingPhoto.canDownload) e.preventDefault(); }}
+        >
+          <div
+            className="w-full max-w-3xl flex flex-col items-center gap-4 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="text-center">
+              <h3 className="text-white font-black text-lg">{viewingPhoto.name}</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {viewingPhoto.canDownload
+                  ? '🔓 Logo kerabat — boleh diunduh'
+                  : '🔒 Foto profil — dilindungi, tidak bisa diunduh'}
+              </p>
+            </div>
+
+            {/* Foto Besar */}
+            <div
+              className="relative rounded-3xl overflow-hidden shadow-2xl border-4 border-white/10"
+              style={{
+                WebkitTouchCallout: viewingPhoto.canDownload ? 'default' : 'none',
+                WebkitUserSelect: viewingPhoto.canDownload ? 'auto' : 'none',
+                userSelect: viewingPhoto.canDownload ? 'auto' : 'none',
+              }}
+            >
+              <img
+                src={viewingPhoto.url}
+                alt={viewingPhoto.name}
+                className="max-w-full max-h-[70vh] object-contain bg-slate-900"
+                draggable={viewingPhoto.canDownload}
+                onContextMenu={(e) => { if (!viewingPhoto.canDownload) e.preventDefault(); }}
+                style={{
+                  pointerEvents: viewingPhoto.canDownload ? 'auto' : 'none',
+                  WebkitTouchCallout: viewingPhoto.canDownload ? 'default' : 'none',
+                  WebkitUserSelect: viewingPhoto.canDownload ? 'auto' : 'none',
+                  userSelect: viewingPhoto.canDownload ? 'auto' : 'none',
+                }}
+              />
+            </div>
+
+            {/* Tombol Aksi */}
+            <div className="flex items-center gap-2 flex-wrap justify-center">
+              {viewingPhoto.canDownload && (
+                <button
+                  onClick={() => handleDownload(viewingPhoto.url, viewingPhoto.name)}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg"
+                >
+                  <Download className="w-4 h-4" /> Unduh Logo
+                </button>
+              )}
+              <button
+                onClick={() => setViewingPhoto(null)}
+                className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-xs flex items-center gap-2"
+              >
+                <X className="w-4 h-4" /> Tutup
+              </button>
+            </div>
+
+            {!viewingPhoto.canDownload && (
+              <div className="max-w-md p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-200 leading-relaxed">
+                  <strong>Foto ini dilindungi.</strong> Download, klik kanan, dan long-press sudah dinonaktifkan untuk menghormati privasi pemilik foto.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Member Detail Modal */}
       {selectedMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
@@ -425,11 +594,24 @@ export const StructureModule: React.FC = () => {
             <div className="text-center">
               <div className="relative inline-block">
                 {selectedMember.photoURL ? (
-                  <img
-                    src={selectedMember.photoURL}
-                    alt={selectedMember.displayName}
-                    className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-md"
-                  />
+                  <button
+                    onClick={() => handleViewMemberPhoto(selectedMember)}
+                    className="cursor-pointer hover:scale-105 transition"
+                    onContextMenu={(e) => e.preventDefault()}
+                  >
+                    <img
+                      src={selectedMember.photoURL}
+                      alt={selectedMember.displayName}
+                      draggable={false}
+                      onContextMenu={(e) => e.preventDefault()}
+                      className="w-24 h-24 rounded-full object-cover border-4 border-amber-400 shadow-md select-none"
+                      style={{
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        userSelect: 'none',
+                      }}
+                    />
+                  </button>
                 ) : (
                   <div className="w-24 h-24 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold text-2xl flex items-center justify-center border-4 border-amber-400">
                     {selectedMember.displayName.charAt(0)}
