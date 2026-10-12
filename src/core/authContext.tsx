@@ -13,7 +13,7 @@ import {
   fetchClasses, fetchUserProfile, recordAuditLog, notifyTeachers,
 } from '../services/firestoreService';
 import { doc, setDoc, updateDoc, increment } from 'firebase/firestore';
-import { TEACHER_INVITE_CODE } from './constants';
+import { TEACHER_INVITE_CODE, getDivisionFromRole } from './constants';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -70,6 +70,35 @@ const normalizeRole = (role: string): UserRole => {
 
 const ACTIVE_CLASS_KEY = (uid: string) => `spppt-active-class-${uid}`;
 
+// 🔧 Helper: pastikan profile punya divisionId & divisionName
+async function autoFillDivision(profile: UserProfile): Promise<UserProfile> {
+  if (profile.divisionName && profile.divisionId) return profile;
+
+  try {
+    const division = getDivisionFromRole(profile.role);
+    if (division && division.id) {
+      const fixed: UserProfile = {
+        ...profile,
+        divisionId: profile.divisionId || division.id,
+        divisionName: profile.divisionName || division.name,
+      };
+
+      // Persist ke Firestore biar permanen (non-fatal kalau gagal)
+      try {
+        await updateDoc(doc(db, 'users', profile.uid), {
+          divisionId: fixed.divisionId,
+          divisionName: fixed.divisionName,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch { /* ignore */ }
+
+      return fixed;
+    }
+  } catch { /* ignore */ }
+
+  return profile;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
@@ -105,7 +134,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
           if (profile) {
             profile.role = normalizeRole(profile.role);
-            setUser(profile);
+
+            // 🔧 AUTO-FIX division
+            const fixedProfile = await autoFillDivision(profile);
+
+            if (!isMounted) { clearTimeout(safetyTimer); return; }
+            setUser(fixedProfile);
           } else {
             console.warn('Profil tidak ditemukan untuk UID:', fbUser.uid);
             try { await signOut(auth); } catch { /* ignore */ }
@@ -133,12 +167,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Reset flag saat ganti user
   useEffect(() => {
     restoreClassRef.current = false;
   }, [user?.uid]);
 
-  // Restore activeClass dari localStorage — SEKALI per user
   useEffect(() => {
     if (!user || classes.length === 0) return;
     if (restoreClassRef.current) return;
@@ -169,7 +201,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restoreClassRef.current = true;
   }, [user, classes]);
 
-  // Wrapper setActiveClass yang auto-persist
   const setActiveClass = useCallback((c: ClassRoom | null) => {
     _setActiveClass(c);
     if (user?.uid) {
@@ -208,6 +239,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       profile.role = normalizeRole(profile.role);
+
+      // 🔧 AUTO-FIX division saat login
+      profile = await autoFillDivision(profile);
+
       setUser(profile);
       await recordAuditLog({
         userId: profile.uid,
@@ -276,7 +311,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await updateProfile(res.user, { displayName: data.displayName.trim() });
       } catch (_) { /* non-fatal */ }
 
-      const { getDivisionFromRole } = await import('./constants');
       const division = isTeacherReg ? null : getDivisionFromRole(data.role || 'Pemeran');
 
       const newProfile: UserProfile = {
