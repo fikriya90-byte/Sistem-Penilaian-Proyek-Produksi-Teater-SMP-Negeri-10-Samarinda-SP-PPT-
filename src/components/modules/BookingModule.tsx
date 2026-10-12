@@ -1,21 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, Package, Plus, X, Save, CheckCircle, XCircle,
-  AlertTriangle, Search, Users, MessageSquare, Filter, Mic, Speaker,
-  Music, Palette, Scissors, Box,
+  AlertTriangle, Search, Users, Filter, Mic, Speaker, Box,
+  Music, Palette, Scissors, RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { recordAuditLog, notifyTeachers } from '../../services/firestoreService';
 import {
   collection, query, where, onSnapshot, doc, setDoc, updateDoc,
-  deleteDoc, getDocs, writeBatch,
+  deleteDoc, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
-// =====================================================
-// TIPE DATA
-// =====================================================
 interface Equipment {
   id: string;
   classId: string;
@@ -47,12 +44,7 @@ interface Booking {
 }
 
 const EQUIPMENT_CATEGORIES = [
-  'Sound System',
-  'Properti',
-  'Kostum',
-  'Alat Rias',
-  'Alat Panggung',
-  'Lainnya',
+  'Sound System', 'Properti', 'Kostum', 'Alat Rias', 'Alat Panggung', 'Lainnya',
 ];
 
 const DEFAULT_EQUIPMENT: Omit<Equipment, 'id' | 'classId'>[] = [
@@ -79,9 +71,6 @@ const DEFAULT_EQUIPMENT: Omit<Equipment, 'id' | 'classId'>[] = [
 
 const CAN_APPROVE_ROLES = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin', 'Pimpinan Produksi'];
 
-// =====================================================
-// MAIN COMPONENT
-// =====================================================
 export const BookingModule: React.FC = () => {
   const { user, activeClass, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -95,7 +84,6 @@ export const BookingModule: React.FC = () => {
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
 
-  // Form booking
   const [bookDate, setBookDate] = useState(new Date().toISOString().slice(0, 10));
   const [bookStart, setBookStart] = useState('14:00');
   const [bookEnd, setBookEnd] = useState('16:00');
@@ -104,7 +92,6 @@ export const BookingModule: React.FC = () => {
 
   const canApprove = user && CAN_APPROVE_ROLES.includes(user.role);
 
-  // Subscribe ke equipment & bookings
   useEffect(() => {
     if (!activeClass) return;
 
@@ -112,7 +99,6 @@ export const BookingModule: React.FC = () => {
     const unsubEq = onSnapshot(qEq, async snap => {
       const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Equipment));
 
-      // Auto-seed kalau kosong
       if (items.length === 0 && !isSeeding) {
         setIsSeeding(true);
         try {
@@ -146,9 +132,6 @@ export const BookingModule: React.FC = () => {
     return () => { unsubEq(); unsubBk(); };
   }, [activeClass, isSeeding]);
 
-  // =============================================
-  // Cek konflik jadwal
-  // =============================================
   const checkConflict = (
     equipmentId: string,
     date: string,
@@ -156,7 +139,7 @@ export const BookingModule: React.FC = () => {
     end: string,
     excludeBookingId?: string
   ): Booking | null => {
-    const existing = bookings.filter(b => 
+    const existing = bookings.filter(b =>
       b.equipmentId === equipmentId &&
       b.date === date &&
       b.status !== 'REJECTED' &&
@@ -164,7 +147,6 @@ export const BookingModule: React.FC = () => {
     );
 
     for (const b of existing) {
-      // Overlap check: newStart < existingEnd && newEnd > existingStart
       if (start < b.endTime && end > b.startTime) {
         return b;
       }
@@ -195,7 +177,6 @@ export const BookingModule: React.FC = () => {
       return;
     }
 
-    // Cek konflik
     const conflict = checkConflict(selectedEquipment.id, bookDate, bookStart, bookEnd);
     if (conflict) {
       showToast(
@@ -236,7 +217,6 @@ export const BookingModule: React.FC = () => {
         details: `Booking ${selectedEquipment.name} (${bookDate} ${bookStart}-${bookEnd})`,
       });
 
-      // Notif ke guru & pimprod
       try {
         await notifyTeachers(activeClass.id, {
           title: 'Booking Alat Baru',
@@ -276,7 +256,6 @@ export const BookingModule: React.FC = () => {
         details: `Setujui booking ${booking.equipmentName}`,
       });
 
-      // Notif ke siswa yang booking
       const notifRef = doc(collection(db, 'notifications'));
       await setDoc(notifRef, {
         id: notifRef.id,
@@ -343,9 +322,6 @@ export const BookingModule: React.FC = () => {
     }
   };
 
-  // =============================================
-  // Filter
-  // =============================================
   const filteredEquipment = equipment.filter(eq => {
     if (filterCategory !== 'ALL' && eq.category !== filterCategory) return false;
     if (searchQuery.trim()) {
@@ -438,7 +414,6 @@ export const BookingModule: React.FC = () => {
         )}
       </div>
 
-      {/* TAB: Alat */}
       {activeTab === 'alat' && (
         <>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -462,8 +437,8 @@ export const BookingModule: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filteredEquipment.map(eq => {
               const Icon = getCategoryIcon(eq.category);
-              const activeBookings = bookings.filter(b => 
-                b.equipmentId === eq.id && 
+              const activeBookings = bookings.filter(b =>
+                b.equipmentId === eq.id &&
                 b.status === 'APPROVED' &&
                 b.date >= new Date().toISOString().slice(0, 10)
               ).length;
@@ -512,7 +487,6 @@ export const BookingModule: React.FC = () => {
         </>
       )}
 
-      {/* TAB: Booking Saya / Semua / Pending */}
       {(activeTab === 'saya' || activeTab === 'semua' || activeTab === 'pending') && (
         <div className="space-y-3">
           {(activeTab === 'saya' ? myBookings : activeTab === 'pending' ? pendingBookings : allBookings).length === 0 ? (
@@ -589,7 +563,6 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Booking */}
       {isBookingOpen && selectedEquipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4">
