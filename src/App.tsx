@@ -31,6 +31,7 @@ import { GuideModule } from './components/modules/GuideModule';
 import { SettingsModule } from './components/modules/SettingsModule';
 import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
+import { ManageStudentModule } from './components/modules/ManageStudentModule';
 import { StageManagerModule } from './components/modules/StageManagerModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
@@ -49,6 +50,8 @@ import { DivisionScheduleModule } from './components/modules/DivisionScheduleMod
 import { DirectorTimelineModule } from './components/modules/DirectorTimelineModule';
 import { DeadlineModule } from './components/modules/DeadlineModule';
 import { NotulensiModule } from './components/modules/NotulensiModule';
+import { BookingModule } from './components/modules/BookingModule';
+import { InterClassCoordModule } from './components/modules/InterClassCoordModule';
 
 const RABModule = lazy(() =>
   import('./components/modules/RABModule')
@@ -71,10 +74,8 @@ const LoadingFallback: React.FC = () => (
 );
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
+const VIEW_STORAGE_KEY = 'spppt-view'; // ✅ baru
 
-// ═══════════════════════════════════════════════════════════
-// WELCOME LAYOUT — SEKARANG HANDLE currentModule
-// ═══════════════════════════════════════════════════════════
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
   onNavigate: (m: string) => void;
@@ -83,7 +84,6 @@ const WelcomeLayout: React.FC<{
   const { isGuruPengampu, isAdminRole } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-  // ✅ RENDER MODULE sesuai currentModule
   const renderWelcomeModule = () => {
     switch (currentModule) {
       case 'informasi': return <InformationModule />;
@@ -93,9 +93,10 @@ const WelcomeLayout: React.FC<{
       case 'backup': return <BackupModule />;
       case 'panduan': return <GuideModule />;
       case 'pengaturan': return <SettingsModule />;
+      case 'inter-class': return <InterClassCoordModule />;
+      case 'kelola-kelas': return <ManageClassModule embedded />; // ✅ di beranda: kelola kelas
       case 'dashboard':
       default:
-        // Beranda → render kelas picker / student welcome
         return isGuruPengampu || isAdminRole ? (
           <TeacherClassPicker onEnterClass={onEnterClass} embedded />
         ) : (
@@ -127,9 +128,6 @@ const WelcomeLayout: React.FC<{
   );
 };
 
-// ═══════════════════════════════════════════════════════════
-// MAIN LAYOUT
-// ═══════════════════════════════════════════════════════════
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
 
@@ -137,35 +135,67 @@ const MainLayout: React.FC = () => {
     try { return localStorage.getItem(NAV_STORAGE_KEY) || 'dashboard'; }
     catch { return 'dashboard'; }
   });
-  const [view, setView] = useState<'welcome' | 'in-class'>('welcome');
+  const [view, setView] = useState<'welcome' | 'in-class'>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+      if (saved === 'in-class' || saved === 'welcome') return saved;
+    } catch { /* ignore */ }
+    return 'welcome';
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
   const viewInitRef = useRef(false);
 
+  // Persist module
   useEffect(() => {
     try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
   }, [currentModule]);
 
+  // ✅ Persist view
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_STORAGE_KEY, view); } catch { /* ignore */ }
+  }, [view]);
+
+  // Login confirm
   useEffect(() => {
     if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
       setShowLoginConfirm(true);
     }
   }, [user]);
 
+  // Reset init flag saat ganti user
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
+  // ✅ Init view — RESTORE dari localStorage setelah activeClass ready
   useEffect(() => {
     if (!user) return;
     if (viewInitRef.current) return;
 
     const isGuruOrAdmin = isGuruPengampu || isAdminRole;
 
+    // Baca saved view
+    let savedView: 'welcome' | 'in-class' = 'welcome';
+    try {
+      const s = localStorage.getItem(VIEW_STORAGE_KEY);
+      if (s === 'in-class' || s === 'welcome') savedView = s;
+    } catch { /* ignore */ }
+
     if (isGuruOrAdmin) {
-      setView(activeClass ? 'in-class' : 'welcome');
+      // Guru/Admin: kalau activeClass ada DAN savedView = in-class → tetap in-class
+      if (activeClass && savedView === 'in-class') {
+        setView('in-class');
+        viewInitRef.current = true;
+      } else if (activeClass && savedView === 'welcome') {
+        // Sudah login sebelumnya, logout dari kelas → tetap welcome
+        setView('welcome');
+        viewInitRef.current = true;
+      }
+      // Kalau activeClass belum ready (loading async), tunggu
     } else {
+      // Siswa: langsung welcome (kartu kelas)
       setView('welcome');
+      viewInitRef.current = true;
     }
-    viewInitRef.current = true;
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
 
   const handleEnterClass = (c: any) => {
@@ -230,6 +260,8 @@ const MainLayout: React.FC = () => {
                currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
                currentModule === 'progress-tugas' ? <TaskProgressModule /> :
                currentModule === 'notulensi' ? <NotulensiModule /> :
+               currentModule === 'booking' ? <BookingModule /> :
+               currentModule === 'inter-class' ? <InterClassCoordModule /> :
                currentModule === 'rab' ? (
                  <Suspense fallback={<LoadingFallback />}>
                    <RABModule />
@@ -295,13 +327,15 @@ const MainLayout: React.FC = () => {
       case 'dokumen': return <DocumentModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
-      case 'kelola-kelas': return <ManageClassModule onNavigate={setCurrentModule} />;
+      case 'kelola-siswa': return <ManageStudentModule onNavigate={setCurrentModule} />; // ✅ baru
       case 'kelola-tahapan': return <StageManagerModule />;
       case 'aktivitas': return <ActivityLogModule />;
       case 'backup': return <BackupModule />;
       case 'pengaturan': return <SettingsModule />;
       case 'panduan': return <GuideModule />;
       case 'notulensi': return <NotulensiModule />;
+      case 'booking': return <BookingModule />;
+      case 'inter-class': return <InterClassCoordModule />;
       default: return <DashboardModule onNavigate={setCurrentModule} />;
     }
   };
