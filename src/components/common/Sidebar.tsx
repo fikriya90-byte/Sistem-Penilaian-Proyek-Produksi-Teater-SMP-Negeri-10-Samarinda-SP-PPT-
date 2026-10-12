@@ -4,7 +4,7 @@ import {
   Database, FileText, HelpCircle, MessageSquare, Music, Activity,
   Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
   Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
-  GraduationCap, Home, User as UserIcon,
+  GraduationCap, Home, BookOpen, Globe,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -27,15 +27,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const role = user?.role || '';
 
   // ═══════════════════════════════════════════════
-  // MENU MODE: WELCOME (fitur sederhana)
+  // MENU WELCOME (fitur sederhana)
   // ═══════════════════════════════════════════════
   const buildWelcomeMenu = () => {
-    // Guru/Admin welcome
     if (isGuruPengampu) {
       return [
-        { id: 'dashboard', label: 'Beranda & Kelola Kelas', icon: GraduationCap },
+        { id: 'dashboard', label: 'Beranda Utama', icon: GraduationCap },
+        { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen },
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
+        { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
         { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
@@ -44,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // Siswa welcome — fitur lebih sederhana
+    // Siswa welcome
     return [
       { id: 'dashboard', label: 'Beranda Saya', icon: Home },
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -55,10 +56,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // ═══════════════════════════════════════════════
-  // MENU MODE: IN-CLASS (lengkap per role)
+  // MENU IN-CLASS (lengkap per role)
   // ═══════════════════════════════════════════════
   const buildInClassMenu = () => {
-    // ═══ ADMIN ═══
+    // ADMIN
     if (isAdminRole) {
       return [
         { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck },
@@ -71,19 +72,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
         { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
         { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'booking', label: 'Booking Alat', icon: Package },
+        { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         { id: 'rab', label: 'RAB Digital', icon: Calculator },
         { id: 'backup', label: 'Backup & Restore', icon: Database },
         { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
       ];
     }
 
-    // ═══ GURU PENGAMPU ═══
+    // GURU PENGAMPU (IN-CLASS)
     if (isGuruPengampu) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-        { id: 'kelola-kelas', label: 'Kelola Kelas', icon: GraduationCap },
+        { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
         { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
         { id: 'master-timeline', label: 'Master Timeline', icon: Film },
@@ -97,6 +100,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
         { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
         { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
+        { id: 'booking', label: 'Booking Alat', icon: Package },
+        { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         { id: 'broadcast', label: 'Broadcast', icon: Radio },
         { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
         { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
@@ -106,7 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // ═══ BENDAHARA ═══
+    // BENDAHARA
     if (role === 'Bendahara') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -126,6 +131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'absensi', label: 'Presensi', icon: ClipboardList },
         { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
         { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
+        { id: 'booking', label: 'Booking Alat', icon: Package },
         { id: 'broadcast', label: 'Broadcast', icon: Radio },
         { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
         { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
@@ -134,7 +140,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // ═══ PIMPINAN PRODUKSI ═══
+    // PIMPINAN PRODUKSI
     if (role === 'Pimpinan Produksi') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -147,6 +153,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
         { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
         { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+        { id: 'booking', label: 'Booking Alat', icon: Package },
+        { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
         { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
         { id: 'absensi', label: 'Presensi', icon: ClipboardList },
@@ -160,7 +168,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // ═══ SEKRETARIS / SUTRADARA / ASISTEN ═══
+    // SEKRETARIS / SUTRADARA / ASISTEN
     if (['Sekretaris', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -178,6 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'absensi', label: 'Presensi', icon: ClipboardList },
         { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
         { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
+        { id: 'booking', label: 'Booking Alat', icon: Package },
         { id: 'broadcast', label: 'Broadcast', icon: Radio },
         { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
         { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
@@ -186,7 +195,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // ═══ KOORDINATOR ═══
+    // KOORDINATOR
     if (role.startsWith('Koordinator ')) {
       const base = [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -214,6 +223,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       };
       const extras = specific[role] || [];
       const tail = [
+        { id: 'booking', label: 'Booking Alat', icon: Package },
         { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
         { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
         { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
@@ -223,7 +233,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return [...base, ...extras, ...tail];
     }
 
-    // ═══ ANGGOTA ═══
+    // ANGGOTA
     if (role.startsWith('Anggota ')) {
       const specific: Record<string, any[]> = {
         'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
@@ -247,6 +257,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ...extras,
         { id: 'absensi', label: 'Presensi', icon: ClipboardList },
         { id: 'kas', label: 'Kas Saya', icon: Wallet },
+        { id: 'booking', label: 'Booking Alat', icon: Package },
         { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
         { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
         { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
@@ -256,7 +267,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // ═══ PEMAIN / PEMERAN ═══
+    // PEMERAN
     if (role === 'Pemain' || role === 'Pemeran') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -272,6 +283,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'nilai', label: 'Nilai Rekan', icon: Star },
         { id: 'absensi', label: 'Presensi', icon: ClipboardList },
         { id: 'kas', label: 'Kas Saya', icon: Wallet },
+        { id: 'booking', label: 'Booking Alat', icon: Package },
         { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
         { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
         { id: 'panduan', label: 'Panduan', icon: HelpCircle },
@@ -279,7 +291,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // ═══ DEFAULT ═══
+    // DEFAULT
     return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
