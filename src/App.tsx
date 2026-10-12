@@ -31,7 +31,6 @@ import { GuideModule } from './components/modules/GuideModule';
 import { SettingsModule } from './components/modules/SettingsModule';
 import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
-import { ManageStudentModule } from './components/modules/ManageStudentModule';
 import { StageManagerModule } from './components/modules/StageManagerModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
@@ -74,7 +73,7 @@ const LoadingFallback: React.FC = () => (
 );
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
-const VIEW_STORAGE_KEY = 'spppt-view'; // ✅ baru
+const VIEW_STORAGE_KEY = 'spppt-view';
 
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
@@ -94,7 +93,7 @@ const WelcomeLayout: React.FC<{
       case 'panduan': return <GuideModule />;
       case 'pengaturan': return <SettingsModule />;
       case 'inter-class': return <InterClassCoordModule />;
-      case 'kelola-kelas': return <ManageClassModule embedded />; // ✅ di beranda: kelola kelas
+      case 'kelola-kelas': return <ManageClassModule embedded />;
       case 'dashboard':
       default:
         return isGuruPengampu || isAdminRole ? (
@@ -146,34 +145,28 @@ const MainLayout: React.FC = () => {
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
   const viewInitRef = useRef(false);
 
-  // Persist module
   useEffect(() => {
     try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
   }, [currentModule]);
 
-  // ✅ Persist view
   useEffect(() => {
     try { localStorage.setItem(VIEW_STORAGE_KEY, view); } catch { /* ignore */ }
   }, [view]);
 
-  // Login confirm
   useEffect(() => {
     if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
       setShowLoginConfirm(true);
     }
   }, [user]);
 
-  // Reset init flag saat ganti user
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
-  // ✅ Init view — RESTORE dari localStorage setelah activeClass ready
   useEffect(() => {
     if (!user) return;
     if (viewInitRef.current) return;
 
     const isGuruOrAdmin = isGuruPengampu || isAdminRole;
 
-    // Baca saved view
     let savedView: 'welcome' | 'in-class' = 'welcome';
     try {
       const s = localStorage.getItem(VIEW_STORAGE_KEY);
@@ -181,18 +174,14 @@ const MainLayout: React.FC = () => {
     } catch { /* ignore */ }
 
     if (isGuruOrAdmin) {
-      // Guru/Admin: kalau activeClass ada DAN savedView = in-class → tetap in-class
       if (activeClass && savedView === 'in-class') {
         setView('in-class');
         viewInitRef.current = true;
       } else if (activeClass && savedView === 'welcome') {
-        // Sudah login sebelumnya, logout dari kelas → tetap welcome
         setView('welcome');
         viewInitRef.current = true;
       }
-      // Kalau activeClass belum ready (loading async), tunggu
     } else {
-      // Siswa: langsung welcome (kartu kelas)
       setView('welcome');
       viewInitRef.current = true;
     }
@@ -232,7 +221,6 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
-  // ═══ ADMIN ═══
   if (isAdminRole) {
     return (
       <>
@@ -283,7 +271,6 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ═══ WELCOME VIEW ═══
   if (view === 'welcome') {
     return (
       <WelcomeLayout
@@ -294,7 +281,6 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ═══ IN-CLASS VIEW ═══
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -327,7 +313,8 @@ const MainLayout: React.FC = () => {
       case 'dokumen': return <DocumentModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
-      case 'kelola-siswa': return <ManageStudentModule onNavigate={setCurrentModule} />; // ✅ baru
+      case 'kelola-siswa': return <ManageClassModule embedded />;
+      case 'kelola-kelas': return <ManageClassModule embedded />;
       case 'kelola-tahapan': return <StageManagerModule />;
       case 'aktivitas': return <ActivityLogModule />;
       case 'backup': return <BackupModule />;
