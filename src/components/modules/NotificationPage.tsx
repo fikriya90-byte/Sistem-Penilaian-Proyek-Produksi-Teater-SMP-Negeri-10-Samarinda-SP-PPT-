@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Bell, Search, CheckCheck, Trash2, Clock, Filter, CheckSquare,
   MessageSquare, Award, AlertTriangle, Wallet, Megaphone, RefreshCw,
-  Building2, X, Reply, Shield, Send,
+  Building2, X, Reply, Shield, Send, ExternalLink, ArrowRight,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -14,6 +14,7 @@ import {
   collection, query, where, doc, deleteDoc, writeBatch, getDocs, setDoc,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+import { resolveNotificationLink, isValidModuleForRole } from '../../utils/notificationRoutes';
 
 type FilterType = 'ALL' | 'UNREAD' | 'Tugas' | 'Reminder' | 'Pengumuman' | 'Nilai' | 'Urgent' | 'Sistem' | 'Keuangan';
 
@@ -57,7 +58,7 @@ const sanitizeText = (text: string): string => {
 // MAIN COMPONENT
 // ============================================================
 export const NotificationPage: React.FC = () => {
-  const { user, classes } = useAuth();
+  const { user, classes, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [filter, setFilter] = useState<FilterType>('ALL');
@@ -70,6 +71,14 @@ export const NotificationPage: React.FC = () => {
   const [replyTo, setReplyTo] = useState<SystemNotification | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
+
+  // Menu navigasi dari parent
+  const onNavigate = (module: string) => {
+    try {
+      // Dispatch custom event yang akan ditangkap oleh App.tsx
+      window.dispatchEvent(new CustomEvent('spppt-navigate', { detail: { module } }));
+    } catch { /* fallback */ }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -110,9 +119,21 @@ export const NotificationPage: React.FC = () => {
   const unreadCount = notifications.filter(n => !n.read).length;
   const classUnreadCount = (cid: string) => notifications.filter(n => !n.read && n.classId === cid).length;
 
+  // ✅ KLIK NOTIFIKASI → NAVIGASI KE MODUL TARGET
   const handleMarkRead = async (n: SystemNotification) => {
-    if (n.read) return;
-    try { await markNotificationAsRead(n.id); } catch { /* silent */ }
+    if (!n.read) {
+      try { await markNotificationAsRead(n.id); } catch { /* silent */ }
+    }
+
+    // Resolve modul target
+    const isGuru = !!user && (user.role === 'Guru Pengampu' || user.role === 'Guru Pembina');
+    let target = resolveNotificationLink(n);
+
+    if (!isValidModuleForRole(target, user?.role || '', isGuru, isAdminRole)) {
+      target = 'notifikasi';
+    }
+
+    onNavigate(target);
   };
 
   const handleMarkAllRead = async () => {
@@ -398,12 +419,10 @@ export const NotificationPage: React.FC = () => {
                     </h4>
                     <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">{n.message}</p>
                     <div className="flex items-center gap-2 mt-3 flex-wrap">
-                      {!n.read && (
-                        <button onClick={() => handleMarkRead(n)}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-300 dark:border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-bold text-[10px] flex items-center gap-1">
-                          <CheckCheck className="w-3 h-3" /> Dibaca
-                        </button>
-                      )}
+                      <button onClick={() => handleMarkRead(n)}
+                        className="px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 border border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-300 font-bold text-[10px] flex items-center gap-1">
+                        <ArrowRight className="w-3 h-3" /> Buka Halaman
+                      </button>
                       {canReply && (
                         <button onClick={() => { setReplyTo(n); setReplyText(''); }}
                           className="px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-300 dark:border-blue-500/40 text-blue-700 dark:text-blue-300 font-bold text-[10px] flex items-center gap-1">
