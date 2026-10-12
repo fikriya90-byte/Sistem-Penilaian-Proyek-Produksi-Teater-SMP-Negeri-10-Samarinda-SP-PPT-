@@ -12,6 +12,7 @@ import {
 import { SystemNotification } from '../../core/types';
 import { useToast } from './Toast';
 import { LogoutConfirmModal } from '../auth/LogoutConfirmModal';
+import { resolveNotificationLink, isValidModuleForRole } from '../../utils/notificationRoutes';
 
 interface NavbarProps {
   onToggleSidebar: () => void;
@@ -49,17 +50,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ✅ KLIK NOTIFIKASI → ARAHKAN KE HALAMAN TUJUAN (link) atau ke Notifikasi Saya
+  // ✅ KLIK NOTIFIKASI → ARAHKAN KE MODUL YANG TEPAT
   const handleReadNotif = async (n: SystemNotification) => {
     await markNotificationAsRead(n.id);
     setShowNotifMenu(false);
 
-    // Kalau notif punya link target → ke sana
-    if (n.link && n.link.trim()) {
-      onNavigate(n.link);
-    } else {
-      onNavigate('notifikasi');
+    // Resolve modul target (link atau deteksi dari judul)
+    let target = resolveNotificationLink(n);
+
+    // Cek apakah role user boleh akses modul itu
+    const isGuru = !!user && (user.role === 'Guru Pengampu' || user.role === 'Guru Pembina');
+    if (!isValidModuleForRole(target, user?.role || '', isGuru, isAdminRole)) {
+      target = 'notifikasi';
     }
+
+    // Kalau modul butuh activeClass tapi belum ada, tetap arahkan (App akan handle)
+    onNavigate(target);
   };
 
   const handleMarkAllRead = async () => {
