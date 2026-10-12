@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react';
 import {
   Globe, Send, Search, MessageSquare, Users, Sparkles,
   RefreshCw, AlertTriangle, CheckCircle, X, Building2,
-  Share2, MessageCircle,
+  Share2, MessageCircle, Crown, Star, GraduationCap, Eye,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import {
-  collection, query, where, onSnapshot, doc, setDoc, writeBatch,
+  collection, query, where, onSnapshot, doc, setDoc, writeBatch, getDocs,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-import { recordAuditLog, fetchAllUsers } from '../../services/firestoreService';
+import { recordAuditLog } from '../../services/firestoreService';
 
 interface CrossMessage {
   id: string;
@@ -23,12 +23,22 @@ interface CrossMessage {
   content: string;
   priority: 'NORMAL' | 'PENTING' | 'URGENT';
   targetClassIds: string[];
+  targetRoles: string[];     // ✅ BARU: role penerima
+  recipientIds: string[];    // ✅ BARU: UID eksplisit
   createdAt: string;
 }
 
 const CAN_SEND_ROLES = [
   'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin',
   'Pimpinan Produksi', 'Sutradara', 'Asisten Sutradara',
+];
+
+// Role yang bisa jadi penerima
+const RECIPIENT_ROLES = [
+  { value: 'Guru Pengampu', label: 'Guru Pengampu', icon: GraduationCap, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-500/20 border-blue-300 dark:border-blue-500/40' },
+  { value: 'Pimpinan Produksi', label: 'Pimpinan Produksi', icon: Crown, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-500/20 border-amber-300 dark:border-amber-500/40' },
+  { value: 'Sutradara', label: 'Sutradara', icon: Star, color: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-500/20 border-rose-300 dark:border-rose-500/40' },
+  { value: 'Asisten Sutradara', label: 'Asisten Sutradara', icon: Sparkles, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-500/20 border-purple-300 dark:border-purple-500/40' },
 ];
 
 const PRIORITY_CONFIG = {
@@ -50,6 +60,7 @@ export const InterClassCoordModule: React.FC = () => {
   const [content, setContent] = useState('');
   const [priority, setPriority] = useState<'NORMAL' | 'PENTING' | 'URGENT'>('NORMAL');
   const [targetClassIds, setTargetClassIds] = useState<string[]>([]);
+  const [targetRoles, setTargetRoles] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const canSend = !!user && CAN_SEND_ROLES.includes(user.role);
@@ -63,28 +74,48 @@ export const InterClassCoordModule: React.FC = () => {
       where('targetClassIds', 'array-contains', activeClass.id)
     );
     const unsub = onSnapshot(q, snap => {
-      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as CrossMessage));
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setMessages(list);
+      const all = snap.docs.map(d => ({ ...d.data(), id: d.id } as CrossMessage));
+
+      // ✅ Filter: pesan tampil hanya untuk user yang rolenya termasuk targetRoles
+      const filtered = all.filter(m => {
+        // Backward compat: pesan lama tanpa targetRoles → tampil ke semua
+        if (!m.targetRoles || m.targetRoles.length === 0) return true;
+        // Tampilkan kalau user.role ada di targetRoles, atau user.uid di recipientIds
+        if (m.targetRoles.includes(user?.role || '')) return true;
+        if (m.recipientIds && m.recipientIds.includes(user?.uid || '')) return true;
+        // Pengirim sendiri selalu bisa lihat pesannya
+        if (m.senderId === user?.uid) return true;
+        return false;
+      });
+
+      filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setMessages(filtered);
       setLoading(false);
     }, err => {
       console.warn('Cross class error:', err);
       setLoading(false);
     });
     return () => unsub();
-  }, [activeClass]);
+  }, [activeClass, user?.role, user?.uid]);
 
   const openCompose = () => {
     setTitle('');
     setContent('');
     setPriority('NORMAL');
     setTargetClassIds([]);
+    setTargetRoles([]);
     setIsComposeOpen(true);
   };
 
   const toggleClass = (id: string) => {
     setTargetClassIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleRole = (r: string) => {
+    setTargetRoles(prev =>
+      prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r]
     );
   };
 
@@ -99,9 +130,30 @@ export const InterClassCoordModule: React.FC = () => {
       showToast('Pilih minimal 1 kelas tujuan.', 'warning');
       return;
     }
+    if (targetRoles.length === 0) {
+      showToast('Pilih minimal 1 peran penerima.', 'warning');
+      return;
+    }
 
     setSubmitting(true);
     try {
+      // ✅ Cari UID penerima yang sesuai (classId ∈ targetClassIds DAN role ∈ targetRoles)
+      const recipientIds = new Set<string>();
+      try {
+        for (const cid of targetClassIds) {
+          const q = query(collection(db, 'users'), where('classId', '==', cid));
+          const snap = await getDocs(q);
+          snap.docs.forEach(d => {
+            const u = d.data();
+            if (targetRoles.includes(u.role)) {
+              recipientIds.add(d.id);
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('Fetch recipients error:', err);
+      }
+
       const newRef = doc(collection(db, 'crossClassMessages'));
       const newMsg: CrossMessage = {
         id: newRef.id,
@@ -114,40 +166,42 @@ export const InterClassCoordModule: React.FC = () => {
         content: content.trim(),
         priority,
         targetClassIds,
+        targetRoles,
+        recipientIds: Array.from(recipientIds),
         createdAt: new Date().toISOString(),
       };
       await setDoc(newRef, newMsg);
 
-      try {
-        const allUsers = await fetchAllUsers();
-        const recipients = allUsers.filter(u =>
-          targetClassIds.includes(u.classId) &&
-          ['Pimpinan Produksi', 'Guru Pengampu', 'Guru Pembina', 'Sutradara', 'Asisten Sutradara'].includes(u.role)
-        );
-
-        if (recipients.length > 0) {
+      // Notifikasi ke penerima spesifik
+      if (recipientIds.size > 0) {
+        try {
           const batch = writeBatch(db);
           const nowStr = new Date().toISOString();
-          recipients.forEach(r => {
-            const notifRef = doc(collection(db, 'notifications'));
-            batch.set(notifRef, {
-              id: notifRef.id,
-              userId: r.uid,
-              classId: r.classId,
-              title: priority === 'URGENT'
-                ? `🚨 URGENT — ${title.trim()}`
-                : `🌐 ${title.trim()}`,
-              message: `Dari ${user.displayName} (${activeClass.name}): ${content.trim().slice(0, 150)}`,
-              category: priority === 'URGENT' ? 'Urgent' : 'Pengumuman',
-              read: false,
-              link: 'inter-class',
-              createdAt: nowStr,
+          const recipientArr = Array.from(recipientIds);
+          for (let i = 0; i < recipientArr.length; i += 400) {
+            const chunk = recipientArr.slice(i, i + 400);
+            chunk.forEach(uid => {
+              // Cari classId dari array target yang match
+              const notifRef = doc(collection(db, 'notifications'));
+              batch.set(notifRef, {
+                id: notifRef.id,
+                userId: uid,
+                classId: '', // biar fleksibel, isi di bawah
+                title: priority === 'URGENT'
+                  ? `🚨 URGENT — ${title.trim()}`
+                  : `🌐 ${title.trim()}`,
+                message: `Dari ${user.displayName} (${activeClass.name}): ${content.trim().slice(0, 150)}`,
+                category: priority === 'URGENT' ? 'Urgent' : 'Pengumuman',
+                read: false,
+                link: 'inter-class',
+                createdAt: nowStr,
+              });
             });
-          });
+          }
           await batch.commit();
+        } catch (err) {
+          console.warn('Notif gagal:', err);
         }
-      } catch (err) {
-        console.warn('Notif gagal:', err);
       }
 
       await recordAuditLog({
@@ -157,10 +211,10 @@ export const InterClassCoordModule: React.FC = () => {
         action: 'CREATE',
         targetType: 'CrossClassMessage',
         targetId: newRef.id,
-        details: `Koordinasi lintas kelas: "${title}" ke ${targetClassIds.length} kelas`,
+        details: `Koordinasi: "${title}" ke ${targetClassIds.length} kelas × ${targetRoles.length} role (${recipientIds.size} penerima)`,
       });
 
-      showToast(`Pesan terkirim ke ${targetClassIds.length} kelas!`, 'success');
+      showToast(`Pesan terkirim ke ${recipientIds.size} penerima!`, 'success');
       setIsComposeOpen(false);
     } catch (err: any) {
       showToast('Gagal kirim: ' + (err?.message || 'Unknown'), 'error');
@@ -169,17 +223,18 @@ export const InterClassCoordModule: React.FC = () => {
     }
   };
 
-  // ✅ Share pesan koordinasi ke WhatsApp
+  // ✅ Share pesan ke WhatsApp
   const handleShareToWA = (msg: CrossMessage) => {
     const targetClassNames = msg.targetClassIds
       .map(id => classes.find(c => c.id === id)?.name || '-')
       .join(', ');
+    const roleNames = (msg.targetRoles || []).join(', ');
 
     const text =
       `*${msg.title}*\n\n` +
       `${msg.content}\n\n` +
       `— Dari: ${msg.senderName} (${msg.senderClassName})\n` +
-      `— Untuk: ${targetClassNames}\n\n` +
+      `— Untuk: ${roleNames} di ${targetClassNames}\n\n` +
       `_Dikirim via SP-PPT — Sistem Penilaian & Manajemen Proyek Produksi Teater SMPN 10 Samarinda_`;
 
     const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
@@ -199,6 +254,11 @@ export const InterClassCoordModule: React.FC = () => {
   });
 
   const getPriorityCfg = (p: string) => PRIORITY_CONFIG[p as keyof typeof PRIORITY_CONFIG] || PRIORITY_CONFIG.NORMAL;
+
+  const getRoleBadge = (roleName: string) => {
+    const cfg = RECIPIENT_ROLES.find(r => r.value === roleName);
+    return cfg || { label: roleName, color: 'text-slate-600', bg: 'bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600', icon: Users };
+  };
 
   if (!canSend) {
     return (
@@ -229,7 +289,7 @@ export const InterClassCoordModule: React.FC = () => {
               </span>
               <h2 className="text-xl font-black text-white mt-1">Kerabat Kerja Antar Kelas</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Kirim pesan koordinasi ke Pimprod, Sutradara, Astrada & Guru di kelas lain
+                Kirim pesan ke role tertentu (Pimprod / Sutradara / Astrada / Guru) di kelas lain
               </p>
             </div>
           </div>
@@ -245,12 +305,17 @@ export const InterClassCoordModule: React.FC = () => {
       {/* INFO */}
       <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
         <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Kegunaan:</strong> Kirim pesan koordinasi ke kelas lain (misal: pinjam properti antar kelas,
-          jadwal latihan gabungan, kolaborasi pentas). Pesan muncul di menu <strong>Koordinasi Lintas Kelas</strong> kelas tujuan,
-          dan Pimprod / Sutradara / Astrada / Guru kelas tujuan menerima notifikasi.
-          Ada juga tombol <strong>Bagikan ke WhatsApp</strong> untuk meneruskan pesan via chat pribadi.
-        </p>
+        <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
+          <p className="font-bold">📢 Cara kerja:</p>
+          <ol className="list-decimal pl-4 mt-1 space-y-0.5">
+            <li>Pilih <strong>kelas tujuan</strong> (bisa lebih dari satu)</li>
+            <li>Pilih <strong>peran penerima</strong> (Pimprod / Sutradara / Astrada / Guru)</li>
+            <li>Pesan masuk <strong>HANYA ke user dengan role terpilih</strong> di kelas tujuan</li>
+          </ol>
+          <p className="mt-1.5">
+            Tidak semua anggota kelas akan menerima pesan — <strong>hanya penerima spesifik</strong> yang Anda pilih.
+          </p>
+        </div>
       </div>
 
       {/* SEARCH */}
@@ -274,9 +339,9 @@ export const InterClassCoordModule: React.FC = () => {
       ) : filtered.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <Globe className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Pesan</h3>
+          <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Pesan untuk Anda</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Klik "Kirim Pesan" untuk mulai koordinasi dengan kelas lain.
+            Hanya pesan yang ditujukan ke peran <strong>{user?.role}</strong> Anda yang akan muncul di sini.
           </p>
         </div>
       ) : (
@@ -284,6 +349,11 @@ export const InterClassCoordModule: React.FC = () => {
           {filtered.map(msg => {
             const prio = getPriorityCfg(msg.priority);
             const isMine = msg.senderClassId === activeClass?.id;
+            const targetClassNames = msg.targetClassIds
+              .map(id => classes.find(c => c.id === id)?.name)
+              .filter(Boolean)
+              .join(', ');
+
             return (
               <div
                 key={msg.id}
@@ -325,15 +395,35 @@ export const InterClassCoordModule: React.FC = () => {
                     <p className="text-xs text-slate-700 dark:text-slate-300 mt-1.5 leading-relaxed whitespace-pre-line">
                       {msg.content}
                     </p>
+
+                    {/* Target info */}
+                    <div className="mt-2.5 flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Ditujukan ke:</span>
+                      {(msg.targetRoles || []).map(r => {
+                        const cfg = getRoleBadge(r);
+                        const Icon = cfg.icon;
+                        return (
+                          <span key={r} className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${cfg.bg} ${cfg.color} flex items-center gap-1`}>
+                            <Icon className="w-2.5 h-2.5" /> {cfg.label}
+                          </span>
+                        );
+                      })}
+                      {(!msg.targetRoles || msg.targetRoles.length === 0) && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+                          Semua Anggota
+                        </span>
+                      )}
+                    </div>
+
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 flex items-center gap-1.5 flex-wrap">
                       <Users className="w-3 h-3" />
                       <strong className="text-slate-700 dark:text-slate-300">{msg.senderName}</strong>
                       <span>({msg.senderRole})</span>
                       <span className="text-slate-400">•</span>
-                      <span>dikirim ke {msg.targetClassIds.length} kelas</span>
+                      <span>dikirim ke kelas {targetClassNames}</span>
                     </p>
 
-                    {/* ✅ Tombol Share ke WhatsApp */}
+                    {/* Tombol Share ke WhatsApp */}
                     <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
                       <button
                         onClick={() => handleShareToWA(msg)}
@@ -415,6 +505,7 @@ export const InterClassCoordModule: React.FC = () => {
                 </div>
               </div>
 
+              {/* KELAS TUJUAN */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   Kelas Tujuan <span className="text-rose-500">*</span>
@@ -448,12 +539,58 @@ export const InterClassCoordModule: React.FC = () => {
                     })}
                   </div>
                 )}
-                {targetClassIds.length > 0 && (
-                  <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-2">
-                    ✓ {targetClassIds.length} kelas dipilih
-                  </p>
-                )}
               </div>
+
+              {/* PERAN PENERIMA — BARU */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Peran Penerima <span className="text-rose-500">*</span>
+                </label>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-2">
+                  Pesan hanya akan masuk ke role yang dipilih di kelas tujuan.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {RECIPIENT_ROLES.map(r => {
+                    const Icon = r.icon;
+                    const sel = targetRoles.includes(r.value);
+                    return (
+                      <button
+                        key={r.value} type="button" onClick={() => toggleRole(r.value)}
+                        className={`p-3 rounded-xl border-2 text-left transition flex items-center gap-2 ${
+                          sel
+                            ? `${r.bg}`
+                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        <Icon className={`w-4 h-4 shrink-0 ${sel ? r.color : 'text-slate-400'}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-[11px] font-bold ${sel ? r.color : 'text-slate-600 dark:text-slate-300'}`}>
+                            {r.label}
+                          </p>
+                          {sel && (
+                            <p className="text-[9px] font-bold mt-0.5 flex items-center gap-1">
+                              <CheckCircle className="w-2.5 h-2.5" /> Dipilih
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Summary Preview */}
+              {targetClassIds.length > 0 && targetRoles.length > 0 && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+                  <p className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5" /> Preview:
+                  </p>
+                  <p className="text-[10px] text-emerald-800 dark:text-emerald-300 mt-1 leading-relaxed">
+                    Pesan akan dikirim ke <strong>{targetRoles.join(', ')}</strong> di kelas{' '}
+                    <strong>{targetClassIds.map(id => classes.find(c => c.id === id)?.name).filter(Boolean).join(', ')}</strong>.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -472,8 +609,8 @@ export const InterClassCoordModule: React.FC = () => {
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                  Pesan akan masuk ke menu <strong>Koordinasi Lintas Kelas</strong> kelas tujuan.
-                  <strong> Pimpinan Produksi, Sutradara, Asisten Sutradara & Guru</strong> di kelas tujuan akan menerima notifikasi.
+                  Pesan akan masuk ke menu <strong>Koordinasi Lintas Kelas</strong> penerima spesifik.
+                  <strong> Hanya role terpilih</strong> yang bisa melihat pesan ini.
                 </p>
               </div>
             </div>
@@ -483,10 +620,10 @@ export const InterClassCoordModule: React.FC = () => {
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
                 Batal
               </button>
-              <button type="submit" disabled={submitting || targetClassIds.length === 0}
+              <button type="submit" disabled={submitting || targetClassIds.length === 0 || targetRoles.length === 0}
                 className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 <Send className="w-3.5 h-3.5" />
-                {submitting ? 'Mengirim...' : `Kirim ke ${targetClassIds.length} Kelas`}
+                {submitting ? 'Mengirim...' : `Kirim ke ${targetClassIds.length} kelas`}
               </button>
             </div>
           </form>
