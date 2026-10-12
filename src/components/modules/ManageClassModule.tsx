@@ -3,7 +3,7 @@ import {
   Plus, Users, BookOpen, Edit3, Trash2, Hash, Sparkles, X,
   ChevronRight, Copy, RefreshCw, AlertTriangle, GraduationCap,
   Search, Save, UserCog, Camera, TrendingUp, ArrowLeft, Check,
-  Eye, EyeOff, KeyRound, ShieldAlert, Send, Wrench, Mail, Phone,
+  Send, Mail, Phone,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -28,13 +28,6 @@ const ROLE_OPTIONS: { group: string; roles: UserRole[] }[] = [
   { group: '🎭 Anggota Divisi', roles: ['Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung', 'Anggota Tata Rias', 'Anggota Tata Busana', 'Anggota Tata Musik'] },
 ];
 
-interface CredentialView {
-  uid: string;
-  displayName: string;
-  email: string;
-  password: string;
-}
-
 export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate }) => {
   const { user, activeClass, classes, setActiveClass, reloadClasses } = useAuth();
   const { showToast } = useToast();
@@ -50,13 +43,11 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
   const [formCode, setFormCode] = useState('');
 
   const [students, setStudents] = useState<UserProfile[]>([]);
-  const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null);
   const [isEditStudentOpen, setIsEditStudentOpen] = useState(false);
   const [photoModalStudent, setPhotoModalStudent] = useState<UserProfile | null>(null);
-  const [passwordModal, setPasswordModal] = useState<CredentialView | null>(null);
   const [resettingId, setResettingId] = useState<string | null>(null);
 
   // State edit siswa
@@ -74,7 +65,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
   const [taskCompletions, setTaskCompletions] = useState<Record<string, any>>({});
   const [studentCountMap, setStudentCountMap] = useState<Record<string, number>>({});
 
-  // Hitung jumlah siswa per kelas
   useEffect(() => {
     if (classes.length === 0) return;
     const unsubs: (() => void)[] = [];
@@ -95,7 +85,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
   useEffect(() => {
     if (activeTab === 'siswa') {
       loadStudents();
-      loadCredentials();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, activeClass?.id]);
@@ -132,20 +121,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
       console.warn('Load students error:', err);
     } finally {
       setLoadingStudents(false);
-    }
-  };
-
-  const loadCredentials = async () => {
-    try {
-      const snap = await getDocs(collection(db, 'userCredentials'));
-      const map: Record<string, string> = {};
-      snap.docs.forEach(d => {
-        const data = d.data();
-        if (data.uid) map[data.uid] = data.password || '';
-      });
-      setCredentials(map);
-    } catch (err) {
-      console.warn('Load credentials error (mungkin diblokir rules):', err);
     }
   };
 
@@ -202,20 +177,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     setEditRole((s.role as UserRole) || 'Pemeran');
     setEditEmail(s.email || '');
     setIsEditStudentOpen(true);
-  };
-
-  const handleViewPassword = (s: UserProfile) => {
-    const pwd = credentials[s.uid];
-    if (!pwd) {
-      showToast('Password tidak tersedia. Siswa mungkin sudah ganti password sendiri atau mendaftar sebelum fitur ini aktif.', 'warning');
-      return;
-    }
-    setPasswordModal({
-      uid: s.uid,
-      displayName: s.displayName,
-      email: s.email,
-      password: pwd,
-    });
   };
 
   const handleDelete = async (c: ClassRoom) => {
@@ -296,9 +257,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     } finally { setSubmitting(false); }
   };
 
-  // ============================================================
-  // SIMPAN EDIT SISWA (nama, email, telepon, peran)
-  // ============================================================
   const handleSaveStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !selectedStudent) return;
@@ -322,14 +280,12 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
         updatedAt: new Date().toISOString(),
       };
 
-      // Update email jika berubah
       if (emailChanged) {
         updateData.email = editEmail.trim().toLowerCase();
       }
 
       await updateDoc(doc(db, 'users', selectedStudent.uid), updateData);
 
-      // Update email di userCredentials juga
       if (emailChanged) {
         try {
           await updateDoc(doc(db, 'userCredentials', selectedStudent.uid), {
@@ -371,18 +327,12 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     }
   };
 
-  // ============================================================
-  // BUKA MODAL KONFIRMASI HAPUS
-  // ============================================================
   const handleDeleteStudent = (s: UserProfile) => {
     setSelectedStudent(s);
     setDeleteConfirmText('');
     setShowDeleteConfirm(true);
   };
 
-  // ============================================================
-  // KONFIRMASI HAPUS SISWA (dengan verifikasi ketik nama)
-  // ============================================================
   const handleConfirmDeleteStudent = async () => {
     if (!selectedStudent || !user) return;
 
@@ -471,7 +421,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
     await reloadClasses();
     if (activeTab === 'siswa') {
       await loadStudents();
-      await loadCredentials();
     }
     setRefreshing(false);
     showToast('Data diperbarui.', 'info');
@@ -511,7 +460,7 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
               </span>
               <h2 className="text-xl font-black text-white mt-1">Kelola Kelas & Siswa</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Kelola kelas, kode pendaftaran, akun siswa, lihat password, reset, edit email, & hapus
+                Kelola kelas, kode pendaftaran, akun siswa, reset password, edit email, & hapus
               </p>
             </div>
           </div>
@@ -675,7 +624,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
             </div>
           ) : (
             <>
-              {/* STATISTIK KELAS */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shadow-md">
                   <div className="flex items-center gap-2 mb-1">
@@ -707,7 +655,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                 </div>
               </div>
 
-              {/* SEARCH */}
               <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm flex items-center gap-3">
                 <div className="relative flex-1">
                   <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
@@ -720,7 +667,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                 </span>
               </div>
 
-              {/* TABEL SISWA */}
               {loadingStudents ? (
                 <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 text-xs text-slate-400">
                   <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
@@ -751,7 +697,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                         {filteredStudents.map(s => {
                           const prog = getStudentProgress(s);
-                          const hasPwd = !!credentials[s.uid];
                           const isResetting = resettingId === s.uid;
                           return (
                             <tr key={s.uid} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition">
@@ -806,16 +751,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                               </td>
                               <td className="py-3.5 px-4">
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                                  <button onClick={() => handleViewPassword(s)}
-                                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition flex items-center gap-1 ${
-                                      hasPwd
-                                        ? 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-500/20 dark:hover:bg-amber-500/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/40'
-                                        : 'bg-slate-100 dark:bg-slate-700 text-slate-400 dark:text-slate-500 cursor-not-allowed'
-                                    }`}
-                                    title={hasPwd ? 'Lihat password' : 'Password tidak tersedia'}>
-                                    <KeyRound className="w-3 h-3" /> Lihat
-                                  </button>
-
                                   <button onClick={() => handleResetPassword(s)}
                                     disabled={isResetting}
                                     className="px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 dark:bg-orange-500/20 dark:hover:bg-orange-500/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-500/40 text-[11px] font-bold transition flex items-center gap-1 disabled:opacity-50"
@@ -1042,14 +977,10 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
             />
 
             {deleteConfirmText.length > 0 && deleteConfirmText.trim().toLowerCase() !== selectedStudent.displayName.trim().toLowerCase() && (
-              <p className="text-[11px] text-rose-600 mt-1 font-bold">
-                ❌ Nama tidak cocok.
-              </p>
+              <p className="text-[11px] text-rose-600 mt-1 font-bold">❌ Nama tidak cocok.</p>
             )}
             {deleteConfirmText.length > 0 && deleteConfirmText.trim().toLowerCase() === selectedStudent.displayName.trim().toLowerCase() && (
-              <p className="text-[11px] text-emerald-600 mt-1 font-bold">
-                ✅ Nama cocok. Anda dapat menghapus.
-              </p>
+              <p className="text-[11px] text-emerald-600 mt-1 font-bold">✅ Nama cocok. Anda dapat menghapus.</p>
             )}
 
             <div className="flex gap-2 pt-4 mt-2 border-t border-slate-100 dark:border-slate-700">
@@ -1066,64 +997,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({ onNavigate
                 {deletingStudent ? 'Menghapus...' : 'Hapus Permanen'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL LIHAT PASSWORD */}
-      {passwordModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-amber-300 dark:border-amber-500/40 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-extrabold text-amber-900 dark:text-amber-200 flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                Kredensial Siswa
-              </h3>
-              <button onClick={() => setPasswordModal(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 mb-4 flex items-start gap-2">
-              <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                <strong>Peringatan Keamanan:</strong> Jangan bagikan kredensial ini ke pihak lain.
-                Hanya untuk keperluan bantuan reset password oleh Guru.
-              </p>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Nama</p>
-                <p className="font-bold text-slate-900 dark:text-white mt-0.5">{passwordModal.displayName}</p>
-              </div>
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Email</p>
-                <div className="flex items-center justify-between mt-0.5">
-                  <p className="font-mono text-slate-900 dark:text-white break-all text-[11px]">{passwordModal.email}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(passwordModal.email); showToast('Email disalin!', 'info'); }}
-                    className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 shrink-0">
-                    <Copy className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-                <p className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 uppercase">Password</p>
-                <div className="flex items-center justify-between mt-0.5">
-                  <p className="font-mono font-bold text-emerald-900 dark:text-emerald-200 break-all">{passwordModal.password}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(passwordModal.password); showToast('Password disalin!', 'info'); }}
-                    className="p-1 text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-200 shrink-0">
-                    <Copy className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <button onClick={() => setPasswordModal(null)}
-              className="mt-4 w-full py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-bold text-xs">
-              Tutup
-            </button>
           </div>
         </div>
       )}
