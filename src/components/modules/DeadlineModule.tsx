@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Clock, PlusCircle, CheckCircle, Users, Upload, X, Send, Timer,
-  AlertTriangle, Check, BookOpen, ChevronRight, ChevronLeft, Sparkles, Target,
-  ListChecks, Square, CheckSquare, User, Briefcase, Copy, FilePlus,
-  Wand2, Loader2, Trash2, Pencil, Pause, Play, Ban, XCircle,
-  Info, Save, Star, FileText, Link2, MessageSquare, Calendar,
+  AlertTriangle, Check, BookOpen, ChevronRight, ChevronLeft, ChevronDown,
+  Sparkles, Target, ListChecks, Square, CheckSquare, User, Briefcase,
+  Copy, FilePlus, Wand2, Loader2, Trash2, Pencil, Pause, Play, Ban,
+  XCircle, Info, Save, Star, FileText, Link2, MessageSquare, Calendar,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -669,6 +669,14 @@ export const DeadlineModule: React.FC = () => {
   const [editIsCritical, setEditIsCritical] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
+  // ✅ State target edit
+  const [editTargetScope, setEditTargetScope] = useState<'SEMUA' | 'PERAN' | 'DIVISI' | 'CUSTOM'>('SEMUA');
+  const [editTargetRole, setEditTargetRole] = useState<string>('');
+  const [editTargetDivision, setEditTargetDivision] = useState<string>('');
+  const [editTargetRoles, setEditTargetRoles] = useState<string[]>([]);
+  const [editTargetDivisions, setEditTargetDivisions] = useState<string[]>([]);
+  const [showEditTargetSection, setShowEditTargetSection] = useState(false);
+
   const [manualTitle, setManualTitle] = useState('');
   const [manualDescription, setManualDescription] = useState('');
   const [manualDueDate, setManualDueDate] = useState('');
@@ -944,29 +952,95 @@ export const DeadlineModule: React.FC = () => {
     setEditDueDate(d.dueDate ? new Date(d.dueDate).toISOString().slice(0, 16) : '');
     setEditPriority(d.priority || 'MEDIUM');
     setEditIsCritical((d as any).isCritical || false);
+
+    // ✅ Populate target fields
+    const scope = ((d as any).targetScope || 'SEMUA') as 'SEMUA' | 'PERAN' | 'DIVISI' | 'CUSTOM';
+    setEditTargetScope(scope);
+    setEditTargetRole((d as any).targetRole || '');
+    setEditTargetDivision((d as any).targetDivision || '');
+    setEditTargetRoles((d as any).targetRoles || []);
+    setEditTargetDivisions((d as any).targetDivisions || []);
+    setShowEditTargetSection(false);
     setIsEditOpen(true);
   };
 
+  // ✅ handleSaveEdit BARU — dengan target penerima
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingDeadline || !user) return;
+
+    if (editTargetScope === 'PERAN' && !editTargetRole) {
+      showToast('Pilih peran tujuan.', 'warning'); return;
+    }
+    if (editTargetScope === 'DIVISI' && !editTargetDivision) {
+      showToast('Pilih divisi tujuan.', 'warning'); return;
+    }
+    if (editTargetScope === 'CUSTOM' && editTargetRoles.length === 0 && editTargetDivisions.length === 0) {
+      showToast('Pilih minimal 1 peran atau divisi.', 'warning'); return;
+    }
+
     setActionLoading(editingDeadline.id);
     try {
-      await updateDoc(doc(db, 'deadlines', editingDeadline.id), {
+      const recipientIds = new Set<string>();
+      users.forEach(u => {
+        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return;
+        if (u.role === 'Admin' || u.role === 'Super Admin') return;
+
+        if (editTargetScope === 'SEMUA') {
+          recipientIds.add(u.uid);
+        } else if (editTargetScope === 'PERAN') {
+          if (u.role === editTargetRole) recipientIds.add(u.uid);
+        } else if (editTargetScope === 'DIVISI') {
+          if (u.divisionName === editTargetDivision) recipientIds.add(u.uid);
+        } else if (editTargetScope === 'CUSTOM') {
+          if (editTargetRoles.includes(u.role)) recipientIds.add(u.uid);
+          else if (u.divisionName && editTargetDivisions.includes(u.divisionName)) recipientIds.add(u.uid);
+        }
+      });
+
+      const updateData: any = {
         title: editTitle.trim(),
         description: editDesc.trim(),
         dueDate: new Date(editDueDate).toISOString(),
         priority: editPriority,
         isCritical: editIsCritical,
+        targetScope: editTargetScope,
+        targetUserIds: Array.from(recipientIds),
         updatedAt: new Date().toISOString(),
         updatedBy: user.displayName,
-      });
+      };
+
+      if (editTargetScope === 'PERAN') {
+        updateData.targetRole = editTargetRole;
+        updateData.targetDivision = '';
+        updateData.targetRoles = [];
+        updateData.targetDivisions = [];
+      } else if (editTargetScope === 'DIVISI') {
+        updateData.targetDivision = editTargetDivision;
+        updateData.targetRole = '';
+        updateData.targetRoles = [];
+        updateData.targetDivisions = [];
+      } else if (editTargetScope === 'CUSTOM') {
+        updateData.targetRoles = editTargetRoles;
+        updateData.targetDivisions = editTargetDivisions;
+        updateData.targetRole = '';
+        updateData.targetDivision = '';
+      } else {
+        updateData.targetRole = '';
+        updateData.targetDivision = '';
+        updateData.targetRoles = [];
+        updateData.targetDivisions = [];
+      }
+
+      await updateDoc(doc(db, 'deadlines', editingDeadline.id), updateData);
+
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'UPDATE', targetType: 'Deadline', targetId: editingDeadline.id,
-        details: `Edit deadline: ${editTitle}`,
+        details: `Edit deadline: ${editTitle} — target: ${editTargetScope} (${recipientIds.size} penerima)`,
       });
-      showToast('Deadline berhasil diperbarui!', 'success');
+
+      showToast(`Deadline diperbarui! Target: ${recipientIds.size} penerima.`, 'success');
       setIsEditOpen(false);
       setEditingDeadline(null);
     } catch (err: any) {
@@ -1593,7 +1667,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL KONFIRMASI TANDAI SELESAI */}
+      {/* MODAL KONFIRMASI */}
       {confirmDoneItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4">
@@ -1616,13 +1690,11 @@ export const DeadlineModule: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setConfirmDoneItem(null)}
+              <button onClick={() => setConfirmDoneItem(null)}
                 className="py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition">
                 Batal
               </button>
-              <button
-                onClick={() => handleQuickDone(confirmDoneItem)}
+              <button onClick={() => handleQuickDone(confirmDoneItem)}
                 disabled={quickDoneLoading === confirmDoneItem.id}
                 className="py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-xs shadow-md disabled:opacity-50 flex items-center justify-center gap-1.5 transition">
                 {quickDoneLoading === confirmDoneItem.id ? (
@@ -1636,7 +1708,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL CATATAN OPSIONAL */}
+      {/* MODAL CATATAN */}
       {isNoteOpen && selectedDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto space-y-4">
@@ -1690,25 +1762,15 @@ export const DeadlineModule: React.FC = () => {
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white"
                 />
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Kalau tidak ada link bukti, cukup biarkan kosong.
-              </p>
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => setIsNoteOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
+              <button type="button" onClick={() => setIsNoteOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
                 Batal
               </button>
-              <button
-                type="button"
-                onClick={handleSaveNote}
-                disabled={submitting}
-                className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5"
-              >
+              <button type="button" onClick={handleSaveNote} disabled={submitting}
+                className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 <Save className="w-3.5 h-3.5" />
                 {submitting ? 'Menyimpan...' : 'Simpan Catatan'}
               </button>
@@ -2247,7 +2309,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL EDIT */}
+      {/* MODAL EDIT — DENGAN TARGET PENERIMA */}
       {isEditOpen && editingDeadline && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleSaveEdit}
@@ -2312,6 +2374,126 @@ export const DeadlineModule: React.FC = () => {
                 <Star className="w-3.5 h-3.5" />
                 <span>Tandai sebagai Tugas Kritis</span>
               </label>
+            </div>
+
+            {/* ✅ SECTION TARGET PENERIMA */}
+            <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowEditTargetSection(!showEditTargetSection)}
+                className="w-full p-3 bg-amber-50 dark:bg-amber-500/10 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <Target className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <span className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                    Target Penerima {showEditTargetSection ? '(klik tutup)' : '(klik ubah)'}
+                  </span>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-amber-600 transition-transform ${showEditTargetSection ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showEditTargetSection && (
+                <div className="p-3 bg-white dark:bg-slate-800 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { val: 'SEMUA', label: 'Semua Siswa', icon: Users },
+                      { val: 'PERAN', label: 'Per Peran', icon: User },
+                      { val: 'DIVISI', label: 'Per Divisi', icon: Briefcase },
+                      { val: 'CUSTOM', label: 'Custom', icon: Target },
+                    ] as const).map(opt => {
+                      const Icon = opt.icon;
+                      const isSel = editTargetScope === opt.val;
+                      return (
+                        <button
+                          key={opt.val}
+                          type="button"
+                          onClick={() => setEditTargetScope(opt.val as any)}
+                          className={`p-2 rounded-lg border-2 text-[11px] font-bold transition flex items-center gap-1.5 justify-center ${
+                            isSel
+                              ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                              : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          <Icon className="w-3.5 h-3.5" /> {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {editTargetScope === 'PERAN' && (
+                    <select
+                      value={editTargetRole}
+                      onChange={(e) => setEditTargetRole(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white"
+                    >
+                      <option value="">— Pilih Peran —</option>
+                      {ROLE_LIST.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  )}
+
+                  {editTargetScope === 'DIVISI' && (
+                    <select
+                      value={editTargetDivision}
+                      onChange={(e) => setEditTargetDivision(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white"
+                    >
+                      <option value="">— Pilih Divisi —</option>
+                      {DIVISION_LIST.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  )}
+
+                  {editTargetScope === 'CUSTOM' && (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Peran</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {ROLE_LIST.map(r => {
+                            const sel = editTargetRoles.includes(r);
+                            return (
+                              <button
+                                key={r}
+                                type="button"
+                                onClick={() => setEditTargetRoles(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])}
+                                className={`p-1.5 rounded-md text-[10px] font-bold transition text-left truncate ${
+                                  sel ? 'bg-blue-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                }`}
+                              >
+                                {sel ? '✓ ' : ''}{r}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Divisi</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {DIVISION_LIST.map(d => {
+                            const sel = editTargetDivisions.includes(d);
+                            return (
+                              <button
+                                key={d}
+                                type="button"
+                                onClick={() => setEditTargetDivisions(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])}
+                                className={`p-1.5 rounded-md text-[10px] font-bold transition text-left truncate ${
+                                  sel ? 'bg-purple-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                                }`}
+                              >
+                                {sel ? '✓ ' : ''}{d}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+                    <p className="text-[10px] text-emerald-900 dark:text-emerald-200 font-bold">
+                      ℹ️ Penerima dihitung ulang otomatis saat Simpan.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
