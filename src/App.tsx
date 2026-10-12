@@ -76,6 +76,9 @@ const LoadingFallback: React.FC = () => (
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
 
+// ═══════════════════════════════════════════════════════════
+// WELCOME LAYOUT (Beranda: Kelola Kelas = semua kelas)
+// ═══════════════════════════════════════════════════════════
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
   onNavigate: (m: string) => void;
@@ -128,6 +131,9 @@ const WelcomeLayout: React.FC<{
   );
 };
 
+// ═══════════════════════════════════════════════════════════
+// MAIN LAYOUT
+// ═══════════════════════════════════════════════════════════
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
 
@@ -222,6 +228,7 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
+  // ═══ ADMIN ═══
   if (isAdminRole) {
     return (
       <>
@@ -272,6 +279,7 @@ const MainLayout: React.FC = () => {
     );
   }
 
+  // ═══ WELCOME VIEW ═══
   if (view === 'welcome') {
     return (
       <WelcomeLayout
@@ -282,6 +290,7 @@ const MainLayout: React.FC = () => {
     );
   }
 
+  // ═══ IN-CLASS VIEW ═══
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
