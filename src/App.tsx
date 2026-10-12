@@ -31,6 +31,7 @@ import { GuideModule } from './components/modules/GuideModule';
 import { SettingsModule } from './components/modules/SettingsModule';
 import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
+import { ManageStudentModule } from './components/modules/ManageStudentModule';
 import { StageManagerModule } from './components/modules/StageManagerModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
@@ -313,7 +314,7 @@ const MainLayout: React.FC = () => {
       case 'dokumen': return <DocumentModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
-      case 'kelola-siswa': return <ManageClassModule embedded />;
+      case 'kelola-siswa': return <ManageStudentModule onNavigate={setCurrentModule} />;
       case 'kelola-kelas': return <ManageClassModule embedded />;
       case 'kelola-tahapan': return <StageManagerModule />;
       case 'aktivitas': return <ActivityLogModule />;
