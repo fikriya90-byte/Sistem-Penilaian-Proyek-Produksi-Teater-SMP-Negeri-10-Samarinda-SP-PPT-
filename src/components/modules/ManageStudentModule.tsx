@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Users, GraduationCap, Search, RefreshCw, Edit3, Trash2, X,
+  GraduationCap, Search, RefreshCw, Trash2, X,
   Save, UserCog, Camera, TrendingUp, ArrowLeft, AlertTriangle,
   Mail, Phone, Send,
 } from 'lucide-react';
@@ -290,13 +290,13 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
             </div>
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
-                Kelola Siswa
+                Kelola Siswa — Kelas {activeClass.name}
               </span>
               <h2 className="text-xl font-black text-white mt-1">
-                Siswa Kelas {activeClass.name}
+                {activeClass.name}: {students.length} Siswa
               </h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Kelola profil siswa, edit role, reset password, & hapus
+                Hanya menampilkan siswa dari kelas ini. Untuk kelas lain, kembali ke beranda & masuk ke kelas tersebut.
               </p>
             </div>
           </div>
@@ -362,6 +362,9 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
           <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
             {searchQuery ? 'Tidak Ada Hasil' : 'Belum Ada Siswa'}
           </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {searchQuery ? 'Coba kata kunci lain.' : `Belum ada siswa terdaftar di kelas ${activeClass.name}.`}
+          </p>
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden">
