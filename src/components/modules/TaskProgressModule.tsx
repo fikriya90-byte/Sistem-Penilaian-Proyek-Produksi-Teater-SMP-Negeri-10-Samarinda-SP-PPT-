@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   BarChart3, TrendingUp, Users, CheckCircle, AlertTriangle,
-  Search, Star, Filter,
+  Search, Star, Filter, RefreshCw, Clock,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -9,8 +9,8 @@ import {
 } from 'recharts';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS } from '../../core/constants';
-import { TaskItem, UserProfile } from '../../core/types';
-import { fetchUsersByClass, subscribeTasksByClass } from '../../services/firestoreService';
+import { UserProfile, DeadlineItem, DeadlineSubmission } from '../../core/types';
+import { fetchUsersByClass } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../core/firebase';
@@ -19,60 +19,119 @@ export const TaskProgressModule: React.FC = () => {
   const { user, activeClass } = useAuth();
   const { showToast } = useToast();
 
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [completions, setCompletions] = useState<Record<string, any>>({});
+  const [deadlines, setDeadlines] = useState<DeadlineItem[]>([]);
+  const [submissions, setSubmissions] = useState<DeadlineSubmission[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [activeTab, setActiveTab] = useState<'per-role' | 'per-divisi' | 'per-siswa'>('per-role');
   const [searchQuery, setSearchQuery] = useState('');
+  const [loading, setLoading] = useState(true);
 
+  // ═══════════════════════════════════════════════════════
+  // SUBSCRIBE: deadlines + deadlineSubmissions + users
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
+    setLoading(true);
 
-    const unsub1 = subscribeTasksByClass(activeClass.id, setTasks);
+    // Subscribe deadlines
+    const qDeadlines = query(
+      collection(db, 'deadlines'),
+      where('classId', '==', activeClass.id)
+    );
+    const unsub1 = onSnapshot(qDeadlines, snap => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineItem));
+      // Filter yang aktif saja (bukan CANCELLED)
+      setDeadlines(list.filter(d => (d as any).status !== 'CANCELLED'));
+      setLoading(false);
+    }, err => {
+      console.warn('Subscribe deadlines error:', err);
+      setLoading(false);
+    });
+
+    // Subscribe deadlineSubmissions
+    const qSubs = query(
+      collection(db, 'deadlineSubmissions'),
+      where('classId', '==', activeClass.id)
+    );
+    const unsub2 = onSnapshot(qSubs, snap => {
+      setSubmissions(snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineSubmission)));
+    }, err => {
+      console.warn('Subscribe submissions error:', err);
+    });
+
+    // Fetch users
     fetchUsersByClass(activeClass.id).then(setUsers);
-
-    let unsub2 = () => {};
-    (async () => {
-      const q = query(collection(db, 'taskCompletions'), where('classId', '==', activeClass.id));
-      unsub2 = onSnapshot(q, (snap) => {
-        const map: Record<string, any> = {};
-        snap.docs.forEach((d: any) => {
-          const data = d.data();
-          map[`${data.taskId}_${data.studentId}`] = data;
-        });
-        setCompletions(map);
-      });
-    })();
 
     return () => { unsub1(); unsub2(); };
   }, [activeClass]);
 
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
+  // HELPER: Apakah deadline ini menargetkan user tertentu?
+  // ═══════════════════════════════════════════════════════
+  const isDeadlineForUser = (d: DeadlineItem, u: UserProfile): boolean => {
+    const scope = d.targetScope as string;
+    const targetUserIds: string[] = (d as any).targetUserIds || [];
+    const targetRoles: string[] = (d as any).targetRoles || [];
+    const targetDivisions: string[] = (d as any).targetDivisions || [];
+
+    if (scope === 'SEMUA') return true;
+    if (scope === 'PERAN') return (d as any).targetRole === u.role;
+    if (scope === 'DIVISI') return (d as any).targetDivision === u.divisionName;
+    if (scope === 'CUSTOM') {
+      if (targetRoles.length > 0 && targetRoles.includes(u.role)) return true;
+      if (targetDivisions.length > 0 && u.divisionName && targetDivisions.includes(u.divisionName)) return true;
+      if (targetUserIds.length === 0) return true;
+      return targetUserIds.includes(u.uid);
+    }
+    return false;
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // HELPER: Apakah submission ini sukses (selesai/terlambat)?
+  // ═══════════════════════════════════════════════════════
+  const isSubmissionDone = (sub?: DeadlineSubmission): boolean => {
+    if (!sub) return false;
+    return sub.status === 'SELESAI' || sub.status === 'TERLAMBAT';
+  };
+
+  // ═══════════════════════════════════════════════════════
   // HITUNG PROGRESS PER SISWA
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
   const studentProgress = users
-    .filter(u => u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
-                 u.role !== 'Admin' && u.role !== 'Super Admin')
+    .filter(u =>
+      u.role !== 'Guru Pengampu' && u.role !== 'Guru Pembina' &&
+      u.role !== 'Admin' && u.role !== 'Super Admin'
+    )
     .map(u => {
-      // Tugas yang jadi tanggung jawab siswa ini
-      const myTasks = tasks.filter(t =>
-        t.assigneeId === u.uid ||
-        t.targetRole === u.role ||
-        t.targetDivision === u.divisionName ||
-        t.assigneeName === 'Semua Siswa' ||
-        t.assigneeName === 'Semua Anggota Divisi'
-      );
-      const completed = myTasks.filter(t => completions[`${t.id}_${u.uid}`]?.completed).length;
-      const total = myTasks.length;
+      // Deadline yang menjadi tanggung jawab siswa
+      const myDeadlines = deadlines.filter(d => isDeadlineForUser(d, u));
+
+      // Hitung submission yang sudah selesai
+      const completedSubs = myDeadlines.filter(d => {
+        const sub = submissions.find(s => s.deadlineId === d.id && s.studentId === u.uid);
+        return isSubmissionDone(sub);
+      });
+
+      const completed = completedSubs.length;
+      const total = myDeadlines.length;
       const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-      return { user: u, completed, total, pct };
+
+      // Overdue
+      const now = Date.now();
+      const overdue = myDeadlines.filter(d => {
+        const dueMs = new Date(d.dueDate).getTime();
+        const sub = submissions.find(s => s.deadlineId === d.id && s.studentId === u.uid);
+        return dueMs < now && !isSubmissionDone(sub);
+      }).length;
+
+      return { user: u, completed, total, pct, overdue };
     })
     .filter(s => s.total > 0)
     .sort((a, b) => b.pct - a.pct);
 
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
   // HITUNG PROGRESS PER ROLE
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
   const roleStats = (() => {
     const byRole: Record<string, { total: number; done: number; count: number }> = {};
     studentProgress.forEach(sp => {
@@ -92,9 +151,9 @@ export const TaskProgressModule: React.FC = () => {
     })).sort((a, b) => b.pct - a.pct);
   })();
 
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
   // HITUNG PROGRESS PER DIVISI
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
   const divisiStats = (() => {
     const byDiv: Record<string, { total: number; done: number; count: number }> = {};
     studentProgress.forEach(sp => {
@@ -114,9 +173,9 @@ export const TaskProgressModule: React.FC = () => {
     })).sort((a, b) => b.pct - a.pct);
   })();
 
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
   // STATISTIK UMUM
-  // ==========================================
+  // ═══════════════════════════════════════════════════════
   const totalTaskAssigned = studentProgress.reduce((s, sp) => s + sp.total, 0);
   const totalCompleted = studentProgress.reduce((s, sp) => s + sp.completed, 0);
   const overallPct = totalTaskAssigned > 0 ? Math.round((totalCompleted / totalTaskAssigned) * 100) : 0;
@@ -149,58 +208,76 @@ export const TaskProgressModule: React.FC = () => {
   };
 
   const getProgressTextColor = (pct: number) => {
-    if (pct >= 80) return 'text-emerald-700';
-    if (pct >= 50) return 'text-blue-700';
-    if (pct > 0) return 'text-amber-700';
-    return 'text-rose-700';
+    if (pct >= 80) return 'text-emerald-700 dark:text-emerald-300';
+    if (pct >= 50) return 'text-blue-700 dark:text-blue-300';
+    if (pct > 0) return 'text-amber-700 dark:text-amber-300';
+    return 'text-rose-700 dark:text-rose-300';
   };
 
   return (
     <div className="space-y-6">
       {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl">
-        <div className="flex items-center gap-3">
-          <span className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-            <BarChart3 className="w-7 h-7" />
-          </span>
-          <div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
-              Progress Tugas
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <BarChart3 className="w-7 h-7" />
             </span>
-            <h2 className="text-xl font-black text-white mt-1">Grafik Progress Checklist</h2>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Tolak ukur dari centang tugas siswa — per peran, per divisi, per siswa
-            </p>
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
+                Progress Tugas
+              </span>
+              <h2 className="text-xl font-black text-white mt-1">Grafik Progress Checklist</h2>
+              <p className="text-xs text-slate-300 mt-0.5">
+                Real-time dari centang tugas siswa di menu Tugas & Deadline
+              </p>
+            </div>
           </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-xs flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
         </div>
+      </div>
+
+      {/* INFO */}
+      <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
+        <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+        <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
+          <strong>Real-time:</strong> Progress di halaman ini otomatis update begitu siswa menandai
+          tugas selesai di menu <strong>Tugas & Deadline</strong>. Data diambil langsung dari
+          <strong> deadlineSubmissions</strong> (bukan collection terpisah).
+        </p>
       </div>
 
       {/* STATISTIK RINGKASAN */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm text-center">
+        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm text-center">
           <Users className="w-5 h-5 mx-auto text-slate-500 mb-1" />
           <p className="text-[10px] text-slate-500 font-semibold">Total Tugas</p>
-          <p className="text-xl font-black text-slate-900">{totalTaskAssigned}</p>
+          <p className="text-xl font-black text-slate-900 dark:text-white">{totalTaskAssigned}</p>
         </div>
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 shadow-sm text-center">
-          <CheckCircle className="w-5 h-5 mx-auto text-emerald-600 mb-1" />
-          <p className="text-[10px] text-emerald-700 font-semibold">Selesai</p>
-          <p className="text-xl font-black text-emerald-800">{totalCompleted}</p>
+        <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 shadow-sm text-center">
+          <CheckCircle className="w-5 h-5 mx-auto text-emerald-600 dark:text-emerald-400 mb-1" />
+          <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold">Selesai</p>
+          <p className="text-xl font-black text-emerald-800 dark:text-emerald-200">{totalCompleted}</p>
         </div>
-        <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 shadow-sm text-center">
-          <TrendingUp className="w-5 h-5 mx-auto text-indigo-600 mb-1" />
-          <p className="text-[10px] text-indigo-700 font-semibold">Rata-rata</p>
-          <p className="text-xl font-black text-indigo-800">{overallPct}%</p>
+        <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 shadow-sm text-center">
+          <TrendingUp className="w-5 h-5 mx-auto text-indigo-600 dark:text-indigo-400 mb-1" />
+          <p className="text-[10px] text-indigo-700 dark:text-indigo-300 font-semibold">Rata-rata</p>
+          <p className="text-xl font-black text-indigo-800 dark:text-indigo-200">{overallPct}%</p>
         </div>
-        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 shadow-sm text-center">
-          <AlertTriangle className="w-5 h-5 mx-auto text-amber-600 mb-1" />
-          <p className="text-[10px] text-amber-700 font-semibold">Perlu Perhatian</p>
-          <p className="text-xl font-black text-amber-800">{tertinggal + belumMulai}</p>
+        <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 shadow-sm text-center">
+          <AlertTriangle className="w-5 h-5 mx-auto text-amber-600 dark:text-amber-400 mb-1" />
+          <p className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold">Perlu Perhatian</p>
+          <p className="text-xl font-black text-amber-800 dark:text-amber-200">{tertinggal + belumMulai}</p>
         </div>
-        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 shadow-sm text-center">
-          <AlertTriangle className="w-5 h-5 mx-auto text-rose-600 mb-1" />
-          <p className="text-[10px] text-rose-700 font-semibold">Belum Mulai</p>
-          <p className="text-xl font-black text-rose-800">{belumMulai}</p>
+        <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 shadow-sm text-center">
+          <AlertTriangle className="w-5 h-5 mx-auto text-rose-600 dark:text-rose-400 mb-1" />
+          <p className="text-[10px] text-rose-700 dark:text-rose-300 font-semibold">Belum Mulai</p>
+          <p className="text-xl font-black text-rose-800 dark:text-rose-200">{belumMulai}</p>
         </div>
       </div>
 
@@ -215,8 +292,8 @@ export const TaskProgressModule: React.FC = () => {
           </p>
         </div>
 
-        <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm lg:col-span-2">
-          <h3 className="text-sm font-extrabold text-slate-900 mb-3">
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm lg:col-span-2">
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
             Distribusi Status Siswa
           </h3>
           <div className="w-full h-52">
@@ -244,19 +321,19 @@ export const TaskProgressModule: React.FC = () => {
       <div className="flex items-center gap-2 flex-wrap">
         <button onClick={() => setActiveTab('per-role')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-            activeTab === 'per-role' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'
+            activeTab === 'per-role' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
           }`}>
           👤 Per Peran ({roleStats.length})
         </button>
         <button onClick={() => setActiveTab('per-divisi')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-            activeTab === 'per-divisi' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'
+            activeTab === 'per-divisi' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
           }`}>
           👥 Per Divisi ({divisiStats.length})
         </button>
         <button onClick={() => setActiveTab('per-siswa')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition ${
-            activeTab === 'per-siswa' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-600 border border-slate-200'
+            activeTab === 'per-siswa' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
           }`}>
           📋 Per Siswa ({studentProgress.length})
         </button>
@@ -266,14 +343,14 @@ export const TaskProgressModule: React.FC = () => {
       {activeTab === 'per-role' && (
         <>
           {roleStats.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
+            <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <BarChart3 className="w-12 h-12 mx-auto text-slate-300 mb-3" />
               <p className="text-sm text-slate-500">Belum ada data progress</p>
             </div>
           ) : (
             <>
-              <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
-                <h3 className="text-sm font-extrabold text-slate-900 mb-3">
+              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
                   Progress per Peran (%)
                 </h3>
                 <div className="w-full h-80">
@@ -298,11 +375,10 @@ export const TaskProgressModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* Tabel detail */}
-              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                    <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold">
                       <tr>
                         <th className="py-3.5 px-4">Peran</th>
                         <th className="py-3.5 px-4 text-center">Jumlah Siswa</th>
@@ -311,16 +387,16 @@ export const TaskProgressModule: React.FC = () => {
                         <th className="py-3.5 px-4 text-center">Progress</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                       {roleStats.map((r, i) => (
-                        <tr key={i} className="hover:bg-slate-50">
-                          <td className="py-3 px-4 font-bold text-slate-800">{r.fullRole}</td>
-                          <td className="py-3 px-4 text-center text-slate-600">{r.siswa}</td>
-                          <td className="py-3 px-4 text-center font-mono text-slate-700">{r.total}</td>
-                          <td className="py-3 px-4 text-center font-mono text-emerald-700">{r.done}</td>
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-3 px-4 font-bold text-slate-800 dark:text-white">{r.fullRole}</td>
+                          <td className="py-3 px-4 text-center text-slate-600 dark:text-slate-400">{r.siswa}</td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-700 dark:text-slate-300">{r.total}</td>
+                          <td className="py-3 px-4 text-center font-mono text-emerald-700 dark:text-emerald-400">{r.done}</td>
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-2">
-                              <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                              <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <div className={`h-full ${getProgressColor(r.pct)}`}
                                   style={{ width: `${r.pct}%` }} />
                               </div>
@@ -344,14 +420,14 @@ export const TaskProgressModule: React.FC = () => {
       {activeTab === 'per-divisi' && (
         <>
           {divisiStats.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
+            <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <Users className="w-12 h-12 mx-auto text-slate-300 mb-3" />
               <p className="text-sm text-slate-500">Belum ada data progress divisi</p>
             </div>
           ) : (
             <>
-              <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
-                <h3 className="text-sm font-extrabold text-slate-900 mb-3">
+              <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
                   Progress per Divisi (%)
                 </h3>
                 <div className="w-full h-80">
@@ -376,10 +452,10 @@ export const TaskProgressModule: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+              <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                    <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold">
                       <tr>
                         <th className="py-3.5 px-4">Divisi</th>
                         <th className="py-3.5 px-4 text-center">Anggota</th>
@@ -388,16 +464,16 @@ export const TaskProgressModule: React.FC = () => {
                         <th className="py-3.5 px-4 text-center">Progress</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                       {divisiStats.map((d, i) => (
-                        <tr key={i} className="hover:bg-slate-50">
-                          <td className="py-3 px-4 font-bold text-slate-800">{d.fullDivisi}</td>
-                          <td className="py-3 px-4 text-center text-slate-600">{d.anggota}</td>
-                          <td className="py-3 px-4 text-center font-mono text-slate-700">{d.total}</td>
-                          <td className="py-3 px-4 text-center font-mono text-emerald-700">{d.done}</td>
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                          <td className="py-3 px-4 font-bold text-slate-800 dark:text-white">{d.fullDivisi}</td>
+                          <td className="py-3 px-4 text-center text-slate-600 dark:text-slate-400">{d.anggota}</td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-700 dark:text-slate-300">{d.total}</td>
+                          <td className="py-3 px-4 text-center font-mono text-emerald-700 dark:text-emerald-400">{d.done}</td>
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-2">
-                              <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                              <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                                 <div className={`h-full ${getProgressColor(d.pct)}`}
                                   style={{ width: `${d.pct}%` }} />
                               </div>
@@ -424,19 +500,19 @@ export const TaskProgressModule: React.FC = () => {
             <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
             <input type="text" placeholder="Cari nama, peran, atau divisi..."
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
+              className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
           </div>
 
           {filteredStudents.length === 0 ? (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
+            <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <Star className="w-12 h-12 mx-auto text-slate-300 mb-3" />
               <p className="text-sm text-slate-500">Belum ada data progress siswa</p>
             </div>
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+            <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                  <thead className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold">
                     <tr>
                       <th className="py-3.5 px-4">Nama Siswa</th>
                       <th className="py-3.5 px-4">Peran</th>
@@ -445,25 +521,25 @@ export const TaskProgressModule: React.FC = () => {
                       <th className="py-3.5 px-4 text-center">Progress</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                     {filteredStudents.map((s) => (
-                      <tr key={s.user.uid} className="hover:bg-slate-50">
+                      <tr key={s.user.uid} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-xs shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-xs shrink-0">
                               {s.user.displayName.charAt(0).toUpperCase()}
                             </div>
-                            <span className="font-bold text-slate-900">{s.user.displayName}</span>
+                            <span className="font-bold text-slate-900 dark:text-white">{s.user.displayName}</span>
                           </div>
                         </td>
-                        <td className="py-3 px-4 text-slate-600 text-[11px]">{s.user.role}</td>
-                        <td className="py-3 px-4 text-slate-500 text-[11px]">{s.user.divisionName || '-'}</td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-700">
+                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400 text-[11px]">{s.user.role}</td>
+                        <td className="py-3 px-4 text-slate-500 dark:text-slate-400 text-[11px]">{s.user.divisionName || '-'}</td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-700 dark:text-slate-300">
                           {s.completed}/{s.total}
                         </td>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-2">
-                            <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div className="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                               <div className={`h-full ${getProgressColor(s.pct)}`}
                                 style={{ width: `${s.pct}%` }} />
                             </div>
