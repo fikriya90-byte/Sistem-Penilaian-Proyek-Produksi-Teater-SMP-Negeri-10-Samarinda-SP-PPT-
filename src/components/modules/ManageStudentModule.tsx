@@ -6,12 +6,12 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
-import { UserProfile, UserRole } from '../../core/types';
+import { UserProfile, UserRole, DeadlineItem, DeadlineSubmission } from '../../core/types';
 import {
   doc, collection, updateDoc, deleteDoc, query, where, onSnapshot, setDoc,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-import { recordAuditLog, fetchUsersByClass, subscribeTasksByClass } from '../../services/firestoreService';
+import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { getDivisionFromRole } from '../../core/constants';
 import { PhotoUploadModal } from '../common/PhotoUploadModal';
 import { resetStudentPassword } from '../../services/adminService';
@@ -49,29 +49,32 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletingStudent, setDeletingStudent] = useState(false);
 
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [taskCompletions, setTaskCompletions] = useState<Record<string, any>>({});
+  // ✅ Ganti tasks → deadlines + submissions
+  const [deadlines, setDeadlines] = useState<DeadlineItem[]>([]);
+  const [submissions, setSubmissions] = useState<DeadlineSubmission[]>([]);
 
   useEffect(() => {
     if (activeClass) loadStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClass?.id]);
 
+  // ═══════════════════════════════════════════════════════
+  // SUBSCRIBE deadlines + submissions
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
-    const unsub1 = subscribeTasksByClass(activeClass.id, setTasks);
-    let unsub2 = () => {};
-    (async () => {
-      const q = query(collection(db, 'taskCompletions'), where('classId', '==', activeClass.id));
-      unsub2 = onSnapshot(q, (snap: any) => {
-        const map: Record<string, any> = {};
-        snap.docs.forEach((d: any) => {
-          const data = d.data();
-          map[`${data.taskId}_${data.studentId}`] = data;
-        });
-        setTaskCompletions(map);
-      });
-    })();
+
+    const q1 = query(collection(db, 'deadlines'), where('classId', '==', activeClass.id));
+    const unsub1 = onSnapshot(q1, snap => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineItem));
+      setDeadlines(list.filter(d => (d as any).status !== 'CANCELLED'));
+    });
+
+    const q2 = query(collection(db, 'deadlineSubmissions'), where('classId', '==', activeClass.id));
+    const unsub2 = onSnapshot(q2, snap => {
+      setSubmissions(snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineSubmission)));
+    });
+
     return () => { unsub1(); unsub2(); };
   }, [activeClass]);
 
@@ -92,16 +95,42 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
     }
   };
 
+  // ═══════════════════════════════════════════════════════
+  // HELPER: Apakah deadline menargetkan user?
+  // ═══════════════════════════════════════════════════════
+  const isDeadlineForUser = (d: DeadlineItem, u: UserProfile): boolean => {
+    const scope = d.targetScope as string;
+    const targetUserIds: string[] = (d as any).targetUserIds || [];
+    const targetRoles: string[] = (d as any).targetRoles || [];
+    const targetDivisions: string[] = (d as any).targetDivisions || [];
+
+    if (scope === 'SEMUA') return true;
+    if (scope === 'PERAN') return (d as any).targetRole === u.role;
+    if (scope === 'DIVISI') return (d as any).targetDivision === u.divisionName;
+    if (scope === 'CUSTOM') {
+      if (targetRoles.length > 0 && targetRoles.includes(u.role)) return true;
+      if (targetDivisions.length > 0 && u.divisionName && targetDivisions.includes(u.divisionName)) return true;
+      if (targetUserIds.length === 0) return true;
+      return targetUserIds.includes(u.uid);
+    }
+    return false;
+  };
+
+  const isSubmissionDone = (sub?: DeadlineSubmission): boolean => {
+    if (!sub) return false;
+    return sub.status === 'SELESAI' || sub.status === 'TERLAMBAT';
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // HITUNG PROGRESS per siswa
+  // ═══════════════════════════════════════════════════════
   const getStudentProgress = (s: UserProfile) => {
-    const myTasks = tasks.filter(t =>
-      t.assigneeId === s.uid ||
-      (t as any).targetRole === s.role ||
-      (t as any).targetDivision === s.divisionName ||
-      t.assigneeName === 'Semua Siswa' ||
-      t.assigneeName === 'Semua Anggota Divisi'
-    );
-    const completed = myTasks.filter(t => taskCompletions[`${t.id}_${s.uid}`]?.completed).length;
-    const total = myTasks.length;
+    const myDeadlines = deadlines.filter(d => isDeadlineForUser(d, s));
+    const completed = myDeadlines.filter(d => {
+      const sub = submissions.find(x => x.deadlineId === d.id && x.studentId === s.uid);
+      return isSubmissionDone(sub);
+    }).length;
+    const total = myDeadlines.length;
     const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { completed, total, pct };
   };
@@ -296,7 +325,7 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
                 {activeClass.name}: {students.length} Siswa
               </h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Hanya menampilkan siswa dari kelas ini. Untuk kelas lain, kembali ke beranda & masuk ke kelas tersebut.
+                Progress real-time dari Tugas & Deadline. Klik nama untuk detail.
               </p>
             </div>
           </div>
@@ -362,9 +391,6 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
           <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
             {searchQuery ? 'Tidak Ada Hasil' : 'Belum Ada Siswa'}
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            {searchQuery ? 'Coba kata kunci lain.' : `Belum ada siswa terdaftar di kelas ${activeClass.name}.`}
-          </p>
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden">
