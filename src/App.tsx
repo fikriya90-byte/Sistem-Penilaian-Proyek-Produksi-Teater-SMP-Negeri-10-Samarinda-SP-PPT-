@@ -52,6 +52,7 @@ import { DeadlineModule } from './components/modules/DeadlineModule';
 import { NotulensiModule } from './components/modules/NotulensiModule';
 import { BookingModule } from './components/modules/BookingModule';
 import { InterClassCoordModule } from './components/modules/InterClassCoordModule';
+import { DebugUsersModule } from './components/modules/DebugUsersModule';
 
 const RABModule = lazy(() =>
   import('./components/modules/RABModule')
@@ -76,9 +77,6 @@ const LoadingFallback: React.FC = () => (
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
 
-// ═══════════════════════════════════════════════════════════
-// WELCOME LAYOUT (Beranda: Kelola Kelas = semua kelas)
-// ═══════════════════════════════════════════════════════════
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
   onNavigate: (m: string) => void;
@@ -98,6 +96,7 @@ const WelcomeLayout: React.FC<{
       case 'pengaturan': return <SettingsModule />;
       case 'inter-class': return <InterClassCoordModule />;
       case 'kelola-kelas': return <ManageClassModule embedded />;
+      case 'debug-users': return <DebugUsersModule />;
       case 'dashboard':
       default:
         return isGuruPengampu || isAdminRole ? (
@@ -131,9 +130,6 @@ const WelcomeLayout: React.FC<{
   );
 };
 
-// ═══════════════════════════════════════════════════════════
-// MAIN LAYOUT
-// ═══════════════════════════════════════════════════════════
 const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
 
@@ -228,7 +224,6 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
-  // ═══ ADMIN ═══
   if (isAdminRole) {
     return (
       <>
@@ -258,6 +253,7 @@ const MainLayout: React.FC = () => {
                currentModule === 'notulensi' ? <NotulensiModule /> :
                currentModule === 'booking' ? <BookingModule /> :
                currentModule === 'inter-class' ? <InterClassCoordModule /> :
+               currentModule === 'debug-users' ? <DebugUsersModule /> :
                currentModule === 'rab' ? (
                  <Suspense fallback={<LoadingFallback />}>
                    <RABModule />
@@ -279,7 +275,6 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ═══ WELCOME VIEW ═══
   if (view === 'welcome') {
     return (
       <WelcomeLayout
@@ -290,7 +285,6 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ═══ IN-CLASS VIEW ═══
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -333,6 +327,7 @@ const MainLayout: React.FC = () => {
       case 'notulensi': return <NotulensiModule />;
       case 'booking': return <BookingModule />;
       case 'inter-class': return <InterClassCoordModule />;
+      case 'debug-users': return <DebugUsersModule />;
       default: return <DashboardModule onNavigate={setCurrentModule} />;
     }
   };
