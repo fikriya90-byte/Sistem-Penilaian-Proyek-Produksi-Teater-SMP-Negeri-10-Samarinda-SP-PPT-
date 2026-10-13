@@ -33,49 +33,186 @@ import {
 // USERS & CLASSES
 // ==========================================
 
+// ✅ Mapping role → divisi (untuk auto-fill)
+const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
+  'Pimpinan Produksi': { id: 'div-inti', name: 'Pengurus Inti' },
+  'Sekretaris': { id: 'div-inti', name: 'Pengurus Inti' },
+  'Bendahara': { id: 'div-inti', name: 'Pengurus Inti' },
+  'Sutradara': { id: 'div-pemain', name: 'Pemeran' },
+  'Asisten Sutradara': { id: 'div-pemain', name: 'Pemeran' },
+  'Pemain': { id: 'div-pemain', name: 'Pemeran' },
+  'Pemeran': { id: 'div-pemain', name: 'Pemeran' },
+  'Koordinator Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
+  'Anggota Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
+  'Koordinator Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
+  'Anggota Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
+  'Koordinator Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
+  'Anggota Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
+  'Koordinator Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
+  'Anggota Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
+  'Koordinator Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
+  'Anggota Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
+  'Koordinator Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
+  'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
+};
+
+function enrichUser(u: UserProfile): UserProfile {
+  const mapped = ROLE_DIV_MAP[u.role];
+  if (mapped && (!u.divisionId || !u.divisionName)) {
+    return {
+      ...u,
+      divisionId: u.divisionId || mapped.id,
+      divisionName: u.divisionName || mapped.name,
+    };
+  }
+  return u;
+}
+
+/**
+ * ✅ ROBUST: Fetch users by class dengan 3-lapis fallback:
+ *   1. Query by classId
+ *   2. Query by className (kalau classId tidak lengkap)
+ *   3. Fallback: fetch all + filter lokal
+ */
 export async function fetchUsersByClass(classId: string): Promise<UserProfile[]> {
   const path = 'users';
+  const found: Record<string, UserProfile> = {};
+
+  // ═══ CARI CLASS NAME DULU ═══
+  let className: string | null = null;
   try {
-    const q = query(collection(db, path), where('classId', '==', classId));
-    const snap = await getDocs(q);
-    const rawList = snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
+    const classSnap = await getDoc(doc(db, 'classes', classId));
+    if (classSnap.exists()) {
+      className = classSnap.data().name || null;
+    }
+  } catch { /* ignore */ }
 
-    const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
-      'Pimpinan Produksi': { id: 'div-inti', name: 'Pengurus Inti' },
-      'Sekretaris': { id: 'div-inti', name: 'Pengurus Inti' },
-      'Bendahara': { id: 'div-inti', name: 'Pengurus Inti' },
-      'Sutradara': { id: 'div-pemain', name: 'Pemeran' },
-      'Asisten Sutradara': { id: 'div-pemain', name: 'Pemeran' },
-      'Pemain': { id: 'div-pemain', name: 'Pemeran' },
-      'Koordinator Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
-      'Anggota Perlengkapan': { id: 'div-perlengkapan', name: 'Perlengkapan' },
-      'Koordinator Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
-      'Anggota Publikasi': { id: 'div-pubdok', name: 'Publikasi & Dokumentasi' },
-      'Koordinator Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
-      'Anggota Tata Panggung': { id: 'div-panggung', name: 'Tata Panggung' },
-      'Koordinator Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
-      'Anggota Tata Rias': { id: 'div-rias', name: 'Tata Rias' },
-      'Koordinator Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
-      'Anggota Tata Busana': { id: 'div-busana', name: 'Tata Busana' },
-      'Koordinator Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
-      'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
-    };
-
-    return rawList.map(u => {
-      const mapped = ROLE_DIV_MAP[u.role];
-      if (mapped) return { ...u, divisionId: mapped.id, divisionName: mapped.name };
-      return u;
+  // ═══ LAYER 1: by classId ═══
+  try {
+    const q1 = query(collection(db, path), where('classId', '==', classId));
+    const snap1 = await getDocs(q1);
+    snap1.docs.forEach(d => {
+      const u = { ...d.data(), uid: d.id } as UserProfile;
+      found[d.id] = enrichUser(u);
     });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+  } catch (err) {
+    console.warn('fetchUsersByClass layer 1 (classId) gagal:', err);
   }
+
+  // ═══ LAYER 2: by className ═══
+  if (className) {
+    try {
+      const q2 = query(collection(db, path), where('className', '==', className));
+      const snap2 = await getDocs(q2);
+      snap2.docs.forEach(d => {
+        const u = { ...d.data(), uid: d.id } as UserProfile;
+        // Merge kalau sudah ada
+        if (found[d.id]) {
+          found[d.id] = enrichUser({
+            ...found[d.id],
+            ...u,
+            classId: found[d.id].classId || u.classId || classId,
+            className: found[d.id].className || u.className || className!,
+          });
+        } else {
+          // Fix classId kalau kosong
+          const fixed = enrichUser({
+            ...u,
+            classId: u.classId || classId,
+            className: u.className || className!,
+          });
+          found[d.id] = fixed;
+        }
+      });
+    } catch (err) {
+      console.warn('fetchUsersByClass layer 2 (className) gagal:', err);
+    }
+  }
+
+  // ═══ LAYER 3: Fallback — fetch all, filter lokal ═══
+  if (Object.keys(found).length === 0) {
+    try {
+      console.warn('fetchUsersByClass: fallback ke fetch all users...');
+      const allSnap = await getDocs(collection(db, path));
+      allSnap.docs.forEach(d => {
+        const u = { ...d.data(), uid: d.id } as UserProfile;
+        const matchesClassId = u.classId === classId;
+        const matchesClassName = className && u.className === className;
+        if (matchesClassId || matchesClassName) {
+          found[d.id] = enrichUser(u);
+        }
+      });
+    } catch (err) {
+      console.error('fetchUsersByClass layer 3 (fallback all) gagal:', err);
+    }
+  }
+
+  // Sort by displayName
+  return Object.values(found).sort((a, b) =>
+    (a.displayName || '').localeCompare(b.displayName || '')
+  );
+}
+
+/**
+ * ✅ REPAIR: Perbaiki user yang classId/className kosong atau salah
+ * Panggil dari ManageStudentModule untuk siswa yang "hilang"
+ */
+export async function repairUsersForClass(
+  classId: string,
+  className: string
+): Promise<{ fixed: number; total: number }> {
+  let fixed = 0;
+  let total = 0;
+  try {
+    // Ambil semua users yang (className = class name) tapi classId kosong
+    const q = query(collection(db, 'users'), where('className', '==', className));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+
+    snap.docs.forEach(d => {
+      const u = d.data();
+      total++;
+      if (!u.classId || u.classId !== classId) {
+        batch.update(d.ref, {
+          classId: classId,
+          className: className,
+          updatedAt: new Date().toISOString(),
+        });
+        fixed++;
+      }
+    });
+
+    // Juga cek yang classId-nya sudah benar tapi className kosong
+    const q2 = query(collection(db, 'users'), where('classId', '==', classId));
+    const snap2 = await getDocs(q2);
+    snap2.docs.forEach(d => {
+      const u = d.data();
+      total++;
+      if (!u.className || u.className !== className) {
+        batch.update(d.ref, {
+          classId: classId,
+          className: className,
+          updatedAt: new Date().toISOString(),
+        });
+        fixed++;
+      }
+    });
+
+    if (fixed > 0) {
+      await batch.commit();
+    }
+  } catch (err) {
+    console.error('repairUsersForClass error:', err);
+    throw err;
+  }
+  return { fixed, total };
 }
 
 export async function fetchAllUsers(): Promise<UserProfile[]> {
   const path = 'users';
   try {
     const snap = await getDocs(collection(db, path));
-    return snap.docs.map(d => ({ ...d.data(), uid: d.id } as UserProfile));
+    return snap.docs.map(d => enrichUser({ ...d.data(), uid: d.id } as UserProfile));
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
   }
@@ -86,7 +223,7 @@ export async function fetchUserProfile(uid: string): Promise<UserProfile | null>
   try {
     const snap = await getDoc(doc(db, 'users', uid));
     if (!snap.exists()) return null;
-    return { ...snap.data(), uid: snap.id } as UserProfile;
+    return enrichUser({ ...snap.data(), uid: snap.id } as UserProfile);
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, path);
   }
@@ -488,10 +625,6 @@ export async function createNotification(notif: Omit<SystemNotification, 'id'>):
   }
 }
 
-// ==========================================
-// NOTIFIKASI OTOMATIS KE GURU — VERSI KUAT
-// Semua aktivitas siswa selalu masuk ke Guru Pengampu
-// ==========================================
 export async function notifyTeachers(
   classId: string,
   notif: {
@@ -503,8 +636,6 @@ export async function notifyTeachers(
   }
 ): Promise<void> {
   try {
-    // Ambil SEMUA user di class ini, filter guru di lokal
-    // (agar tidak bergantung pada query `in` yang sering gagal)
     const q = query(collection(db, 'users'), where('classId', '==', classId));
     const snap = await getDocs(q);
 
@@ -515,7 +646,6 @@ export async function notifyTeachers(
     });
 
     if (guruList.length === 0) {
-      // Fallback: cari semua user dengan role guru di semua kelas
       const allSnap = await getDocs(collection(db, 'users'));
       const fallback = allSnap.docs.filter(d => {
         const role = d.data().role;
@@ -573,7 +703,6 @@ export async function notifyTeachers(
   }
 }
 
-// Kirim notifikasi ke banyak user sekaligus
 export async function notifyUsers(
   userIds: string[],
   notif: {
