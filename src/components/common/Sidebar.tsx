@@ -4,7 +4,7 @@ import {
   Database, FileText, HelpCircle, MessageSquare, Music, Activity,
   Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
   Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
-  GraduationCap, Home, BookOpen, Globe,
+  GraduationCap, Home, BookOpen, Globe, Bug,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -39,6 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
+        { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
         { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
         { id: 'backup', label: 'Backup & Restore', icon: Database },
         { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings },
@@ -58,7 +59,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // MENU IN-CLASS
   // ═══════════════════════════════════════════════
   const buildInClassMenu = () => {
-    // ADMIN
     if (isAdminRole) {
       return [
         { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck },
@@ -73,13 +73,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
         { id: 'booking', label: 'Booking Alat', icon: Package },
         { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
+        { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
         { id: 'rab', label: 'RAB Digital', icon: Calculator },
         { id: 'backup', label: 'Backup & Restore', icon: Database },
         { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
       ];
     }
 
-    // GURU PENGAMPU (IN-CLASS)
     if (isGuruPengampu) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -87,6 +87,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
         { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
         { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
+        { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
         { id: 'master-timeline', label: 'Master Timeline', icon: Film },
         { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
@@ -110,7 +111,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // BENDAHARA
     if (role === 'Bendahara') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -139,7 +139,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // PIMPINAN PRODUKSI
     if (role === 'Pimpinan Produksi') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -167,7 +166,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // SEKRETARIS / SUTRADARA / ASISTEN
     if (['Sekretaris', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -195,7 +193,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // KOORDINATOR
     if (role.startsWith('Koordinator ')) {
       const base = [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -233,7 +230,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       return [...base, ...extras, ...tail];
     }
 
-    // ANGGOTA
     if (role.startsWith('Anggota ')) {
       const specific: Record<string, any[]> = {
         'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
@@ -267,7 +263,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // PEMERAN
     if (role === 'Pemain' || role === 'Pemeran') {
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -291,7 +286,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ];
     }
 
-    // DEFAULT
     return [
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
       { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
