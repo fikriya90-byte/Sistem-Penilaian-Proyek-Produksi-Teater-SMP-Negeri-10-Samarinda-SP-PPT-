@@ -30,10 +30,8 @@ import {
 } from '../core/types';
 
 // ==========================================
-// USERS & CLASSES
+// ROLE → DIVISI MAPPING (auto-fill)
 // ==========================================
-
-// ✅ Mapping role → divisi (untuk auto-fill)
 const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
   'Pimpinan Produksi': { id: 'div-inti', name: 'Pengurus Inti' },
   'Sekretaris': { id: 'div-inti', name: 'Pengurus Inti' },
@@ -68,95 +66,84 @@ function enrichUser(u: UserProfile): UserProfile {
   return u;
 }
 
-/**
- * ✅ ROBUST: Fetch users by class dengan 3-lapis fallback:
- *   1. Query by classId
- *   2. Query by className (kalau classId tidak lengkap)
- *   3. Fallback: fetch all + filter lokal
- */
+// ==========================================
+// FETCH USERS — SUPER ROBUST (fetch all + filter lokal)
+// ==========================================
 export async function fetchUsersByClass(classId: string): Promise<UserProfile[]> {
   const path = 'users';
   const found: Record<string, UserProfile> = {};
 
-  // ═══ CARI CLASS NAME DULU ═══
+  // Ambil nama class dulu (untuk matching className)
   let className: string | null = null;
   try {
     const classSnap = await getDoc(doc(db, 'classes', classId));
     if (classSnap.exists()) {
       className = classSnap.data().name || null;
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.warn('fetchUsersByClass: gagal ambil nama kelas:', err);
+  }
 
-  // ═══ LAYER 1: by classId ═══
+  // ═══ PRIMARY: Fetch SEMUA users, filter lokal ═══
   try {
-    const q1 = query(collection(db, path), where('classId', '==', classId));
-    const snap1 = await getDocs(q1);
-    snap1.docs.forEach(d => {
+    const allSnap = await getDocs(collection(db, path));
+
+    allSnap.docs.forEach(d => {
       const u = { ...d.data(), uid: d.id } as UserProfile;
-      found[d.id] = enrichUser(u);
+
+      const matchId = u.classId === classId;
+      const matchName = className && (
+        (u.className || '').toLowerCase().trim() === className.toLowerCase().trim()
+      );
+
+      if (matchId || matchName) {
+        found[d.id] = enrichUser({
+          ...u,
+          classId: u.classId || classId,
+          className: u.className || className || '',
+        });
+      }
     });
   } catch (err) {
-    console.warn('fetchUsersByClass layer 1 (classId) gagal:', err);
+    console.error('fetchUsersByClass PRIMARY gagal:', err);
   }
 
-  // ═══ LAYER 2: by className ═══
-  if (className) {
-    try {
-      const q2 = query(collection(db, path), where('className', '==', className));
-      const snap2 = await getDocs(q2);
-      snap2.docs.forEach(d => {
-        const u = { ...d.data(), uid: d.id } as UserProfile;
-        // Merge kalau sudah ada
-        if (found[d.id]) {
-          found[d.id] = enrichUser({
-            ...found[d.id],
-            ...u,
-            classId: found[d.id].classId || u.classId || classId,
-            className: found[d.id].className || u.className || className!,
-          });
-        } else {
-          // Fix classId kalau kosong
-          const fixed = enrichUser({
-            ...u,
-            classId: u.classId || classId,
-            className: u.className || className!,
-          });
-          found[d.id] = fixed;
-        }
-      });
-    } catch (err) {
-      console.warn('fetchUsersByClass layer 2 (className) gagal:', err);
-    }
-  }
-
-  // ═══ LAYER 3: Fallback — fetch all, filter lokal ═══
+  // ═══ FALLBACK 1: Query by classId ═══
   if (Object.keys(found).length === 0) {
     try {
-      console.warn('fetchUsersByClass: fallback ke fetch all users...');
-      const allSnap = await getDocs(collection(db, path));
-      allSnap.docs.forEach(d => {
+      const q = query(collection(db, path), where('classId', '==', classId));
+      const snap = await getDocs(q);
+      snap.docs.forEach(d => {
         const u = { ...d.data(), uid: d.id } as UserProfile;
-        const matchesClassId = u.classId === classId;
-        const matchesClassName = className && u.className === className;
-        if (matchesClassId || matchesClassName) {
-          found[d.id] = enrichUser(u);
-        }
+        found[d.id] = enrichUser(u);
       });
     } catch (err) {
-      console.error('fetchUsersByClass layer 3 (fallback all) gagal:', err);
+      console.warn('fetchUsersByClass FALLBACK 1 gagal:', err);
     }
   }
 
-  // Sort by displayName
+  // ═══ FALLBACK 2: Query by className ═══
+  if (Object.keys(found).length === 0 && className) {
+    try {
+      const q = query(collection(db, path), where('className', '==', className));
+      const snap = await getDocs(q);
+      snap.docs.forEach(d => {
+        const u = { ...d.data(), uid: d.id } as UserProfile;
+        found[d.id] = enrichUser(u);
+      });
+    } catch (err) {
+      console.warn('fetchUsersByClass FALLBACK 2 gagal:', err);
+    }
+  }
+
   return Object.values(found).sort((a, b) =>
     (a.displayName || '').localeCompare(b.displayName || '')
   );
 }
 
-/**
- * ✅ REPAIR: Perbaiki user yang classId/className kosong atau salah
- * Panggil dari ManageStudentModule untuk siswa yang "hilang"
- */
+// ==========================================
+// REPAIR — Perbaiki classId/className user
+// ==========================================
 export async function repairUsersForClass(
   classId: string,
   className: string
@@ -164,37 +151,25 @@ export async function repairUsersForClass(
   let fixed = 0;
   let total = 0;
   try {
-    // Ambil semua users yang (className = class name) tapi classId kosong
-    const q = query(collection(db, 'users'), where('className', '==', className));
-    const snap = await getDocs(q);
+    const allSnap = await getDocs(collection(db, 'users'));
     const batch = writeBatch(db);
 
-    snap.docs.forEach(d => {
+    allSnap.docs.forEach(d => {
       const u = d.data();
       total++;
-      if (!u.classId || u.classId !== classId) {
-        batch.update(d.ref, {
-          classId: classId,
-          className: className,
-          updatedAt: new Date().toISOString(),
-        });
-        fixed++;
-      }
-    });
 
-    // Juga cek yang classId-nya sudah benar tapi className kosong
-    const q2 = query(collection(db, 'users'), where('classId', '==', classId));
-    const snap2 = await getDocs(q2);
-    snap2.docs.forEach(d => {
-      const u = d.data();
-      total++;
-      if (!u.className || u.className !== className) {
-        batch.update(d.ref, {
-          classId: classId,
-          className: className,
-          updatedAt: new Date().toISOString(),
-        });
-        fixed++;
+      const matchName = (u.className || '').toLowerCase().trim() === className.toLowerCase().trim();
+      const matchId = u.classId === classId;
+
+      if (matchName || matchId) {
+        if (u.classId !== classId || u.className !== className) {
+          batch.update(d.ref, {
+            classId: classId,
+            className: className,
+            updatedAt: new Date().toISOString(),
+          });
+          fixed++;
+        }
       }
     });
 
@@ -256,7 +231,6 @@ export async function fetchClasses(): Promise<ClassRoom[]> {
 // ==========================================
 // PRODUCTION
 // ==========================================
-
 export async function fetchProductionByClass(classId: string): Promise<ProductionProject | null> {
   const path = 'productions';
   try {
@@ -284,7 +258,6 @@ export async function updateProductionStage(prodId: string, stage: any): Promise
 // ==========================================
 // TASKS
 // ==========================================
-
 export function subscribeTasksByClass(
   classId: string,
   onUpdate: (tasks: TaskItem[]) => void,
@@ -353,7 +326,6 @@ export async function deleteTask(taskId: string): Promise<void> {
 // ==========================================
 // ASSESSMENTS
 // ==========================================
-
 export function subscribeAssessments(
   classId: string,
   onUpdate: (assessments: AssessmentRecord[]) => void,
@@ -425,7 +397,6 @@ export function subscribeAssessmentHistory(
 // ==========================================
 // ATTENDANCE
 // ==========================================
-
 export function subscribeAttendanceSessions(
   classId: string,
   onUpdate: (sessions: AttendanceSession[]) => void,
@@ -512,7 +483,6 @@ export async function submitAttendanceRecord(record: Omit<AttendanceRecord, 'id'
 // ==========================================
 // SCHEDULES
 // ==========================================
-
 export function subscribeSchedules(classId: string, onUpdate: (schedules: ScheduleEvent[]) => void) {
   const path = 'schedules';
   const q = query(collection(db, path), where('classId', '==', classId));
@@ -544,7 +514,6 @@ export async function deleteSchedule(id: string): Promise<void> {
 // ==========================================
 // DOCUMENTS
 // ==========================================
-
 export function subscribeDocuments(
   classId: string,
   onUpdate: (docs: ProductionDocument[]) => void
@@ -570,7 +539,6 @@ export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>
 // ==========================================
 // NOTIFICATIONS
 // ==========================================
-
 export function subscribeNotifications(
   userId: string,
   onUpdate: (notifs: SystemNotification[]) => void
@@ -653,10 +621,7 @@ export async function notifyTeachers(
                role === 'Admin' || role === 'Super Admin';
       });
 
-      if (fallback.length === 0) {
-        console.warn('notifyTeachers: tidak ada guru ditemukan');
-        return;
-      }
+      if (fallback.length === 0) return;
 
       const batch = writeBatch(db);
       const now = new Date().toISOString();
@@ -697,7 +662,6 @@ export async function notifyTeachers(
     });
 
     await batch.commit();
-    console.log(`notifyTeachers: notifikasi terkirim ke ${guruList.length} guru`);
   } catch (err) {
     console.warn('Non-fatal notifyTeachers error:', err);
   }
@@ -740,7 +704,6 @@ export async function notifyUsers(
 // ==========================================
 // BROADCASTS
 // ==========================================
-
 export function subscribeBroadcasts(
   classId: string,
   onUpdate: (broadcasts: BroadcastMessage[]) => void
@@ -765,7 +728,6 @@ export async function sendBroadcast(msg: Omit<BroadcastMessage, 'id'>): Promise<
 // ==========================================
 // COMPLAINTS
 // ==========================================
-
 export function subscribeComplaints(
   classId: string,
   onUpdate: (complaints: StudentComplaint[]) => void
@@ -815,7 +777,6 @@ export async function replyComplaint(
 // ==========================================
 // PROMPT BOOK
 // ==========================================
-
 export function subscribePromptBooks(
   classId: string,
   onUpdate: (books: PromptBookScene[]) => void
@@ -842,7 +803,6 @@ export async function savePromptBookScene(sceneData: PromptBookScene): Promise<v
 // ==========================================
 // AUDIT LOG
 // ==========================================
-
 export async function recordAuditLog(
   log: Omit<AuditLogItem, 'id' | 'timestamp'> & { timestamp?: string }
 ): Promise<void> {
