@@ -17,11 +17,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
-  currentModule,
-  onNavigate,
-  isOpen,
-  onClose,
-  mode = 'in-class',
+  currentModule, onNavigate, isOpen, onClose, mode = 'in-class',
 }) => {
   const { user, isGuruPengampu, isAdminRole } = useAuth();
   const role = user?.role || '';
@@ -33,7 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (isGuruPengampu) {
       return [
         { id: 'dashboard', label: 'Beranda Utama', icon: GraduationCap },
-        { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen },
+        { id: 'welcome-broadcast', label: 'Broadcast Lintas Kelas', icon: Radio },
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
         { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
@@ -86,6 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
         { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
+        { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen },
         { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
         { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
@@ -373,15 +370,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => { onNavigate(item.id); onClose(); }}
                   className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition ${
                     isActive
-                      ? isAdminRole
-                        ? 'bg-blue-600 text-white font-bold shadow-sm'
-                        : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                      ? isAdminRole ? 'bg-blue-600 text-white font-bold shadow-sm' : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                       : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${
-                    isActive ? (isAdminRole ? 'text-white' : 'text-slate-950') : 'text-slate-500 dark:text-slate-400'
-                  }`} />
+                  <Icon className={`w-4 h-4 ${isActive ? (isAdminRole ? 'text-white' : 'text-slate-950') : 'text-slate-500 dark:text-slate-400'}`} />
                   <span>{item.label}</span>
                 </button>
               );
