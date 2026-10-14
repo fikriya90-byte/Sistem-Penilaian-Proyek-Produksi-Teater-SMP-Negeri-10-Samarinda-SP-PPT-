@@ -32,9 +32,15 @@ const CATEGORY_LABEL: Record<AssessorCategory, string> = {
   BAWAHAN: 'Anggota Tim',
 };
 
-// =========================================================
-// TEMPLATE WA
-// =========================================================
+// Helper: build ISO dari date + time (format baru jadwal penilaian)
+function buildISO(dateStr: string, timeStr: string): string {
+  if (!dateStr) return '';
+  const t = timeStr || '00:00';
+  try {
+    return new Date(`${dateStr}T${t}:00`).toISOString();
+  } catch { return ''; }
+}
+
 function templateFollowupPeerAssessment(studentName: string, teacherName: string, classKerabat: string, className: string) {
   return `Halo ${studentName},\n\nSaya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\nKami ingatkan bahwa Anda belum mengisi *penilaian rekan kerja (peer assessment)*.\n\nMohon segera isi melalui web SP-PPT → menu *Penilaian*.\n\nTerima kasih 🙏`;
 }
@@ -47,9 +53,6 @@ function templateAskClarification(assessorName: string, targetStudentName: strin
   return `Halo ${assessorName},\n\nSaya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\nSaya melihat Anda memberi penilaian kepada *${targetStudentName}* di tahap *${stage}*.\n\nCatatan: ${reason}\n\nBoleh dijelaskan dasar penilaian Anda? Kami ingin memastikan penilaian ini objektif dan adil.\n\nMohon balas pesan ini untuk klarifikasi. Terima kasih 🙏`;
 }
 
-// =========================================================
-// TASK HELPERS
-// =========================================================
 interface TaskWithStatus {
   task: any;
   submission: any | undefined;
@@ -196,12 +199,29 @@ function computePemeranDiscipline(taskScore: number, attendScore: number): 1 | 2
   return Math.floor((taskScore + attendScore) / 2) as 1 | 2 | 3 | 4;
 }
 
+// ✅ isAssessmentOpen dengan format baru (date + time terpisah)
 function isAssessmentOpen(stageDeadlines: any, stageId: ProductionStage) {
   const cfg = stageDeadlines?.[stageId];
   if (!cfg) return { open: false, reason: 'no-config' as const };
   if (cfg.assessmentEnabled === false) return { open: false, reason: 'disabled' as const };
-  const startMs = cfg.assessmentStart ? new Date(cfg.assessmentStart).getTime() : undefined;
-  const endMs = cfg.assessmentEnd ? new Date(cfg.assessmentEnd).getTime() : undefined;
+
+  let startMs: number | undefined;
+  let endMs: number | undefined;
+
+  if (cfg.assessmentStartDate) {
+    const iso = buildISO(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00');
+    if (iso) startMs = new Date(iso).getTime();
+  } else if (cfg.assessmentStart) {
+    startMs = new Date(cfg.assessmentStart).getTime();
+  }
+
+  if (cfg.assessmentEndDate) {
+    const iso = buildISO(cfg.assessmentEndDate, cfg.assessmentEndTime || '23:59');
+    if (iso) endMs = new Date(iso).getTime();
+  } else if (cfg.assessmentEnd) {
+    endMs = new Date(cfg.assessmentEnd).getTime();
+  }
+
   const now = Date.now();
   if (startMs && !isNaN(startMs) && now < startMs) return { open: false, reason: 'not-started' as const, startMs, endMs };
   if (endMs && !isNaN(endMs) && now > endMs) return { open: false, reason: 'ended' as const, startMs, endMs };
@@ -232,9 +252,6 @@ function buildWhatsAppUrl(phone: string, text: string): string {
   return clean ? `https://wa.me/${clean}?text=${encodeURIComponent(text)}` : '#';
 }
 
-// =========================================================
-// DETEKSI ANOMALI
-// =========================================================
 interface Anomaly {
   record: AssessmentRecord;
   assessorUser?: UserProfile;
@@ -271,7 +288,7 @@ function detectAnomalies(assessments: AssessmentRecord[], students: UserProfile[
     }
     const allSame = scores.every(v => v === scores[0]);
     if (allSame && scores[0] !== 1 && scores[0] !== 4) {
-      result.push({ record: rec, assessorUser, targetUser, reason: `Semua kriteria diberi nilai ${scores[0]} — penilaian bisa jadi asal-asalan`, severity: 'low', type: 'Nilai Seragam' });
+      result.push({ record: rec, assessorUser, targetUser, reason: `Semua kriteria diberi nilai ${scores[0]} — kemungkinan asal-asalan`, severity: 'low', type: 'Nilai Seragam' });
       return;
     }
     const sameTargetRecords = (byStudent[rec.studentId] || []).filter(r => r.id !== rec.id);
@@ -295,9 +312,6 @@ function detectAnomalies(assessments: AssessmentRecord[], students: UserProfile[
   });
 }
 
-// =========================================================
-// MAIN
-// =========================================================
 export const AssessmentModule: React.FC = () => {
   const { user, activeClass, isAdminRole, isGuruPengampu, canAssessTarget } = useAuth();
   const { showToast } = useToast();
@@ -331,7 +345,6 @@ export const AssessmentModule: React.FC = () => {
   }, []);
 
   const canManageAll = isGuruPengampu || isAdminRole;
-
   const canGradeStudent = (student: UserProfile) => {
     if (canManageAll) return true;
     return canAssessTarget(student);
@@ -446,7 +459,6 @@ export const AssessmentModule: React.FC = () => {
     return getStudentTasks(student, deadlines, submissions, selectedStage).length > 0;
   };
 
-  // ✅ PEER STATUS — cek apakah siswa sudah isi penilaian teman
   const getPeerStatus = (student: UserProfile) => {
     const matrix = getAssessmentMatrix(student.role);
     const targetRoles = new Set<string>();
@@ -627,7 +639,6 @@ export const AssessmentModule: React.FC = () => {
   });
 
   const stageCount = (stageId: ProductionStage) => assessments.filter(a => a.stage === stageId).length;
-
   const anomalies = canManageAll ? detectAnomalies(assessments, students, selectedStage) : [];
 
   const handleDownloadClassRecap = () => {
@@ -729,7 +740,6 @@ export const AssessmentModule: React.FC = () => {
           </div>
         </div>
 
-        {/* ✅ GATE WAKTU PENILAIAN — untuk SEMUA user */}
         {!isAssessmentLocked && assessmentStatus.endMs && (
           <div className="mt-3 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-300 flex items-start gap-2">
             <Timer className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
@@ -745,6 +755,7 @@ export const AssessmentModule: React.FC = () => {
             <div className="text-[11px] text-blue-900 dark:text-blue-200">
               <p className="font-bold">Penilaian BELUM DIBUKA</p>
               <p className="mt-0.5">Dibuka dalam <strong>{formatDuration(assessmentStatus.startMs - Date.now())}</strong></p>
+              <p className="mt-0.5">Tepat pada: {formatDateTime(new Date(assessmentStatus.startMs).toISOString())}</p>
             </div>
           </div>
         )}
@@ -754,10 +765,19 @@ export const AssessmentModule: React.FC = () => {
             <div className="text-[11px] text-rose-900 dark:text-rose-200"><p className="font-bold">Penilaian SUDAH DITUTUP</p></div>
           </div>
         )}
-        {isStageLocked && (
-          <div className="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 flex items-start gap-2">
-            <Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-rose-900 dark:text-rose-200"><p className="font-bold">Tahap {selectedStage} belum dibuka.</p></div>
+        {isAssessmentLocked && assessmentStatus.reason === 'disabled' && (
+          <div className="mt-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border-2 border-slate-300 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-slate-800 dark:text-slate-300"><p className="font-bold">Penilaian tahap ini dinonaktifkan oleh Guru.</p></div>
+          </div>
+        )}
+        {isAssessmentLocked && assessmentStatus.reason === 'no-config' && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-amber-900 dark:text-amber-200">
+              <p className="font-bold">Jadwal penilaian belum diatur</p>
+              <p className="mt-0.5">Buka menu Kelola Tahapan untuk mengatur tanggal & jam penilaian.</p>
+            </div>
           </div>
         )}
 
@@ -865,7 +885,6 @@ export const AssessmentModule: React.FC = () => {
                 <th className="py-3.5 px-4">Nama</th>
                 <th className="py-3.5 px-4">Peran</th>
                 <th className="py-3.5 px-4 text-center">Tugas</th>
-                {/* ✅ KOLOM PEER ASSESS BARU */}
                 <th className="py-3.5 px-4 text-center">Peer Assess</th>
                 <th className="py-3.5 px-4 text-center">{CATEGORY_LABEL.GURU}</th>
                 <th className="py-3.5 px-4 text-center">{CATEGORY_LABEL.ATASAN}</th>
@@ -907,7 +926,6 @@ export const AssessmentModule: React.FC = () => {
                         )}
                       </td>
 
-                      {/* ✅ KOLOM PEER ASSESS */}
                       <td className="py-3.5 px-4 text-center">
                         {peerStatus.total === 0 ? (
                           <span className="text-[10px] text-slate-400 italic">—</span>
@@ -922,8 +940,7 @@ export const AssessmentModule: React.FC = () => {
                                 ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/40'
                                 : 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40'
                             } ${student.phone ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'}`}
-                            title={student.phone ? `Klik untuk WA follow-up ke ${student.displayName}` : 'Siswa belum punya nomor WA'}
-                          >
+                            title={student.phone ? `Klik untuk WA follow-up ke ${student.displayName}` : 'Siswa belum punya nomor WA'}>
                             <AlertTriangle className="w-3 h-3" />
                             {peerStatus.filled}/{peerStatus.total}
                             {student.phone && <MessageCircle className="w-3 h-3" />}
@@ -966,7 +983,6 @@ export const AssessmentModule: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL GRADING */}
       {isGradingOpen && selectedStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
@@ -1065,9 +1081,7 @@ export const AssessmentModule: React.FC = () => {
                                 {r.assessorName} <span className="text-slate-400 font-normal">({CATEGORY_LABEL[cat]})</span>
                                 {isSelf && <span className="ml-1 text-[9px] text-emerald-600 font-bold">[Anda]</span>}
                               </p>
-                              <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                Nilai: <strong className="font-mono">{r.totalScore}</strong>
-                              </p>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">Nilai: <strong className="font-mono">{r.totalScore}</strong></p>
                             </div>
                             <button onClick={() => handleDeleteOneAssessment(r)}
                               className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 shrink-0">
