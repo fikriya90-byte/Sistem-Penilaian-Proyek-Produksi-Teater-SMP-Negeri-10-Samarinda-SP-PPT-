@@ -22,7 +22,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, isGuruPengampu, isAdminRole } = useAuth();
   const role = user?.role || '';
 
-  // ═══ WELCOME MENU ═══
   const buildWelcomeMenu = () => {
     if (isGuruPengampu) {
       return [
@@ -33,7 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-        { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
+        { id: 'debug-users', label: 'Debug Users', icon: Bug },
         { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
         { id: 'backup', label: 'Backup & Restore', icon: Database },
         { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings },
@@ -48,7 +47,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ];
   };
 
-  // ═══ IN-CLASS MENU ═══
   const buildInClassMenu = () => {
     if (isAdminRole) {
       return [
@@ -64,7 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
         { id: 'booking', label: 'Booking Alat', icon: Package },
         { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
-        { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
+        { id: 'debug-users', label: 'Debug Users', icon: Bug },
         { id: 'rab', label: 'RAB Digital', icon: Calculator },
         { id: 'backup', label: 'Backup & Restore', icon: Database },
         { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
@@ -72,14 +70,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (isGuruPengampu) {
-      // ✅ 'kelola-kelas' DIHAPUS dari sini (sudah pindah ke welcome)
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
         { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
         { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
-        { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
+        { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
+        { id: 'debug-users', label: 'Debug Users', icon: Bug },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
         { id: 'master-timeline', label: 'Master Timeline', icon: Film },
         { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
