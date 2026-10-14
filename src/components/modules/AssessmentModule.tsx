@@ -155,7 +155,7 @@ export const AssessmentModule: React.FC = () => {
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [showAnomalies, setShowAnomalies] = useState(false);
-  const [showPeerReminder, setShowPeerReminder] = useState(false);
+  const [selectedPeerIds, setSelectedPeerIds] = useState<string[]>([]);
   const [, setTick] = useState(0);
 
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
@@ -370,46 +370,6 @@ export const AssessmentModule: React.FC = () => {
     } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); }
   };
 
-  const handleWABulk = () => {
-    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
-    const pending = students.filter(s => {
-      const p = getPeerStatus(s);
-      return p.total > 0 && !p.isComplete && s.phone;
-    });
-    if (pending.length === 0) {
-      showToast('Semua sudah isi peer assessment.', 'success');
-      return;
-    }
-    if (pending.length > 3) {
-      const ok = confirm(
-        `Akan membuka ${pending.length} chat WhatsApp.\n\n` +
-        `Browser MUNGKIN memblokir popup setelah 1-2 tab pertama.\n\n` +
-        `Solusi:\n` +
-        `1. Klik "Izinkan" jika muncul permintaan popup\n` +
-        `2. Atau gunakan tombol WA per siswa (satu per satu)\n\n` +
-        `Lanjut buka semua?`
-      );
-      if (!ok) return;
-    } else {
-      if (!confirm(`Kirim reminder WA ke ${pending.length} siswa?`)) return;
-    }
-
-    pending.forEach((s, i) => {
-      setTimeout(() => {
-        const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
-        try {
-          window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
-        } catch { }
-      }, i * 2000);
-    });
-
-    if (pending.length > 3) {
-      showToast(`${pending.length} chat akan dibuka perlahan (2 detik antar tab). Jika diblokir, izinkan popup di browser.`, 'warning');
-    } else {
-      showToast(`Membuka ${pending.length} chat WhatsApp...`, 'info');
-    }
-  };
-
   const handleWAPeer = (s: UserProfile) => {
     if (!s.phone) { showToast(`${s.displayName} belum punya WA.`, 'warning'); return; }
     const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
@@ -470,7 +430,6 @@ export const AssessmentModule: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {canManageAll && <button onClick={handleWABulk} className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> WA Bulk</button>}
             <button onClick={handleRekap} className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Rekap</button>
             <button onClick={() => window.location.reload()} className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"><RefreshCw className="w-3.5 h-3.5" /></button>
           </div>
@@ -526,80 +485,113 @@ export const AssessmentModule: React.FC = () => {
         </div>
       </div>
 
-      {canManageAll && pendingPeers.length > 0 && (
-        <div className="rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md overflow-hidden">
-          <button
-            onClick={() => setShowPeerReminder(!showPeerReminder)}
-            className="w-full p-4 flex items-center justify-between gap-3 text-left hover:bg-amber-100/40 transition">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="p-2 rounded-2xl bg-amber-500 text-white shrink-0">
-                <AlertCircle className="w-5 h-5" />
-              </span>
-              <div className="min-w-0">
-                <h3 className="text-sm font-extrabold text-amber-900 flex items-center gap-2 flex-wrap">
-                  {pendingPeers.length} Siswa Belum Isi Peer
-                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
-                    {selectedStage}
+      {canManageAll && pendingPeers.length > 0 && (() => {
+        const allSelected = pendingPeers.every(p => selectedPeerIds.includes(p.uid));
+        const toggleAll = () => {
+          if (allSelected) setSelectedPeerIds([]);
+          else setSelectedPeerIds(pendingPeers.map(p => p.uid));
+        };
+        const toggleOne = (uid: string) => {
+          setSelectedPeerIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]);
+        };
+        const selectedList = pendingPeers.filter(p => selectedPeerIds.includes(p.uid));
+        const selectedWithPhone = selectedList.filter(p => p.phone);
+
+        const sendToSelected = () => {
+          if (selectedList.length === 0) { showToast('Pilih minimal 1 siswa dulu.', 'warning'); return; }
+          if (selectedWithPhone.length === 0) { showToast('Siswa yang dipilih tidak punya nomor WA.', 'warning'); return; }
+          const noPhone = selectedList.length - selectedWithPhone.length;
+          if (!confirm(`Kirim WA ke ${selectedWithPhone.length} siswa terpilih?` + (noPhone > 0 ? `\n\n(${noPhone} siswa di-skip karena tidak punya nomor WA)` : '') + `\n\nBrowser akan buka tab satu per satu.`)) return;
+          selectedWithPhone.forEach((s, i) => {
+            setTimeout(() => {
+              const tn = user?.displayName || 'Guru';
+              const cn = activeClass?.name || 'IX';
+              const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
+              window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
+              if (i === selectedWithPhone.length - 1) {
+                setTimeout(() => showToast(`Selesai. ${selectedWithPhone.length} siswa dibuka di WA.`, 'success'), 500);
+              }
+            }, i * 1200);
+          });
+          showToast(`Membuka ${selectedWithPhone.length} chat WhatsApp...`, 'info');
+        };
+
+        return (
+          <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md">
+            <div className="flex items-start gap-3">
+              <span className="p-2.5 rounded-2xl bg-amber-500 text-white shrink-0"><AlertCircle className="w-5 h-5" /></span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h3 className="text-sm font-extrabold text-amber-900">{pendingPeers.length} Siswa Belum Isi Peer Assessment</h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                    {selectedPeerIds.length > 0 ? `${selectedPeerIds.length} DIPILIH` : `TAHAP ${selectedStage}`}
                   </span>
-                </h3>
-                <p className="text-[10px] text-amber-700 mt-0.5">
-                  {showPeerReminder ? 'Klik untuk tutup' : 'Klik untuk lihat daftar'}
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed mb-3">
+                  Centang siswa yang mau dikirimi WA, lalu klik <strong>Kirim ke Terpilih</strong>. Atau klik ikon WhatsApp hijau di tiap baris untuk kirim 1 orang saja.
                 </p>
-              </div>
-            </div>
-            <span className={`text-amber-600 text-lg transition-transform ${showPeerReminder ? 'rotate-180' : ''}`}>v</span>
-          </button>
 
-          {showPeerReminder && (
-            <div className="px-4 pb-4 border-t border-amber-200/60">
-              <p className="text-[11px] text-amber-800 leading-relaxed my-3">
-                Siswa berikut <strong>tidak bisa melihat nilai mereka sendiri</strong> sampai selesai mengisi penilaian rekan. Klik ikon WA untuk follow-up.
-              </p>
+                <div className="flex items-center gap-2 flex-wrap mb-3 p-2 rounded-xl bg-white border border-amber-200">
+                  <button onClick={toggleAll}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition ${allSelected ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-800 border border-amber-300'}`}>
+                    {allSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                    {allSelected ? 'Batal Pilih Semua' : 'Pilih Semua'}
+                  </button>
+                  {selectedPeerIds.length > 0 && (
+                    <>
+                      <span className="text-[10px] font-bold text-amber-800">{selectedPeerIds.length} dipilih</span>
+                      <button onClick={() => setSelectedPeerIds([])} className="text-[10px] font-bold text-rose-600 hover:underline">Kosongkan</button>
+                    </>
+                  )}
+                </div>
 
-              <div className="space-y-1.5 max-h-64 overflow-y-auto mb-3">
-                {pendingPeers.map(s => {
-                  const ps = getPeerStatus(s);
-                  return (
-                    <div key={s.uid} className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-amber-200">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${ps.filled === 0 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>
-                          {s.displayName.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
+                <div className="space-y-1.5 max-h-72 overflow-y-auto mb-3">
+                  {pendingPeers.map(s => {
+                    const ps = getPeerStatus(s);
+                    const isSelected = selectedPeerIds.includes(s.uid);
+                    const hasPhone = !!s.phone;
+                    return (
+                      <div key={s.uid} className={`flex items-center gap-2 p-2 rounded-xl border transition ${isSelected ? 'bg-amber-50 border-amber-400' : 'bg-white border-amber-200'}`}>
+                        <button onClick={() => toggleOne(s.uid)} className="p-0.5 shrink-0" title={isSelected ? 'Batal pilih' : 'Pilih'}>
+                          {isSelected ? <CheckSquare className="w-5 h-5 text-amber-600" /> : <Square className="w-5 h-5 text-slate-400" />}
+                        </button>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${ps.filled === 0 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>{s.displayName.charAt(0).toUpperCase()}</div>
+                        <div className="flex-1 min-w-0">
                           <p className="text-[11px] font-bold text-slate-800 truncate">{s.displayName}</p>
                           <p className="text-[9px] text-slate-500">
                             {s.role} • <span className={ps.filled === 0 ? 'text-rose-600 font-bold' : 'text-amber-600 font-bold'}>{ps.filled}/{ps.total} peer</span>
+                            {!hasPhone && <span className="text-slate-400 italic"> • no WA</span>}
                           </p>
                         </div>
+                        {hasPhone ? (
+                          <button onClick={() => handleWAPeer(s)} className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shrink-0" title={`Kirim WA langsung ke ${s.displayName}`}>
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-[9px] text-slate-400 italic px-1 shrink-0">no WA</span>
+                        )}
                       </div>
-                      {s.phone ? (
-                        <button onClick={() => handleWAPeer(s)}
-                          className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shrink-0"
-                          title={`WA ke ${s.displayName}`}>
-                          <MessageCircle className="w-3 h-3" />
-                        </button>
-                      ) : (
-                        <span className="text-[9px] text-slate-400 italic px-1">no WA</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
 
-              <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 mb-3">
-                <p className="text-[10px] text-blue-900 leading-relaxed">
-                  <strong>Tips:</strong> Browser mungkin blokir popup jika dibuka sekaligus. Klik ikon WA per siswa (per baris) untuk hasil lebih stabil, atau izinkan popup di pengaturan browser.
-                </p>
-              </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={sendToSelected} disabled={selectedPeerIds.length === 0 || selectedWithPhone.length === 0}
+                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1.5 shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    {selectedPeerIds.length === 0 ? 'Pilih Siswa Dulu' : `Kirim ke ${selectedWithPhone.length} Terpilih`}
+                  </button>
+                  {selectedList.length > 0 && selectedWithPhone.length < selectedList.length && (
+                    <span className="text-[10px] text-amber-700 italic">{selectedList.length - selectedWithPhone.length} siswa tanpa WA akan di-skip</span>
+                  )}
+                </div>
 
-              <button onClick={handleWABulk}
-                className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center justify-center gap-1.5">
-                <MessageCircle className="w-3.5 h-3.5" /> WA Bulk ke {pendingPeers.filter(s => s.phone).length} Siswa
-              </button>
+                <p className="text-[10px] text-amber-700 italic mt-2">Tip: nilai siswa terbuka otomatis setelah peer lengkap.</p>
+              </div>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {canManageAll && (
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
