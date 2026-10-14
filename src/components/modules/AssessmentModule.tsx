@@ -3,6 +3,7 @@ import {
   Award, Lock, Unlock, Search, Users, CheckCircle,
   Calculator, TrendingUp, Info, AlertTriangle, Sparkles, Bot,
   Trash2, RotateCcw, X, Edit3, ShieldAlert, Filter, Clock,
+  RefreshCw, Bug, AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
@@ -13,8 +14,9 @@ import {
   AssessmentRecord, ProductionStage, UserProfile,
 } from '../../core/types';
 import {
-  fetchUsersByClass, recordAuditLog, saveAssessment, subscribeAssessments,
-  subscribeTasksByClass, subscribeAttendanceSessions, subscribeAllAttendanceRecords,
+  fetchUsersByClass, fetchAllUsers, recordAuditLog, saveAssessment,
+  subscribeAssessments, subscribeTasksByClass, subscribeAttendanceSessions,
+  subscribeAllAttendanceRecords,
 } from '../../services/firestoreService';
 import {
   collection, query, where, onSnapshot, doc, getDoc,
@@ -24,7 +26,7 @@ import { db } from '../../core/firebase';
 import { useToast } from '../common/Toast';
 
 // =========================================================
-// INLINE AUTO SCORE FUNCTIONS
+// AUTO SCORE HELPERS
 // =========================================================
 function computeTaskResponsibility(
   student: UserProfile,
@@ -158,6 +160,14 @@ export const AssessmentModule: React.FC = () => {
   const { showToast } = useToast();
 
   const [students, setStudents] = useState<UserProfile[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [studentsDebug, setStudentsDebug] = useState<{
+    totalUsers: number;
+    matched: number;
+    source: string;
+    error?: string;
+  }>({ totalUsers: 0, matched: 0, source: '-' });
+
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
@@ -171,25 +181,108 @@ export const AssessmentModule: React.FC = () => {
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // ✅ Stage config
   const [stageConfig, setStageConfig] = useState<any>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
-  // ✅ Admin/guru bisa reset & edit
   const canManageAll = isGuruPengampu || isAdminRole;
 
   // =========================================================
-  // SUBSCRIBE DATA
+  // LOAD STUDENTS — dengan fallback berlapis
+  // =========================================================
+  const loadStudents = async () => {
+    if (!activeClass) {
+      setStudentsLoading(false);
+      return;
+    }
+
+    setStudentsLoading(true);
+    setStudentsDebug({ totalUsers: 0, matched: 0, source: 'loading...' });
+
+    try {
+      // ==== LANGKAH 1: coba fetchUsersByClass (paling akurat) ====
+      let list: UserProfile[] = [];
+      let source = 'fetchUsersByClass';
+
+      try {
+        list = await fetchUsersByClass(activeClass.id);
+      } catch (err) {
+        console.warn('fetchUsersByClass gagal:', err);
+      }
+
+      // ==== LANGKAH 2: kalau kosong → fallback fetchAllUsers + filter lokal ====
+      if (!list || list.length === 0) {
+        console.warn('fetchUsersByClass kosong, fallback ke fetchAllUsers...');
+        try {
+          const all = await fetchAllUsers();
+          const classNameLower = (activeClass.name || '').toLowerCase().trim();
+          list = all.filter(u => {
+            const matchId = u.classId === activeClass.id;
+            const matchName = (u.className || '').toLowerCase().trim() === classNameLower;
+            return matchId || matchName;
+          });
+          source = 'fetchAllUsers (fallback)';
+          setStudentsDebug({
+            totalUsers: all.length,
+            matched: list.length,
+            source,
+          });
+        } catch (err: any) {
+          console.error('fetchAllUsers juga gagal:', err);
+          setStudentsDebug({
+            totalUsers: 0,
+            matched: 0,
+            source: 'error',
+            error: err?.message || 'Unknown error',
+          });
+        }
+      } else {
+        setStudentsDebug(prev => ({ ...prev, source }));
+      }
+
+      // ==== Filter role ====
+      const filtered = list.filter(s =>
+        s.role !== 'Guru Pengampu' &&
+        s.role !== 'Guru Pembina' &&
+        s.role !== 'Admin' &&
+        s.role !== 'Super Admin'
+      );
+
+      setStudents(filtered);
+
+      // Update debug
+      setStudentsDebug(prev => ({
+        ...prev,
+        totalUsers: prev.totalUsers || list.length,
+        matched: filtered.length,
+      }));
+
+    } catch (err: any) {
+      console.error('Error loading students:', err);
+      setStudents([]);
+      setStudentsDebug({
+        totalUsers: 0,
+        matched: 0,
+        source: 'error',
+        error: err?.message || 'Unknown',
+      });
+    } finally {
+      setStudentsLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    loadStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeClass?.id]);
+
+  // =========================================================
+  // SUBSCRIBE DATA PENDUKUNG
   // =========================================================
   useEffect(() => {
     if (!activeClass) return;
-    fetchUsersByClass(activeClass.id).then(u => {
-      setStudents(u.filter(s =>
-        s.role !== 'Guru Pengampu' && s.role !== 'Admin' && s.role !== 'Super Admin'
-      ));
-    });
 
     const unsub1 = subscribeAssessments(activeClass.id, setAssessments);
     const unsub2 = subscribeTasksByClass(activeClass.id, setTasks);
@@ -207,7 +300,7 @@ export const AssessmentModule: React.FC = () => {
     return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, [activeClass]);
 
-  // ✅ Subscribe stage config
+  // Subscribe stage config
   useEffect(() => {
     if (!activeClass) return;
     const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
@@ -215,7 +308,6 @@ export const AssessmentModule: React.FC = () => {
       if (snap.exists()) {
         const data = snap.data();
         setStageConfig(data);
-        // Auto set ke currentStage
         if (data.currentStage) {
           setSelectedStage(data.currentStage);
         }
@@ -228,7 +320,7 @@ export const AssessmentModule: React.FC = () => {
   // STAGE GATE
   // =========================================================
   const isStageEnabled = (stageId: ProductionStage): boolean => {
-    if (!stageConfig?.stageDeadlines) return true; // kalau config belum ada → semua boleh
+    if (!stageConfig?.stageDeadlines) return true;
     const cfg = stageConfig.stageDeadlines[stageId];
     if (!cfg) return true;
     return cfg.enabled !== false;
@@ -369,7 +461,7 @@ export const AssessmentModule: React.FC = () => {
   };
 
   // =========================================================
-  // ✅ RESET SEMUA PENILAIAN PER TAHAP
+  // RESET
   // =========================================================
   const handleResetStage = async () => {
     if (!canManageAll || !activeClass || !user) return;
@@ -395,7 +487,6 @@ export const AssessmentModule: React.FC = () => {
         return;
       }
 
-      // Backup ke assessmentHistory dulu
       const batch = writeBatch(db);
       snap.docs.forEach(d => {
         const histRef = doc(collection(db, 'assessmentHistory'));
@@ -428,15 +519,11 @@ export const AssessmentModule: React.FC = () => {
     }
   };
 
-  // =========================================================
-  // ✅ DELETE INDIVIDUAL ASSESSMENT
-  // =========================================================
   const handleDeleteOneAssessment = async (rec: AssessmentRecord) => {
     if (!canManageAll || !user) return;
     if (!confirm(`Hapus penilaian ${rec.studentName} oleh ${rec.assessorName} (${rec.assessorCategory})?`)) return;
 
     try {
-      // Backup ke history
       const histRef = doc(collection(db, 'assessmentHistory'));
       await writeBatch(db).set(histRef, {
         ...rec,
@@ -495,12 +582,16 @@ export const AssessmentModule: React.FC = () => {
     return { finalVal, guruScore, atasanScore, rekanScore, bawahanScore, count: records.length, records };
   };
 
-  const filteredStudents = students.filter(s =>
-    s.displayName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredStudents = students.filter(s => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (s.displayName || '').toLowerCase().includes(q) ||
+      (s.role || '').toLowerCase().includes(q) ||
+      (s.divisionName || '').toLowerCase().includes(q)
+    );
+  });
 
-  // Count assessments per stage (untuk info)
   const stageCount = (stageId: ProductionStage) =>
     assessments.filter(a => a.stage === stageId).length;
 
@@ -522,9 +613,18 @@ export const AssessmentModule: React.FC = () => {
               </p>
             </div>
           </div>
+
+          <button
+            onClick={loadStudents}
+            disabled={studentsLoading}
+            className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} />
+            Refresh Data
+          </button>
         </div>
 
-        {/* Stage Selector dengan Gate */}
+        {/* Stage Selector */}
         <div className="mt-4 space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -571,42 +671,45 @@ export const AssessmentModule: React.FC = () => {
           </div>
         </div>
 
-        {/* Info untuk stage yang dipilih */}
-        {isStageLocked && (
-          <div className="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
-            <Lock className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed">
-              <p className="font-bold">🔒 Tahap {selectedStage} Belum Dibuka</p>
-              <p className="mt-0.5">
-                {canManageAll
-                  ? 'Anda bisa lihat riwayat, tapi tidak bisa menilai/edit. Buka tahap ini di menu "Kelola Tahapan" dulu.'
-                  : 'Tahap ini belum dibuka oleh Guru. Tunggu info dari pengajar.'}
-              </p>
-            </div>
-          </div>
-        )}
-
-        {!isStageLocked && isSelectedNotCurrent && (
-          <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
-            <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              Anda melihat tahap <strong>{selectedStage}</strong>, tapi tahap aktif saat ini adalah <strong>{currentActiveStage}</strong>.
-            </p>
-          </div>
-        )}
-
+        {/* Info box */}
         <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
           <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
           <div className="text-[11px] text-blue-900 dark:text-blue-200">
             <p><strong>Skor otomatis</strong>: Tanggung Jawab (25%), Kehadiran (20%), Kedisiplinan Pemeran (10%).</p>
-            <p className="mt-1"><strong>Skor manual</strong>: Kerja Sama (25%), Kreativitas (15%), Teknis (15%) — atau untuk Pemeran: Hafalan, Penjiwaan, Suara, Blocking, Interaksi.</p>
-            {canManageAll && (
-              <p className="mt-1.5 pt-1.5 border-t border-blue-200 dark:border-blue-500/30">
-                👑 <strong>Guru/Admin:</strong> bisa reset semua penilaian tahap ini atau hapus per penilaian (dengan konfirmasi).
-              </p>
-            )}
+            <p className="mt-1"><strong>Skor manual</strong>: Kerja Sama (25%), Kreativitas (15%), Teknis (15%).</p>
           </div>
         </div>
+
+        {/* DEBUG INFO — muncul saat loading atau kosong */}
+        {(studentsLoading || students.length === 0) && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
+            <Bug className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+              <p className="font-bold">
+                🔍 Diagnostik Data Siswa
+              </p>
+              <ul className="mt-1 space-y-0.5 font-mono text-[10px]">
+                <li>• Kelas ID: <strong>{activeClass?.id || '(kosong)'}</strong></li>
+                <li>• Kelas Nama: <strong>{activeClass?.name || '(kosong)'}</strong></li>
+                <li>• Sumber: <strong>{studentsDebug.source}</strong></li>
+                <li>• Total user di Firestore: <strong>{studentsDebug.totalUsers}</strong></li>
+                <li>• Match kelas ini: <strong>{studentsDebug.matched}</strong></li>
+                {studentsDebug.error && (
+                  <li className="text-rose-700 dark:text-rose-300">• Error: <strong>{studentsDebug.error}</strong></li>
+                )}
+              </ul>
+              <p className="mt-2 font-bold">
+                {studentsLoading
+                  ? '⏳ Memuat data...'
+                  : studentsDebug.totalUsers === 0
+                  ? '❌ Firestore tidak bisa diakses. Kemungkinan: Firestore Rules memblokir read. Cek Firebase Console → Firestore → Rules.'
+                  : studentsDebug.matched === 0
+                  ? '⚠️ User ada di Firestore, tapi tidak ada yang match dengan kelas ini. Cek: apakah classId di user = classId kelas aktif?'
+                  : '✓ Seharusnya muncul. Coba klik Refresh Data di atas.'}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* AKSI GURU */}
@@ -655,78 +758,104 @@ export const AssessmentModule: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-              {filteredStudents.map(student => {
-                const agg = getAggregatedScore(student.uid, student.role);
-                const predInfo = agg ? getPredikat(agg.finalVal) : null;
-                const canGrade = canAssessTarget(student) && !isStageLocked;
+              {studentsLoading ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center text-xs text-slate-400">
+                    <RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin" />
+                    Memuat data siswa...
+                  </td>
+                </tr>
+              ) : filteredStudents.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-8 text-center">
+                    <AlertCircle className="w-8 h-8 mx-auto text-amber-400 mb-2" />
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      {students.length === 0
+                        ? 'Data siswa tidak ter-load. Lihat diagnostik di atas.'
+                        : 'Tidak ada siswa yang cocok dengan pencarian.'}
+                    </p>
+                  </td>
+                </tr>
+              ) : (
+                filteredStudents.map(student => {
+                  const agg = getAggregatedScore(student.uid, student.role);
+                  const predInfo = agg ? getPredikat(agg.finalVal) : null;
+                  const canGrade = canAssessTarget(student) && !isStageLocked;
 
-                return (
-                  <tr key={student.uid} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
-                    <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{student.displayName}</td>
-                    <td className="py-3.5 px-4 text-[11px] text-slate-600 dark:text-slate-400">{student.role}</td>
-                    <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                      {agg?.guruScore !== null && agg?.guruScore !== undefined ? agg.guruScore.toFixed(1) : '-'}
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                      {agg?.atasanScore !== null && agg?.atasanScore !== undefined ? agg.atasanScore.toFixed(1) : '-'}
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                      {agg?.rekanScore !== null && agg?.rekanScore !== undefined ? agg.rekanScore.toFixed(1) : '-'}
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                      {agg?.bawahanScore !== null && agg?.bawahanScore !== undefined ? agg.bawahanScore.toFixed(1) : '-'}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      {agg ? <span className="text-sm font-black text-slate-900 dark:text-white font-mono">{agg.finalVal}</span> : <span className="text-xs text-slate-400 italic">-</span>}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      {predInfo ? (
-                        <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs border ${predInfo.color}`}>
-                          {predInfo.predikat}
-                        </span>
-                      ) : '-'}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                        {canGrade ? (
-                          <button onClick={() => openGradingModal(student)}
-                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs">
-                            {agg ? 'Edit Nilai' : 'Nilai'}
-                          </button>
-                        ) : isStageLocked ? (
-                          <span className="text-[11px] text-rose-500 font-bold flex items-center gap-1">
-                            <Lock className="w-3 h-3" /> Terkunci
+                  return (
+                    <tr key={student.uid} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold flex items-center justify-center text-xs shrink-0">
+                            {(student.displayName || '?').charAt(0).toUpperCase()}
+                          </div>
+                          <span className="font-bold text-slate-900 dark:text-white">{student.displayName || '(Tanpa Nama)'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-[11px] text-slate-600 dark:text-slate-400">{student.role}</td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {agg?.guruScore !== null && agg?.guruScore !== undefined ? agg.guruScore.toFixed(1) : '-'}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {agg?.atasanScore !== null && agg?.atasanScore !== undefined ? agg.atasanScore.toFixed(1) : '-'}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {agg?.rekanScore !== null && agg?.rekanScore !== undefined ? agg.rekanScore.toFixed(1) : '-'}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {agg?.bawahanScore !== null && agg?.bawahanScore !== undefined ? agg.bawahanScore.toFixed(1) : '-'}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        {agg ? <span className="text-sm font-black text-slate-900 dark:text-white font-mono">{agg.finalVal}</span> : <span className="text-xs text-slate-400 italic">-</span>}
+                      </td>
+                      <td className="py-3.5 px-4 text-center">
+                        {predInfo ? (
+                          <span className={`inline-block px-2 py-0.5 rounded-md font-bold text-xs border ${predInfo.color}`}>
+                            {predInfo.predikat}
                           </span>
-                        ) : (
-                          <span className="text-[11px] text-slate-400">Hanya Lihat</span>
-                        )}
+                        ) : '-'}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {canGrade ? (
+                            <button onClick={() => openGradingModal(student)}
+                              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs">
+                              {agg ? 'Edit Nilai' : 'Nilai'}
+                            </button>
+                          ) : isStageLocked ? (
+                            <span className="text-[11px] text-rose-500 font-bold flex items-center gap-1">
+                              <Lock className="w-3 h-3" /> Terkunci
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">Hanya Lihat</span>
+                          )}
 
-                        {canManageAll && agg && agg.count > 0 && (
-                          <button
-                            onClick={() => {
-                              if (agg.records.length === 1) {
-                                handleDeleteOneAssessment(agg.records[0]);
-                              } else {
-                                // Kalau lebih dari 1, tampilkan pilihan
-                                const ids = agg.records.map((r: any) => `${r.assessorName} (${r.assessorCategory}): ${r.totalScore}`).join('\n');
-                                const pick = prompt(`Ada ${agg.count} penilaian:\n\n${ids}\n\nKetik nama penilai yang mau dihapus (persis):`);
-                                if (!pick) return;
-                                const target = agg.records.find((r: any) => r.assessorName === pick);
-                                if (target) handleDeleteOneAssessment(target);
-                                else showToast('Nama penilai tidak cocok.', 'error');
-                              }
-                            }}
-                            className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-600 dark:text-rose-400 transition"
-                            title="Hapus penilaian"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                          {canManageAll && agg && agg.count > 0 && (
+                            <button
+                              onClick={() => {
+                                if (agg.records.length === 1) {
+                                  handleDeleteOneAssessment(agg.records[0]);
+                                } else {
+                                  const ids = agg.records.map((r: any) => `${r.assessorName} (${r.assessorCategory}): ${r.totalScore}`).join('\n');
+                                  const pick = prompt(`Ada ${agg.count} penilaian:\n\n${ids}\n\nKetik nama penilai yang mau dihapus (persis):`);
+                                  if (!pick) return;
+                                  const target = agg.records.find((r: any) => r.assessorName === pick);
+                                  if (target) handleDeleteOneAssessment(target);
+                                  else showToast('Nama penilai tidak cocok.', 'error');
+                                }
+                              }}
+                              className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-600 dark:text-rose-400 transition"
+                              title="Hapus penilaian"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -857,7 +986,7 @@ export const AssessmentModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL RESET KONFIRMASI */}
+      {/* MODAL RESET */}
       {resetConfirmOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-rose-300 dark:border-rose-500/40 p-6 space-y-4">
@@ -873,9 +1002,6 @@ export const AssessmentModule: React.FC = () => {
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
               <p className="text-xs font-bold text-rose-900 dark:text-rose-200">
                 ⚠️ Tindakan ini akan MENGHAPUS semua penilaian tahap <strong>{selectedStage}</strong> untuk kelas <strong>{activeClass?.name}</strong>.
-              </p>
-              <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1.5 leading-relaxed">
-                Data akan dibackup dulu ke <strong>assessmentHistory</strong>, jadi masih bisa dilihat kalau diperlukan.
               </p>
             </div>
 
@@ -895,12 +1021,6 @@ export const AssessmentModule: React.FC = () => {
                     : 'border-rose-200 dark:border-rose-500/40'
                 }`}
               />
-              {resetConfirmText.length > 0 && resetConfirmText.trim() !== activeClass?.name && (
-                <p className="text-[11px] text-rose-600 mt-1 font-bold">❌ Nama kelas tidak cocok.</p>
-              )}
-              {resetConfirmText.trim() === activeClass?.name && (
-                <p className="text-[11px] text-emerald-600 mt-1 font-bold">✅ Cocok. Anda bisa reset.</p>
-              )}
             </div>
 
             <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
