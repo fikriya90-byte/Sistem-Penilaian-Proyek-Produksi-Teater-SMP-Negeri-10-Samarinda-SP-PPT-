@@ -3,8 +3,8 @@ import {
   Award, Lock, Unlock, Search, CheckCircle, MessageCircle, Send,
   TrendingUp, Info, AlertTriangle, Sparkles, Bot, Download,
   Trash2, RotateCcw, X, Edit3, ShieldAlert, Clock,
-  RefreshCw, Bug, AlertCircle, Timer, Users, ListChecks,
-  ExternalLink, CheckSquare, Square,
+  RefreshCw, AlertCircle, Timer, Users, ListChecks,
+  ExternalLink, CheckSquare, Square, Shield, Eye,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
@@ -20,7 +20,7 @@ import {
   subscribeAllAttendanceRecords,
 } from '../../services/firestoreService';
 import {
-  collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch,
+  collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch, updateDoc,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { useToast } from '../common/Toast';
@@ -35,18 +35,55 @@ const CATEGORY_LABEL: Record<AssessorCategory, string> = {
   BAWAHAN: 'Anggota Tim',
 };
 
-function getAssessorLabel(targetRole: string, category: AssessorCategory): string {
-  if (category === 'GURU') return 'Guru Pengampu';
-  const matrix = getAssessmentMatrix(targetRole);
-  const rel = matrix.find(r => r.category === category);
-  if (!rel || rel.roles.length === 0) return category === 'ATASAN' ? 'Atasan Langsung' : category === 'BAWAHAN' ? 'Anggota Tim' : 'Rekan Kerja';
-  if (rel.roles.length === 1) return rel.roles[0];
-  if (rel.roles.length <= 2) return rel.roles.join(' & ');
-  return `${rel.roles[0]} & ${rel.roles.length - 1} lainnya`;
+// =========================================================
+// TEMPLATE WA
+// =========================================================
+function templateFollowupPeerAssessment(
+  studentName: string,
+  teacherName: string,
+  classKerabat: string,
+  className: string
+) {
+  return `Halo ${studentName},\n\n` +
+    `Saya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\n` +
+    `Kami ingatkan bahwa Anda belum mengisi *penilaian rekan kerja (peer assessment)*.\n\n` +
+    `Mohon segera isi melalui web SP-PPT → menu *Penilaian*.\n\n` +
+    `Terima kasih 🙏`;
+}
+
+function templateAskAboutScore(
+  studentName: string,
+  teacherName: string,
+  classKerabat: string,
+  className: string,
+  stage: string
+) {
+  return `Halo ${studentName},\n\n` +
+    `Saya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\n` +
+    `Kami ingin *membahas nilai Anda* di tahap ${stage}.\n\n` +
+    `Jika ada pertanyaan atau keberatan terkait nilai, silakan hubungi saya untuk klarifikasi.\n\n` +
+    `Terima kasih 🙏`;
+}
+
+function templateAskClarification(
+  assessorName: string,
+  targetStudentName: string,
+  teacherName: string,
+  classKerabat: string,
+  className: string,
+  stage: string,
+  reason: string
+) {
+  return `Halo ${assessorName},\n\n` +
+    `Saya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\n` +
+    `Saya melihat Anda memberi penilaian kepada *${targetStudentName}* di tahap *${stage}*.\n\n` +
+    `Catatan: ${reason}\n\n` +
+    `Boleh dijelaskan dasar penilaian Anda? Kami ingin memastikan penilaian ini objektif dan adil.\n\n` +
+    `Mohon balas pesan ini untuk klarifikasi. Terima kasih 🙏`;
 }
 
 // =========================================================
-// ✅ FIX: fungsi pakai `deadlines` & field `stage` (bukan `stageId`)
+// TASK HELPERS — pakai `deadlines` & field `stage`
 // =========================================================
 interface TaskWithStatus {
   task: any;
@@ -64,16 +101,12 @@ function getStudentTasks(
   stage: ProductionStage
 ): TaskWithStatus[] {
   const myTasks = deadlines.filter(t => {
-    // ✅ FIX: pakai `t.stage` bukan `t.stageId`
     if (t.stage && t.stage !== stage) return false;
-    // Skip yang cancelled
     if (t.status === 'CANCELLED') return false;
-
     const scope = t.targetScope as string;
     const targetUserIds: string[] = t.targetUserIds || [];
     const targetRoles: string[] = t.targetRoles || [];
     const targetDivisions: string[] = t.targetDivisions || [];
-
     if (scope === 'SEMUA') return true;
     if (scope === 'PERAN') return t.targetRole === student.role;
     if (scope === 'DIVISI') return t.targetDivision === student.divisionName;
@@ -119,7 +152,7 @@ function getStudentTasks(
 }
 
 // =========================================================
-// AUTO SCORE — pakai `deadlines` & field `stage`
+// AUTO SCORE
 // =========================================================
 function computeTaskResponsibility(student: UserProfile, deadlines: any[], submissions: any[], stage: ProductionStage) {
   const myTasks = deadlines.filter(t => {
@@ -211,6 +244,9 @@ function computePemeranDiscipline(taskScore: number, attendScore: number): 1 | 2
   return Math.floor((taskScore + attendScore) / 2) as 1 | 2 | 3 | 4;
 }
 
+// =========================================================
+// JADWAL PENILAIAN
+// =========================================================
 function isAssessmentOpen(stageDeadlines: any, stageId: ProductionStage) {
   const cfg = stageDeadlines?.[stageId];
   if (!cfg) return { open: false, reason: 'no-config' as const };
@@ -247,14 +283,111 @@ function buildWhatsAppUrl(phone: string, text: string): string {
   return clean ? `https://wa.me/${clean}?text=${encodeURIComponent(text)}` : '#';
 }
 
-function templateFollowupPeerAssessment(studentName: string, classKerabat: string) {
-  return `Halo ${studentName},\n\nSalam dari tim produksi teater ${classKerabat}.\n\nKami ingatkan bahwa Anda belum mengisi *penilaian rekan kerja (peer assessment)*.\n\nMohon segera isi melalui SP-PPT → menu *Penilaian*.\n\nTerima kasih 🙏`;
+// =========================================================
+// DETEKSI ANOMALI
+// =========================================================
+interface Anomaly {
+  record: AssessmentRecord;
+  assessorUser?: UserProfile;
+  targetUser?: UserProfile;
+  reason: string;
+  severity: 'high' | 'medium' | 'low';
+  type: string;
 }
 
-function templateAskAboutScore(studentName: string, classKerabat: string, stage: string) {
-  return `Halo ${studentName},\n\nSalam dari tim produksi teater ${classKerabat}.\n\nKami ingin *membahas nilai Anda* di tahap ${stage}.\n\nSilakan hubungi Guru Pengampu untuk klarifikasi.\n\nTerima kasih 🙏`;
+function detectAnomalies(
+  assessments: AssessmentRecord[],
+  students: UserProfile[],
+  stage: ProductionStage
+): Anomaly[] {
+  const result: Anomaly[] = [];
+  const stageAssessments = assessments.filter(a => a.stage === stage);
+
+  // Kelompokkan per student untuk cek outlier
+  const byStudent: Record<string, AssessmentRecord[]> = {};
+  stageAssessments.forEach(a => {
+    if (!byStudent[a.studentId]) byStudent[a.studentId] = [];
+    byStudent[a.studentId].push(a);
+  });
+
+  stageAssessments.forEach(rec => {
+    // Skip guru penilaian guru lain
+    const scores = Object.values(rec.scores || {}).filter(v => typeof v === 'number');
+    if (scores.length === 0) return;
+
+    const assessorUser = students.find(s => s.uid === rec.assessorId);
+    const targetUser = students.find(s => s.uid === rec.studentId);
+
+    // 1. Semua nilai 1 (rendah ekstrem)
+    const allOne = scores.every(v => v === 1);
+    if (allOne) {
+      result.push({
+        record: rec,
+        assessorUser,
+        targetUser,
+        reason: `Semua ${scores.length} kriteria diberi nilai 1 (Kurang) — kemungkinan perlu klarifikasi`,
+        severity: 'high',
+        type: 'Nilai Sangat Rendah',
+      });
+      return;
+    }
+
+    // 2. Semua nilai 4 (tinggi ekstrem)
+    const allFour = scores.every(v => v === 4);
+    if (allFour) {
+      result.push({
+        record: rec,
+        assessorUser,
+        targetUser,
+        reason: `Semua ${scores.length} kriteria diberi nilai 4 (Sangat Baik) — cek apakah objektif`,
+        severity: 'medium',
+        type: 'Nilai Sangat Tinggi',
+      });
+      return;
+    }
+
+    // 3. Semua nilai sama (tapi bukan 1 atau 4)
+    const allSame = scores.every(v => v === scores[0]);
+    if (allSame && scores[0] !== 1 && scores[0] !== 4) {
+      result.push({
+        record: rec,
+        assessorUser,
+        targetUser,
+        reason: `Semua kriteria diberi nilai ${scores[0]} — penilaian bisa jadi asal-asalan`,
+        severity: 'low',
+        type: 'Nilai Seragam',
+      });
+      return;
+    }
+
+    // 4. Outlier — nilai sangat berbeda dengan rata-rata assessor lain untuk siswa yang sama
+    const sameTargetRecords = (byStudent[rec.studentId] || []).filter(r => r.id !== rec.id);
+    if (sameTargetRecords.length >= 2) {
+      const othersAvg = sameTargetRecords.reduce((s, r) => s + r.totalScore, 0) / sameTargetRecords.length;
+      const diff = Math.abs(rec.totalScore - othersAvg);
+      if (diff >= 25) {
+        result.push({
+          record: rec,
+          assessorUser,
+          targetUser,
+          reason: `Nilai (${rec.totalScore}) berbeda jauh dari rata-rata penilai lain (${othersAvg.toFixed(1)}) — selisih ${diff.toFixed(1)} poin`,
+          severity: diff >= 35 ? 'high' : 'medium',
+          type: 'Outlier vs Penilai Lain',
+        });
+      }
+    }
+  });
+
+  // Sort: high dulu
+  return result.sort((a, b) => {
+    const order = { high: 0, medium: 1, low: 2 };
+    return order[a.severity] - order[b.severity];
+  });
 }
 
+// =========================================================
+// MAIN
+// =========================================================
 export const AssessmentModule: React.FC = () => {
   const { user, activeClass, isAdminRole, isGuruPengampu, canAssessTarget } = useAuth();
   const { showToast } = useToast();
@@ -281,12 +414,21 @@ export const AssessmentModule: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [, setTick] = useState(0);
 
+  // Anomaly section
+  const [showAnomalies, setShowAnomalies] = useState(false);
+
   useEffect(() => {
     const t = setInterval(() => setTick(n => n + 1), 30000);
     return () => clearInterval(t);
   }, []);
 
   const canManageAll = isGuruPengampu || isAdminRole;
+
+  // ✅ Guru/Admin bisa nilai & edit SIAPA SAJA (override matrix)
+  const canGradeStudent = (student: UserProfile) => {
+    if (canManageAll) return true;
+    return canAssessTarget(student);
+  };
 
   const loadStudents = async () => {
     if (!activeClass) {
@@ -324,7 +466,6 @@ export const AssessmentModule: React.FC = () => {
 
   useEffect(() => { loadStudents(); /* eslint-disable-next-line */ }, [activeClass?.id]);
 
-  // ✅ FIX: subscribe ke collection `deadlines` (bukan `tasks`)
   useEffect(() => {
     if (!activeClass) return;
     const unsub1 = subscribeAssessments(activeClass.id, setAssessments);
@@ -416,6 +557,11 @@ export const AssessmentModule: React.FC = () => {
     return getStudentTasks(student, deadlines, submissions, selectedStage);
   };
 
+  // Helper data guru
+  const teacherName = user?.displayName || 'Guru Pengampu';
+  const classKerabat = activeClass?.kerabatKerja || activeClass?.name || 'Teater';
+  const className = activeClass?.name || 'IX';
+
   const openGradingModal = (student: UserProfile) => {
     if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
     if (isAssessmentLocked) {
@@ -426,7 +572,7 @@ export const AssessmentModule: React.FC = () => {
       else showToast('Penilaian belum dibuka.', 'warning');
       return;
     }
-    if (!canAssessTarget(student)) { showToast('Tidak berwenang menilai siswa ini.', 'warning'); return; }
+    if (!canGradeStudent(student)) { showToast('Tidak berwenang menilai siswa ini.', 'warning'); return; }
     setSelectedStudent(student);
     const existing = assessments.find(a => a.assessorId === user?.uid && a.studentId === student.uid && a.stage === selectedStage);
     const initial: Record<string, number> = {};
@@ -449,6 +595,8 @@ export const AssessmentModule: React.FC = () => {
       const matrix = getAssessmentMatrix(selectedStudent.role);
       let category: AssessorCategory = 'REKAN';
       for (const rel of matrix) { if (rel.roles.includes(user.role)) { category = rel.category; break; } }
+      // Guru/admin selalu dapat kategori GURU
+      if (canManageAll) category = 'GURU';
 
       await saveAssessment({
         classId: activeClass.id, productionId: 'prod',
@@ -471,28 +619,62 @@ export const AssessmentModule: React.FC = () => {
     finally { setIsSubmitting(false); }
   };
 
+  // =====================================================
+  // WA ACTIONS
+  // =====================================================
   const handleWAFollowupPeer = (student: UserProfile) => {
     if (!student.phone) { showToast(`${student.displayName} belum punya nomor WA.`, 'warning'); return; }
-    window.open(buildWhatsAppUrl(student.phone, templateFollowupPeerAssessment(student.displayName, activeClass?.kerabatKerja || activeClass?.name || '')), '_blank', 'noopener,noreferrer');
+    const text = templateFollowupPeerAssessment(
+      student.displayName, teacherName, classKerabat, className
+    );
+    window.open(buildWhatsAppUrl(student.phone, text), '_blank', 'noopener,noreferrer');
     showToast(`Membuka WhatsApp ke ${student.displayName}...`, 'info');
   };
 
   const handleWAAskAboutScore = (student: UserProfile) => {
     if (!student.phone) { showToast(`${student.displayName} belum punya nomor WA.`, 'warning'); return; }
-    window.open(buildWhatsAppUrl(student.phone, templateAskAboutScore(student.displayName, activeClass?.kerabatKerja || activeClass?.name || '', selectedStage)), '_blank', 'noopener,noreferrer');
+    const text = templateAskAboutScore(
+      student.displayName, teacherName, classKerabat, className, selectedStage
+    );
+    window.open(buildWhatsAppUrl(student.phone, text), '_blank', 'noopener,noreferrer');
     showToast(`Membuka WhatsApp ke ${student.displayName}...`, 'info');
+  };
+
+  const handleWAAskClarification = (anomaly: Anomaly) => {
+    const assessor = anomaly.assessorUser;
+    if (!assessor) {
+      showToast('Data penilai tidak ditemukan.', 'warning');
+      return;
+    }
+    if (!assessor.phone) {
+      showToast(`${assessor.displayName} belum punya nomor WA.`, 'warning');
+      return;
+    }
+    const targetName = anomaly.targetUser?.displayName || anomaly.record.studentName;
+    const text = templateAskClarification(
+      assessor.displayName, targetName, teacherName, classKerabat, className,
+      selectedStage, anomaly.reason
+    );
+    window.open(buildWhatsAppUrl(assessor.phone, text), '_blank', 'noopener,noreferrer');
+    showToast(`Membuka WhatsApp ke ${assessor.displayName}...`, 'info');
   };
 
   const handleWABulkFollowup = () => {
     const pending = students.filter(s => { const st = getPeerStatus(s); return st.total > 0 && !st.isComplete && s.phone; });
-    if (pending.length === 0) { showToast('Semua siswa sudah isi peer assessment. ✅', 'success'); return; }
-    if (!confirm(`Kirim reminder WA ke ${pending.length} siswa?`)) return;
+    if (pending.length === 0) { showToast('Semua siswa sudah isi peer assessment.', 'success'); return; }
+    if (!confirm(`Kirim reminder WA ke ${pending.length} siswa yang belum isi penilaian rekan?`)) return;
     pending.forEach((s, i) => {
-      setTimeout(() => { window.open(buildWhatsAppUrl(s.phone || '', templateFollowupPeerAssessment(s.displayName, activeClass?.kerabatKerja || activeClass?.name || '')), '_blank', 'noopener,noreferrer'); }, i * 800);
+      setTimeout(() => {
+        const text = templateFollowupPeerAssessment(s.displayName, teacherName, classKerabat, className);
+        window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
+      }, i * 800);
     });
     showToast(`Membuka ${pending.length} chat WhatsApp...`, 'info');
   };
 
+  // =====================================================
+  // RESET / DELETE
+  // =====================================================
   const handleResetStage = async () => {
     if (!canManageAll || !activeClass || !user) return;
     if (resetConfirmText.trim() !== activeClass.name) { showToast('Nama kelas tidak cocok.', 'error'); return; }
@@ -515,9 +697,9 @@ export const AssessmentModule: React.FC = () => {
     finally { setIsResetting(false); }
   };
 
-  const handleDeleteOneAssessment = async (rec: AssessmentRecord) => {
+  const handleDeleteOneAssessment = async (rec: AssessmentRecord, silent = false) => {
     if (!canManageAll || !user) return;
-    if (!confirm(`Hapus penilaian ${rec.studentName} oleh ${rec.assessorName}?`)) return;
+    if (!silent && !confirm(`Hapus penilaian ${rec.studentName} oleh ${rec.assessorName}?`)) return;
     try {
       const histRef = doc(collection(db, 'assessmentHistory'));
       await writeBatch(db).set(histRef, { ...rec, id: histRef.id, originalId: rec.id, supersededAt: new Date().toISOString(), supersededBy: user.uid, reason: `Dihapus oleh ${user.displayName}` }).commit();
@@ -526,6 +708,9 @@ export const AssessmentModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + (err?.message || 'Unknown'), 'error'); }
   };
 
+  // =====================================================
+  // AGGREGATED
+  // =====================================================
   const getAggregatedScore = (studentId: string, studentRole: string) => {
     const records = assessments.filter(a => a.studentId === studentId && a.stage === selectedStage);
     if (records.length === 0) return null;
@@ -555,6 +740,9 @@ export const AssessmentModule: React.FC = () => {
   });
 
   const stageCount = (stageId: ProductionStage) => assessments.filter(a => a.stage === stageId).length;
+
+  // ✅ Deteksi anomali
+  const anomalies = canManageAll ? detectAnomalies(assessments, students, selectedStage) : [];
 
   const handleDownloadClassRecap = () => {
     const sheet1 = {
@@ -604,14 +792,17 @@ export const AssessmentModule: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {canManageAll && (
-              <button onClick={handleWABulkFollowup} className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5">
+              <button onClick={handleWABulkFollowup}
+                className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5">
                 <MessageCircle className="w-3.5 h-3.5" /> WA Bulk
               </button>
             )}
-            <button onClick={handleDownloadClassRecap} className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5">
+            <button onClick={handleDownloadClassRecap}
+              className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5">
               <Download className="w-3.5 h-3.5" /> Rekap
             </button>
-            <button onClick={loadStudents} disabled={studentsLoading} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs disabled:opacity-50">
+            <button onClick={loadStudents} disabled={studentsLoading}
+              className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs disabled:opacity-50">
               <RefreshCw className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} />
             </button>
           </div>
@@ -622,7 +813,7 @@ export const AssessmentModule: React.FC = () => {
             <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Tahapan:</span>
             {stageConfig?.currentStage && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300">
-                🎯 Aktif: {stageConfig.currentStage}
+                Aktif: {stageConfig.currentStage}
               </span>
             )}
           </div>
@@ -654,8 +845,7 @@ export const AssessmentModule: React.FC = () => {
           <div className="mt-3 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-300 flex items-start gap-2">
             <Timer className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <div className="text-[11px] text-emerald-900 dark:text-emerald-200">
-              <p className="font-bold">✅ Penilaian TERBUKA — sisa {formatDuration(assessmentStatus.endMs - Date.now())}</p>
-              <p className="mt-0.5">Ditutup: {formatDateTime(new Date(assessmentStatus.endMs).toISOString())}</p>
+              <p className="font-bold">Penilaian TERBUKA — sisa {formatDuration(assessmentStatus.endMs - Date.now())}</p>
             </div>
           </div>
         )}
@@ -663,7 +853,7 @@ export const AssessmentModule: React.FC = () => {
           <div className="mt-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border-2 border-blue-300 flex items-start gap-2">
             <Clock className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
             <div className="text-[11px] text-blue-900 dark:text-blue-200">
-              <p className="font-bold">⏳ Penilaian BELUM DIBUKA</p>
+              <p className="font-bold">Penilaian BELUM DIBUKA</p>
               <p className="mt-0.5">Dibuka dalam <strong>{formatDuration(assessmentStatus.startMs - Date.now())}</strong></p>
             </div>
           </div>
@@ -671,30 +861,125 @@ export const AssessmentModule: React.FC = () => {
         {isAssessmentLocked && assessmentStatus.reason === 'ended' && (
           <div className="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 flex items-start gap-2">
             <Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-rose-900 dark:text-rose-200"><p className="font-bold">🔒 Penilaian SUDAH DITUTUP</p></div>
+            <div className="text-[11px] text-rose-900 dark:text-rose-200"><p className="font-bold">Penilaian SUDAH DITUTUP</p></div>
           </div>
         )}
         {isStageLocked && (
           <div className="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 flex items-start gap-2">
             <Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-rose-900 dark:text-rose-200"><p className="font-bold">🔒 Tahap {selectedStage} belum dibuka.</p></div>
+            <div className="text-[11px] text-rose-900 dark:text-rose-200"><p className="font-bold">Tahap {selectedStage} belum dibuka.</p></div>
           </div>
         )}
 
         <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 flex items-start gap-2">
           <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
           <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-            <p className="font-bold">🎯 Penilaian berbasis tugas sesuai peran.</p>
-            <p className="mt-0.5">Siswa dinilai dari tugas-tugas yang ditugaskan ke peran/divisinya di tahap ini.</p>
+            <p className="font-bold">Penilaian berbasis tugas sesuai peran.</p>
+            <p className="mt-0.5">Siswa dinilai dari tugas-tugas yang ditugaskan ke peran/divisinya di tahap ini. <strong>Guru bisa edit nilai siapa saja</strong> untuk moderasi.</p>
           </div>
         </div>
       </div>
 
       {canManageAll && (
-        <button onClick={() => setResetConfirmOpen(true)} disabled={isStageLocked}
-          className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm disabled:opacity-50">
-          <RotateCcw className="w-4 h-4" /> Reset Nilai Tahap {selectedStage}
-        </button>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
+            <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            Aksi Khusus Guru/Admin
+          </div>
+          <button onClick={() => setResetConfirmOpen(true)} disabled={isStageLocked}
+            className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm disabled:opacity-50">
+            <RotateCcw className="w-4 h-4" /> Reset Nilai Tahap {selectedStage}
+          </button>
+        </div>
+      )}
+
+      {/* ═══ SECTION: ANOMALI PENILAIAN (GURU) ═══ */}
+      {canManageAll && anomalies.length > 0 && (
+        <div className="rounded-3xl border-2 border-rose-300 dark:border-rose-500/40 bg-gradient-to-br from-rose-50 to-orange-50 dark:from-rose-500/10 dark:to-orange-500/10 overflow-hidden shadow-sm">
+          <button
+            onClick={() => setShowAnomalies(!showAnomalies)}
+            className="w-full p-4 flex items-center justify-between gap-2 text-left hover:bg-rose-100/50 dark:hover:bg-rose-500/10 transition"
+          >
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-rose-500 text-white shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
+                  {anomalies.length} Penilaian Perlu Klarifikasi
+                </h3>
+                <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
+                  Deteksi nilai ekstrem atau outlier — hubungi penilai via WA
+                </p>
+              </div>
+            </div>
+            <span className={`text-rose-600 dark:text-rose-400 transition-transform ${showAnomalies ? 'rotate-180' : ''}`}>
+              ▼
+            </span>
+          </button>
+
+          {showAnomalies && (
+            <div className="p-4 pt-0 space-y-2 border-t border-rose-200 dark:border-rose-500/30">
+              {anomalies.map((an, i) => {
+                const sevColor =
+                  an.severity === 'high' ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10'
+                  : an.severity === 'medium' ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
+                  : 'border-blue-400 bg-blue-50 dark:bg-blue-500/10';
+                const sevLabel =
+                  an.severity === 'high' ? 'KRITIS'
+                  : an.severity === 'medium' ? 'SEDANG'
+                  : 'RINGAN';
+                const sevBadge =
+                  an.severity === 'high' ? 'bg-rose-600 text-white'
+                  : an.severity === 'medium' ? 'bg-amber-500 text-white'
+                  : 'bg-blue-500 text-white';
+
+                return (
+                  <div key={i} className={`p-3 rounded-2xl border-2 ${sevColor}`}>
+                    <div className="flex items-start gap-3 flex-wrap">
+                      <div className="flex-1 min-w-[200px]">
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${sevBadge}`}>{sevLabel}</span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-700 text-white">
+                            {an.type}
+                          </span>
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 ml-auto">
+                            {new Date(an.record.createdAt || an.record.updatedAt || '').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                          </span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-900 dark:text-white">
+                          {an.assessorUser?.displayName || an.record.assessorName}
+                          <span className="text-slate-400 font-normal"> ({CATEGORY_LABEL[(an.record as any).assessorCategory || 'REKAN']})</span>
+                          <span className="mx-1">→</span>
+                          {an.targetUser?.displayName || an.record.studentName}
+                        </p>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
+                          {an.reason}
+                        </p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          Total nilai: <strong className="font-mono">{an.record.totalScore}</strong>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {an.assessorUser?.phone && (
+                          <button onClick={() => handleWAAskClarification(an)}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1">
+                            <MessageCircle className="w-3 h-3" /> WA Klarifikasi
+                          </button>
+                        )}
+                        <button onClick={() => handleDeleteOneAssessment(an.record)}
+                          className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:bg-rose-200 transition"
+                          title="Hapus penilaian ini">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -739,7 +1024,7 @@ export const AssessmentModule: React.FC = () => {
                 filteredStudents.map(student => {
                   const agg = getAggregatedScore(student.uid, student.role);
                   const predInfo = agg ? getPredikat(agg.finalVal) : null;
-                  const canGrade = canAssessTarget(student) && !isStageLocked && !isAssessmentLocked;
+                  const canGrade = canGradeStudent(student) && !isStageLocked && !isAssessmentLocked;
                   const peerStatus = getPeerStatus(student);
                   const taskList = getStudentTaskList(student);
                   const doneTasks = taskList.filter(t => t.status !== 'BELUM' && t.status !== 'PROSES').length;
@@ -817,12 +1102,11 @@ export const AssessmentModule: React.FC = () => {
             </div>
 
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              {/* DAFTAR TUGAS */}
               <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border-2 border-amber-200">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
                     <ListChecks className="w-5 h-5 text-amber-600" />
-                    <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase">📋 Tugas Siswa di Tahap {selectedStage}</h4>
+                    <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase">Tugas Siswa di Tahap {selectedStage}</h4>
                   </div>
                   {(() => {
                     const tl = getStudentTaskList(selectedStudent);
@@ -843,7 +1127,7 @@ export const AssessmentModule: React.FC = () => {
                     <div className="space-y-2 max-h-72 overflow-y-auto">
                       {taskList.map((item, idx) => (
                         <div key={item.task.id || idx} className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200">
-                          <div className="flex items-start gap-2 mb-1.5">
+                          <div className="flex items-start gap-2">
                             <div className={`mt-0.5 shrink-0 ${
                               item.status === 'AWAL' || item.status === 'TEPAT' ? 'text-emerald-600' :
                               item.status === 'TELAT_RINGAN' || item.status === 'PROSES' ? 'text-amber-600' : 'text-rose-600'
@@ -852,7 +1136,7 @@ export const AssessmentModule: React.FC = () => {
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                                {item.task.isCritical && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300">★ KRITIS</span>}
+                                {item.task.isCritical && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300">KRITIS</span>}
                                 <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${item.color}`}>{item.label}</span>
                               </div>
                               <p className="text-xs font-bold text-slate-900 dark:text-white leading-snug">{item.task.title}</p>
@@ -883,11 +1167,55 @@ export const AssessmentModule: React.FC = () => {
                 })()}
               </div>
 
+              {/* Daftar penilaian yang sudah ada (khusus guru) */}
+              {canManageAll && (() => {
+                const existingRecords = assessments.filter(a => a.studentId === selectedStudent.uid && a.stage === selectedStage);
+                if (existingRecords.length === 0) return null;
+                return (
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-500/10 dark:to-purple-500/10 border-2 border-indigo-200 dark:border-indigo-500/40">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <h4 className="text-xs font-black text-indigo-900 dark:text-indigo-200 uppercase">Moderasi: Penilaian yang Sudah Ada ({existingRecords.length})</h4>
+                    </div>
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                      {existingRecords.map(r => {
+                        const cat = (r as any).assessorCategory || 'REKAN';
+                        const isSelf = r.assessorId === user?.uid;
+                        return (
+                          <div key={r.id} className={`p-2.5 rounded-lg bg-white dark:bg-slate-800 border flex items-center justify-between gap-2 ${
+                            isSelf ? 'border-emerald-300' : 'border-slate-200 dark:border-slate-700'
+                          }`}>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[11px] font-bold text-slate-900 dark:text-white truncate">
+                                {r.assessorName} <span className="text-slate-400 font-normal">({CATEGORY_LABEL[cat]})</span>
+                                {isSelf && <span className="ml-1 text-[9px] text-emerald-600 font-bold">[Anda]</span>}
+                              </p>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                Nilai: <strong className="font-mono">{r.totalScore}</strong>
+                                {r.comment && <span className="ml-1 italic truncate">— "{r.comment.slice(0, 40)}..."</span>}
+                              </p>
+                            </div>
+                            <button onClick={() => handleDeleteOneAssessment(r)}
+                              className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 shrink-0"
+                              title="Hapus penilaian ini">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-indigo-700 dark:text-indigo-300 mt-2 italic">
+                      Anda bisa hapus penilaian anomali di sini, lalu isi nilai baru di bawah.
+                    </p>
+                  </div>
+                );
+              })()}
+
               {/* AUTO SCORE */}
               <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border border-blue-200">
                 <div className="flex items-center gap-2 mb-3">
                   <Bot className="w-4 h-4 text-blue-600" />
-                  <h4 className="text-xs font-black text-blue-900 dark:text-blue-200">🤖 SKOR OTOMATIS</h4>
+                  <h4 className="text-xs font-black text-blue-900 dark:text-blue-200">SKOR OTOMATIS</h4>
                 </div>
                 {(() => {
                   const { autoScores, taskResult, attendResult } = computeAutoScoresFor(selectedStudent, selectedStage);
@@ -911,29 +1239,15 @@ export const AssessmentModule: React.FC = () => {
                           </div>
                         )}
                       </div>
-                      {taskResult.totalTasks > 0 && (
-                        <div className="mt-2 p-2.5 rounded-lg bg-white/70 border border-blue-200">
-                          <p className="text-[10px] font-bold text-blue-900 mb-1">Rincian dari {taskResult.totalTasks} tugas:</p>
-                          <div className="grid grid-cols-3 gap-1.5 text-[9px] font-bold">
-                            <div className="text-emerald-700">✓ Awal/Tepat: {taskResult.awal + taskResult.tepat}</div>
-                            <div className="text-amber-700">⚠ Telat ringan: {taskResult.telatRingan}</div>
-                            <div className="text-rose-700">✗ Telat berat: {taskResult.telatBerat}</div>
-                            <div className="text-slate-500">⏸ Belum: {taskResult.belum}</div>
-                            {taskResult.criticalMissed > 0 && <div className="text-rose-700">★ Kritis belum: {taskResult.criticalMissed}</div>}
-                            {taskResult.criticalLate > 0 && <div className="text-rose-700">★ Kritis telat: {taskResult.criticalLate}</div>}
-                          </div>
-                        </div>
-                      )}
                     </>
                   );
                 })()}
               </div>
 
-              {/* MANUAL */}
               <div>
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles className="w-4 h-4 text-amber-600" />
-                  <h4 className="text-xs font-black text-slate-900 dark:text-white">✋ PENILAIAN MANUAL</h4>
+                  <h4 className="text-xs font-black text-slate-900 dark:text-white">PENILAIAN MANUAL</h4>
                 </div>
                 <div className="space-y-3">
                   {manualCriteria.map(crit => {
@@ -970,7 +1284,7 @@ export const AssessmentModule: React.FC = () => {
 
               {selectedStudent.phone && (
                 <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200">
-                  <p className="text-[11px] font-bold text-emerald-900 mb-2">💬 WhatsApp:</p>
+                  <p className="text-[11px] font-bold text-emerald-900 mb-2">WhatsApp:</p>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => handleWAFollowupPeer(selectedStudent)} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-[11px]">Follow-up Peer</button>
                     <button type="button" onClick={() => handleWAAskAboutScore(selectedStudent)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white font-bold text-[11px]">Tanya Nilai</button>
