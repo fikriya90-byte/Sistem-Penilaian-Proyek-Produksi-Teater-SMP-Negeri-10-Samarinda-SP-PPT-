@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
-  Loader2,
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './core/authContext';
@@ -54,25 +53,11 @@ import { BookingModule } from './components/modules/BookingModule';
 import { InterClassCoordModule } from './components/modules/InterClassCoordModule';
 import { DebugUsersModule } from './components/modules/DebugUsersModule';
 
-const RABModule = lazy(() =>
-  import('./components/modules/RABModule')
-    .then(m => ({ default: m.RABModule }))
-    .catch(() => Promise.resolve({
-      default: () => (
-        <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-          <Calculator className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-          <p className="text-sm font-bold text-slate-700 dark:text-slate-200">Modul RAB belum tersedia</p>
-        </div>
-      ),
-    }))
-);
+// ✅ RAB MODULE — sekarang STATIC import (sebelumnya lazy → sering 404 di GH Pages)
+import { RABModule } from './components/modules/RABModule';
 
-const LoadingFallback: React.FC = () => (
-  <div className="p-12 text-center">
-    <Loader2 className="w-8 h-8 mx-auto mb-2 animate-spin text-amber-500" />
-    <p className="text-xs text-slate-500 dark:text-slate-400">Memuat modul...</p>
-  </div>
-);
+// ✅ AUTO-TRANSITION TAHAPAN PRODUKSI
+import { runAutoTransitionWithSideEffects } from './services/stageAutoTransition';
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
@@ -190,6 +175,53 @@ const MainLayout: React.FC = () => {
     }
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
 
+  // ============================================================
+  // AUTO-TRANSITION TAHAPAN PRODUKSI
+  // ============================================================
+  useEffect(() => {
+    if (!activeClass || !user) return;
+    let cancelled = false;
+
+    const runCheck = async () => {
+      if (cancelled) return;
+      try {
+        const res = await runAutoTransitionWithSideEffects(activeClass.id, {
+          uid: user.uid,
+          displayName: user.displayName,
+          role: user.role,
+        });
+
+        if (!cancelled && res.transitioned && res.fromStage && res.toStage) {
+          try {
+            window.dispatchEvent(new CustomEvent('spppt-toast', {
+              detail: {
+                message: `⚡ Tahap ${res.fromStage} ditutup otomatis. Tahap ${res.toStage} sekarang dibuka.`,
+                type: 'info',
+              },
+            }));
+          } catch { /* ignore */ }
+        }
+      } catch (err) {
+        console.warn('Auto-transition check error:', err);
+      }
+    };
+
+    runCheck();
+
+    const interval = setInterval(runCheck, 5 * 60 * 1000);
+
+    const onVisible = () => {
+      if (!document.hidden) runCheck();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [activeClass?.id, user?.uid]);
+
   const handleEnterClass = (c: any) => {
     setActiveClass(c);
     setView('in-class');
@@ -254,11 +286,7 @@ const MainLayout: React.FC = () => {
                currentModule === 'booking' ? <BookingModule /> :
                currentModule === 'inter-class' ? <InterClassCoordModule /> :
                currentModule === 'debug-users' ? <DebugUsersModule /> :
-               currentModule === 'rab' ? (
-                 <Suspense fallback={<LoadingFallback />}>
-                   <RABModule />
-                 </Suspense>
-               ) :
+               currentModule === 'rab' ? <RABModule /> :
                <AdminModule />}
             </main>
           </div>
@@ -294,11 +322,7 @@ const MainLayout: React.FC = () => {
       case 'absensi': return <AttendanceModule />;
       case 'statistik-absensi': return <AttendanceStatsModule />;
       case 'kas': return <KasModule />;
-      case 'rab': return (
-        <Suspense fallback={<LoadingFallback />}>
-          <RABModule />
-        </Suspense>
-      );
+      case 'rab': return <RABModule />;
       case 'tugas': return <DeadlineModule />;
       case 'progress-tugas': return <TaskProgressModule />;
       case 'jadwal': return <ScheduleModule />;
