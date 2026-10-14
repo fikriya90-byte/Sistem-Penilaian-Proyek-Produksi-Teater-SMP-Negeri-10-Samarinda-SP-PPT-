@@ -4,7 +4,7 @@ import {
   Sparkles, Square, Users, ExternalLink, Upload, Link2,
   FileText, X, Wand2, Trash2, Edit3, AlertTriangle,
   Rocket, Download, Eye, Lock, ShieldAlert, Search, Filter,
-  PlusCircle, Headphones, Volume2,
+  PlusCircle, Headphones, Volume2, Youtube,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIALOG_PRACTICE_STEPS } from '../../core/constants';
@@ -96,13 +96,9 @@ function buildPreviewUrl(url: string): string | null {
   return `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
 }
 
-// Link download langsung (tanpa buka Drive viewer)
 function buildDownloadUrl(url: string): string {
   const id = getDriveFileId(url);
-  if (id) {
-    // Format direct download dari Google Drive
-    return `https://drive.google.com/uc?export=download&id=${id}`;
-  }
+  if (id) return `https://drive.google.com/uc?export=download&id=${id}`;
   return url;
 }
 
@@ -135,6 +131,67 @@ function getPlayableType(url: string): PlayableType {
   if (url.includes('drive.google.com') || url.includes('docs.google.com')) return 'drive';
   return 'external';
 }
+
+// URL thumbnail YouTube dengan kualitas tertinggi
+function getYouTubeThumbnail(videoId: string, quality: 'max' | 'hq' = 'max'): string {
+  if (quality === 'max') return `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+// ═══════════════════════════════════════════════════════
+// KOMPONEN: YouTube THUMBNAIL dengan auto-fallback
+// ═══════════════════════════════════════════════════════
+const YouTubeThumbnail: React.FC<{
+  videoId: string;
+  title: string;
+  onClick?: () => void;
+  className?: string;
+}> = ({ videoId, title, onClick, className = '' }) => {
+  const [src, setSrc] = useState(getYouTubeThumbnail(videoId, 'max'));
+  const [errored, setErrored] = useState(false);
+
+  return (
+    <div
+      className={`relative group cursor-pointer overflow-hidden rounded-2xl bg-slate-900 ${className}`}
+      onClick={onClick}
+    >
+      {!errored && (
+        <img
+          src={src}
+          alt={title}
+          className="w-full h-full object-cover transition group-hover:scale-105"
+          onError={() => {
+            // Fallback ke HQ kalau maxresdefault tidak tersedia
+            if (src.includes('maxresdefault')) {
+              setSrc(getYouTubeThumbnail(videoId, 'hq'));
+            } else {
+              setErrored(true);
+            }
+          }}
+        />
+      )}
+      {errored && (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-800 text-slate-400">
+          <Youtube className="w-12 h-12 mb-2" />
+          <p className="text-xs font-bold">YouTube Video</p>
+        </div>
+      )}
+
+      {/* Overlay play button */}
+      <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition flex items-center justify-center">
+        <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-2xl group-hover:scale-110 transition">
+          <Play className="w-7 h-7 text-white fill-white ml-1" />
+        </div>
+      </div>
+
+      {/* Badge YouTube */}
+      <div className="absolute top-2 left-2 px-2 py-1 rounded-md bg-red-600 text-white text-[10px] font-bold flex items-center gap-1 shadow-md">
+        <Youtube className="w-3 h-3" />
+        YOUTUBE
+      </div>
+    </div>
+  );
+};
 
 // ═══════════════════════════════════════════════════════
 // MAIN COMPONENT
@@ -182,35 +239,23 @@ export const StudioModule: React.FC = () => {
   const [musicSearch, setMusicSearch] = useState('');
   const [musicFilterCategory, setMusicFilterCategory] = useState<'ALL' | MusicCategory>('ALL');
 
+  // Modal untuk play YouTube
+  const [playingYoutube, setPlayingYoutube] = useState<{ videoId: string; title: string } | null>(null);
+
   // ═══════════════════════════════════════════════════════
   // PERMISSION
   // ═══════════════════════════════════════════════════════
   const canManageScript = !!user && (
-    isSutradara ||
-    isAsisten ||
-    isGuruPengampu ||
-    isTeacher ||
-    isAdminRole ||
-    user.role === 'Guru Pengampu' ||
-    user.role === 'Guru Pembina' ||
-    user.role === 'Admin' ||
-    user.role === 'Super Admin'
+    isSutradara || isAsisten || isGuruPengampu || isTeacher || isAdminRole ||
+    user.role === 'Guru Pengampu' || user.role === 'Guru Pembina' ||
+    user.role === 'Admin' || user.role === 'Super Admin'
   );
 
-  const canViewScript = !!user;
-
   const canManageMusic = !!user && (
-    isGuruPengampu ||
-    isTeacher ||
-    isAdminRole ||
-    isSutradara ||
-    isAsisten ||
-    user.role === 'Guru Pengampu' ||
-    user.role === 'Guru Pembina' ||
-    user.role === 'Admin' ||
-    user.role === 'Super Admin' ||
-    user.role === 'Koordinator Tata Musik' ||
-    user.role === 'Anggota Tata Musik'
+    isGuruPengampu || isTeacher || isAdminRole || isSutradara || isAsisten ||
+    user.role === 'Guru Pengampu' || user.role === 'Guru Pembina' ||
+    user.role === 'Admin' || user.role === 'Super Admin' ||
+    user.role === 'Koordinator Tata Musik' || user.role === 'Anggota Tata Musik'
   );
 
   useEffect(() => {
@@ -441,18 +486,15 @@ export const StudioModule: React.FC = () => {
     }
   };
 
-  // 🎯 DOWNLOAD AUDIO — PRIORITAS UTAMA UNTUK SISWA
   const handleDownloadMusic = (item: MusicReference) => {
     const type = getPlayableType(item.audioUrl);
 
     if (type === 'youtube') {
-      // YouTube tidak bisa download langsung — arahkan ke YouTube
-      showToast('YouTube tidak bisa diunduh langsung. Buka YouTube dan download via app/web.', 'info');
+      showToast('YouTube tidak bisa diunduh langsung. Membuka YouTube...', 'info');
       window.open(item.audioUrl, '_blank', 'noopener,noreferrer');
       return;
     }
 
-    // Semua tipe lain: pakai buildDownloadUrl (khusus Drive → direct download)
     const downloadUrl = buildDownloadUrl(item.audioUrl);
     window.open(downloadUrl, '_blank', 'noopener,noreferrer');
     showToast(`🎵 "${item.title}" sedang diunduh...`, 'success');
@@ -521,6 +563,10 @@ export const StudioModule: React.FC = () => {
     }
     return () => clearInterval(interval);
   }, [isTimerRunning]);
+
+  // Preview YouTube di modal (live update saat user ketik)
+  const modalYoutubeId = getYouTubeId(musicUrl);
+  const modalPlayType = musicUrl.trim().length > 8 ? getPlayableType(musicUrl) : null;
 
   return (
     <div className="space-y-6">
@@ -717,7 +763,7 @@ export const StudioModule: React.FC = () => {
                   </span>
                   <h3 className="text-lg font-black mt-1">Referensi Musik Sandima</h3>
                   <p className="text-xs text-slate-200 mt-0.5">
-                    🎯 Klik tombol <strong className="text-amber-300">DOWNLOAD</strong> untuk simpan audio ke perangkat Anda
+                    🎯 Klik <strong className="text-amber-300">DOWNLOAD</strong> untuk simpan audio, atau klik thumbnail YouTube untuk memutar
                   </p>
                 </div>
               </div>
@@ -737,15 +783,16 @@ export const StudioModule: React.FC = () => {
               <>
                 <ShieldAlert className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                  <strong>Akses Anda: {user?.role}.</strong> Anda dapat <strong>menambah, mengedit, dan menghapus</strong> referensi musik.
+                  <strong>Akses Anda: {user?.role}.</strong> Anda dapat menambah, mengedit, dan menghapus referensi musik.
+                  Bisa pakai link <strong>Google Drive, YouTube, atau MP3 langsung</strong>.
                 </p>
               </>
             ) : (
               <>
                 <Download className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                  <strong>Mode Siswa:</strong> klik tombol <strong>DOWNLOAD</strong> pada setiap referensi untuk menyimpan audio ke perangkat.
-                  Anda juga dapat memutar audio langsung di halaman ini (jika link-nya mendukung).
+                  <strong>Mode Siswa:</strong> klik <strong>DOWNLOAD</strong> untuk simpan audio ke perangkat,
+                  atau klik <strong>thumbnail YouTube</strong> untuk memutar langsung.
                 </p>
               </>
             )}
@@ -757,7 +804,7 @@ export const StudioModule: React.FC = () => {
               <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
               <input
                 type="text"
-                placeholder="Cari judul musik, deskripsi, atau uploader..."
+                placeholder="Cari judul musik, adegan, atau uploader..."
                 value={musicSearch}
                 onChange={(e) => setMusicSearch(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white"
@@ -784,11 +831,11 @@ export const StudioModule: React.FC = () => {
               <span className="px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold">
                 Total: {musicRefs.length}
               </span>
+              <span className="px-2.5 py-1 rounded-full bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300 font-bold flex items-center gap-1">
+                <Youtube className="w-3 h-3" /> YouTube: {musicRefs.filter(m => getPlayableType(m.audioUrl) === 'youtube').length}
+              </span>
               <span className="px-2.5 py-1 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-bold">
                 Sandima: {musicRefs.filter(m => m.source === 'SANDIMA').length}
-              </span>
-              <span className="px-2.5 py-1 rounded-full bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 font-bold">
-                Tradisional: {musicRefs.filter(m => m.source === 'TRADISIONAL').length}
               </span>
             </div>
           )}
@@ -817,7 +864,18 @@ export const StudioModule: React.FC = () => {
 
                 return (
                   <div key={item.id}
-                    className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition space-y-3">
+                    className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition space-y-3 overflow-hidden">
+
+                    {/* 🎯 YOUTUBE THUMBNAIL (jika tipe YouTube) */}
+                    {playType === 'youtube' && ytId && (
+                      <YouTubeThumbnail
+                        videoId={ytId}
+                        title={item.title}
+                        onClick={() => setPlayingYoutube({ videoId: ytId, title: item.title })}
+                        className="w-full aspect-video -mx-5 -mt-5 mb-0 rounded-none"
+                      />
+                    )}
+
                     {/* Badges */}
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${catCfg.color}`}>
@@ -840,16 +898,16 @@ export const StudioModule: React.FC = () => {
                       </p>
                     )}
 
-                    {/* 🎯 DOWNLOAD BUTTON — PRIORITAS UTAMA */}
+                    {/* DOWNLOAD BUTTON */}
                     <button
                       onClick={() => handleDownloadMusic(item)}
                       className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-[0.98]"
                     >
                       <Download className="w-5 h-5" />
-                      DOWNLOAD AUDIO
+                      {playType === 'youtube' ? 'BUKA DI YOUTUBE' : 'DOWNLOAD AUDIO'}
                     </button>
 
-                    {/* Player (opsional, sekunder) */}
+                    {/* Player tambahan untuk non-YouTube */}
                     {playType === 'audio' && (
                       <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                         <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
@@ -861,27 +919,10 @@ export const StudioModule: React.FC = () => {
                       </div>
                     )}
 
-                    {playType === 'youtube' && ytId && (
-                      <details className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
-                        <summary className="p-2.5 cursor-pointer text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                          <Play className="w-3.5 h-3.5" /> Pratinjau YouTube (klik untuk buka)
-                        </summary>
-                        <div className="aspect-video bg-black">
-                          <iframe
-                            src={`https://www.youtube.com/embed/${ytId}`}
-                            title={item.title}
-                            className="w-full h-full border-0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                          />
-                        </div>
-                      </details>
-                    )}
-
                     {playType === 'drive' && drivePreview && (
                       <details className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
                         <summary className="p-2.5 cursor-pointer text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
-                          <Play className="w-3.5 h-3.5" /> Pratinjau Google Drive (klik untuk buka)
+                          <Play className="w-3.5 h-3.5" /> Pratinjau Google Drive
                         </summary>
                         <div className="aspect-video bg-slate-100 dark:bg-slate-900">
                           <iframe
@@ -897,7 +938,7 @@ export const StudioModule: React.FC = () => {
                     {playType === 'external' && (
                       <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">
-                          Link eksternal — tombol DOWNLOAD di atas akan membuka link sumber.
+                          Link eksternal — tombol download akan membuka link sumber.
                         </p>
                       </div>
                     )}
@@ -945,18 +986,16 @@ export const StudioModule: React.FC = () => {
             </div>
           )}
 
-          {/* Tips download */}
+          {/* Tips */}
           <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
             <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
             <div className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
-              <strong>💡 Cara siswa mengunduh audio:</strong>
-              <ol className="list-decimal pl-4 mt-1 space-y-0.5">
-                <li>Klik tombol <strong>DOWNLOAD AUDIO</strong> di card referensi</li>
-                <li>File akan ter-download ke perangkat (HP/laptop) siswa</li>
-                <li>Untuk Google Drive: tombol download akan buka link download langsung</li>
-                <li>Untuk YouTube: tombol akan buka YouTube — download via app YouTube Premium atau screen record</li>
-                <li>Untuk MP3 langsung: file akan ter-download otomatis</li>
-              </ol>
+              <strong>💡 Tips siswa:</strong>
+              <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                <li><strong>YouTube</strong> → klik thumbnail untuk memutar di app, atau download via YouTube Premium/app downloader</li>
+                <li><strong>Google Drive / MP3</strong> → klik tombol <strong>DOWNLOAD AUDIO</strong> untuk simpan ke HP</li>
+                <li>File audio bisa didengar offline kapan saja setelah ter-download</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -1199,50 +1238,84 @@ export const StudioModule: React.FC = () => {
             <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
               <Download className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
               <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                <strong>Penting:</strong> Siswa akan <strong>mengunduh audio</strong> ini.
-                Pastikan link Google Drive di-set <strong>"Anyone with the link can view"</strong> agar siswa bisa download.
+                Siswa akan <strong>mengunduh</strong> atau <strong>memutar</strong> referensi ini.
+                Bisa pakai link <strong>Google Drive, YouTube, atau MP3 langsung</strong>.
+                Untuk Drive: set <strong>"Anyone with the link can view"</strong>.
               </p>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Judul Referensi <span className="text-rose-500">*</span>
+                Judul / Nama Momen <span className="text-rose-500">*</span>
               </label>
               <input type="text" required value={musicTitle}
                 onChange={(e) => setMusicTitle(e.target.value)}
-                placeholder="Contoh: Sape Pembuka - Nuansa Muara Kaman"
+                placeholder="Contoh: Musik Masuk Raja Aji / Musik Konflik Perang / Musik Kesedihan Ratu"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Pakai nama momen / adegan biar gampang dicari: "Musik Masuk Raja", "Musik Tari Ratu", dll.
+              </p>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Link Audio <span className="text-rose-500">*</span>
+                Link Audio (Drive / YouTube / MP3) <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <Link2 className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                 <input type="url" required value={musicUrl}
                   onChange={(e) => setMusicUrl(e.target.value)}
-                  placeholder="https://drive.google.com/... atau https://.../audio.mp3"
+                  placeholder="https://youtu.be/... / https://drive.google.com/... / https://.../audio.mp3"
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
 
-              {musicUrl.trim().length > 8 && (
+              {/* Live info tipe link */}
+              {modalPlayType && (
                 <div className="mt-2">
                   {(() => {
-                    const t = getPlayableType(musicUrl);
                     const map: Record<string, { label: string; color: string }> = {
                       audio:    { label: '🎵 MP3 langsung — bisa diputar & diunduh langsung', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-                      youtube:  { label: '▶️ YouTube — siswa akan diarahkan ke YouTube (bisa download via app)', color: 'text-rose-700 bg-rose-50 border-rose-200' },
-                      drive:    { label: '📁 Google Drive — siswa bisa download langsung dari card', color: 'text-blue-700 bg-blue-50 border-blue-200' },
+                      youtube:  { label: '▶️ YouTube — thumbnail akan muncul & siswa bisa klik untuk putar', color: 'text-red-700 bg-red-50 border-red-200' },
+                      drive:    { label: '📁 Google Drive — siswa bisa download langsung', color: 'text-blue-700 bg-blue-50 border-blue-200' },
                       external: { label: '🔗 Link eksternal — tombol download akan buka link', color: 'text-slate-600 bg-slate-50 border-slate-200' },
                     };
-                    const info = map[t];
+                    const info = map[modalPlayType];
                     return (
                       <p className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${info.color}`}>
                         {info.label}
                       </p>
                     );
                   })()}
+                </div>
+              )}
+
+              {/* 🎬 LIVE PREVIEW THUMBNAIL YOUTUBE */}
+              {modalYoutubeId && (
+                <div className="mt-3">
+                  <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
+                    <Youtube className="w-3 h-3 text-red-600" /> Preview thumbnail YouTube:
+                  </p>
+                  <div className="rounded-2xl overflow-hidden border-2 border-red-200 dark:border-red-500/40">
+                    <div className="aspect-video bg-slate-900 relative">
+                      <img
+                        src={getYouTubeThumbnail(modalYoutubeId, 'max')}
+                        alt="Preview YouTube"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          const img = e.target as HTMLImageElement;
+                          if (img.src.includes('maxresdefault')) {
+                            img.src = getYouTubeThumbnail(modalYoutubeId, 'hq');
+                          }
+                        }}
+                      />
+                      <div className="absolute top-2 left-2 px-2 py-1 rounded-md bg-red-600 text-white text-[10px] font-bold flex items-center gap-1 shadow-md">
+                        <Youtube className="w-3 h-3" /> PREVIEW
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-emerald-700 dark:text-emerald-400 mt-1 font-bold">
+                    ✅ Link YouTube terdeteksi. Thumbnail akan tampil di card siswa.
+                  </p>
                 </div>
               )}
             </div>
@@ -1276,14 +1349,14 @@ export const StudioModule: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Deskripsi / Catatan Musik
+                Deskripsi / Kapan Dipakai
               </label>
               <textarea rows={4} value={musicDescription}
                 onChange={(e) => setMusicDescription(e.target.value)}
-                placeholder="Contoh: Musik pembuka dengan instrumen sape khas Kutai, tempo lambat, nuansa mistis. Durasi 1:30."
+                placeholder="Contoh: Musik megah dengan genderang perang, tempo cepat. Dipakai saat Raja Tiongkok masuk ke istana Muara Kaman di Babak 2. Durasi 1:30."
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white leading-relaxed" />
               <p className="text-[10px] text-slate-400 mt-1">
-                Deskripsi bebas — nuansa, instrumen, tempo, durasi, kapan dipakai.
+                Jelaskan momen/adegan, nuansa, instrumen, tempo, durasi — bebas.
               </p>
             </div>
 
@@ -1299,6 +1372,48 @@ export const StudioModule: React.FC = () => {
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* ============================================ */}
+      {/* MODAL PLAY YOUTUBE */}
+      {/* ============================================ */}
+      {playingYoutube && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md">
+          <div className="w-full max-w-3xl bg-slate-900 rounded-3xl shadow-2xl overflow-hidden border border-slate-700">
+            <div className="p-4 bg-slate-800 border-b border-slate-700 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Youtube className="w-5 h-5 text-red-500 shrink-0" />
+                <h3 className="text-sm font-bold text-white truncate">{playingYoutube.title}</h3>
+              </div>
+              <button onClick={() => setPlayingYoutube(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-700 hover:text-white transition shrink-0">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="aspect-video bg-black">
+              <iframe
+                src={`https://www.youtube.com/embed/${playingYoutube.videoId}?autoplay=1`}
+                title={playingYoutube.title}
+                className="w-full h-full border-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+            <div className="p-3 bg-slate-800 flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-[11px] text-slate-400">
+                Ingin download? Buka YouTube & gunakan fitur download.
+              </p>
+              <a
+                href={`https://www.youtube.com/watch?v=${playingYoutube.videoId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold flex items-center gap-1.5"
+              >
+                <Youtube className="w-3.5 h-3.5" /> Buka di YouTube
+              </a>
+            </div>
+          </div>
         </div>
       )}
 
