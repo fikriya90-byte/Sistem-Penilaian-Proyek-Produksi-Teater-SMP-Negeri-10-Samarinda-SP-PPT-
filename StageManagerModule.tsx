@@ -1,3 +1,4 @@
+// src/components/modules/StageManagerModule.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, Save, AlertTriangle,
@@ -254,7 +255,6 @@ export const StageManagerModule: React.FC = () => {
     for (const stageId of STAGE_ORDER) {
       const cfg = stageDeadlines[stageId];
       if (cfg.assessmentEnabled) {
-        // Kalau enabled tapi ada tanggal, harus punya start & end
         const hasStart = !!cfg.assessmentStartDate;
         const hasEnd = !!cfg.assessmentEndDate;
         if (hasStart && hasEnd) {
@@ -285,7 +285,6 @@ export const StageManagerModule: React.FC = () => {
           assessmentStartTime: cfg.assessmentStartTime || '',
           assessmentEndDate: cfg.assessmentEndDate || '',
           assessmentEndTime: cfg.assessmentEndTime || '',
-          // Hapus field lama agar tidak membingungkan
           assessmentStart: undefined,
           assessmentEnd: undefined,
         };
