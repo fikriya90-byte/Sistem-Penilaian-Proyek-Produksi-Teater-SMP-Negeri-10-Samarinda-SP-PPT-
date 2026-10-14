@@ -30,6 +30,7 @@ import { AdminModule } from './components/modules/AdminModule';
 import { ManageClassModule } from './components/modules/ManageClassModule';
 import { ManageStudentModule } from './components/modules/ManageStudentModule';
 import { StageManagerModule } from './components/modules/StageManagerModule';
+import { AssessmentScheduleModule } from './components/modules/AssessmentScheduleModule';
 import { ModerationModule } from './components/modules/ModerationModule';
 import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
 import { KasModule } from './components/modules/KasModule';
@@ -56,9 +57,6 @@ import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastMod
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
 
-// ============================================================
-// WELCOME LAYOUT — guru dapat ManageClassModule (full CRUD)
-// ============================================================
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
   onNavigate: (m: string) => void;
@@ -243,7 +241,6 @@ const MainLayout: React.FC = () => {
     );
   }
 
-  // ✅ CATATAN: 'kelola-kelas' SUDAH DIHAPUS dari sini (pindah ke welcome)
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -274,6 +271,7 @@ const MainLayout: React.FC = () => {
       case 'studio': return <StudioModule />;
       case 'kelola-siswa': return <ManageStudentModule onNavigate={setCurrentModule} />;
       case 'kelola-tahapan': return <StageManagerModule />;
+      case 'jadwal-penilaian': return <AssessmentScheduleModule />;
       case 'aktivitas': return <ActivityLogModule />;
       case 'backup': return <BackupModule />;
       case 'pengaturan': return <SettingsModule />;
