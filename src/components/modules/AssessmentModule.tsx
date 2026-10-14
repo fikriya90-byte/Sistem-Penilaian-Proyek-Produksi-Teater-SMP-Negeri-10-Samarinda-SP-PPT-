@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Award, Download, Lock, Unlock, Search, UserCheck, Users, CheckCircle,
-  Calculator, EyeOff, TrendingUp, Info, AlertTriangle, Sparkles, Bot,
+  Award, Lock, Unlock, Search, Users, CheckCircle,
+  Calculator, TrendingUp, Info, AlertTriangle, Sparkles, Bot,
+  Trash2, RotateCcw, X, Edit3, ShieldAlert, Filter, Clock,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
@@ -9,34 +10,34 @@ import {
   getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS,
 } from '../../core/constants';
 import {
-  AssessmentRecord, ProductionStage, UserProfile, TaskItem,
-  AttendanceSession, AttendanceRecord, DeadlineSubmission,
+  AssessmentRecord, ProductionStage, UserProfile,
 } from '../../core/types';
 import {
   fetchUsersByClass, recordAuditLog, saveAssessment, subscribeAssessments,
   subscribeTasksByClass, subscribeAttendanceSessions, subscribeAllAttendanceRecords,
 } from '../../services/firestoreService';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import {
+  collection, query, where, onSnapshot, doc, getDoc,
+  deleteDoc, getDocs, writeBatch,
+} from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { useToast } from '../common/Toast';
 
 // =========================================================
 // INLINE AUTO SCORE FUNCTIONS
-// (Dipindah ke dalam file agar tidak perlu import eksternal)
 // =========================================================
-
 function computeTaskResponsibility(
   student: UserProfile,
-  tasks: TaskItem[],
-  submissions: DeadlineSubmission[],
+  tasks: any[],
+  submissions: any[],
   stage: ProductionStage
 ) {
   const myTasks = tasks.filter(t => {
-    if ((t as any).stageId && (t as any).stageId !== stage) return false;
+    if (t.stageId && t.stageId !== stage) return false;
     return (
       t.assigneeId === student.uid ||
-      (t as any).targetRole === student.role ||
-      (t as any).targetDivision === student.divisionName ||
+      t.targetRole === student.role ||
+      t.targetDivision === student.divisionName ||
       t.assigneeName === 'Semua Siswa' ||
       t.assigneeName === 'Semua Anggota Divisi'
     );
@@ -47,7 +48,7 @@ function computeTaskResponsibility(
 
   myTasks.forEach(task => {
     const sub = submissions.find(s => s.deadlineId === task.id && s.studentId === student.uid);
-    const isCritical = !!task.isCritical || (task as any).isCritical === true;
+    const isCritical = !!task.isCritical;
 
     if (!sub || sub.status === 'BELUM') {
       belum += 1;
@@ -77,10 +78,7 @@ function computeTaskResponsibility(
 
   const totalTasks = myTasks.length;
   if (totalTasks === 0) {
-    return {
-      score: 4, totalTasks: 0, awal: 0, tepat: 0, telatRingan: 0, telatBerat: 0, belum: 0,
-      pctOnTime: 100, criticalLate: 0, criticalMissed: 0,
-    };
+    return { score: 4, totalTasks: 0, pctOnTime: 100, criticalLate: 0, criticalMissed: 0 };
   }
 
   const onTime = awal + tepat;
@@ -90,25 +88,21 @@ function computeTaskResponsibility(
   if (pctOnTime >= 90 && criticalLate === 0 && criticalMissed === 0) score = 4;
   else if (pctOnTime >= 75 && criticalLate <= 0) score = 3;
   else if (pctOnTime >= 50 && criticalMissed === 0) score = 2;
-  else if (pctOnTime >= 50 && criticalLate > 1) score = 2;
   else score = 1;
 
   if (criticalMissed > 0) score = 1;
 
-  return {
-    score, totalTasks, awal, tepat, telatRingan, telatBerat, belum,
-    pctOnTime, criticalLate, criticalMissed,
-  };
+  return { score, totalTasks, pctOnTime, criticalLate, criticalMissed };
 }
 
 function computeAttendanceScore(
   student: UserProfile,
-  sessions: AttendanceSession[],
-  records: AttendanceRecord[],
+  sessions: any[],
+  records: any[],
   stage: ProductionStage
 ) {
   const stageSessions = sessions.filter(s => {
-    if ((s as any).stageId && (s as any).stageId !== stage) return false;
+    if (s.stageId && s.stageId !== stage) return false;
     return true;
   });
 
@@ -132,7 +126,7 @@ function computeAttendanceScore(
 
   const totalSessions = myRecords.length;
   if (totalSessions === 0) {
-    return { score: 4, totalSessions: 0, hadir: 0, izinSakit: 0, alpa: 0, pct: 100, hasFatalAlpa: false };
+    return { score: 4, totalSessions: 0, pct: 100, hasFatalAlpa: false };
   }
 
   const effectiveHadir = hadir + izinSakit;
@@ -146,7 +140,7 @@ function computeAttendanceScore(
 
   if (alpa >= 3 || hasFatalAlpa) score = Math.min(score, 2) as any;
 
-  return { score, totalSessions, hadir, izinSakit, alpa, pct, hasFatalAlpa };
+  return { score, totalSessions, pct, hasFatalAlpa };
 }
 
 function computePemeranDiscipline(taskScore: number, attendScore: number): 1 | 2 | 3 | 4 {
@@ -158,25 +152,37 @@ function computePemeranDiscipline(taskScore: number, attendScore: number): 1 | 2
 // MAIN COMPONENT
 // =========================================================
 export const AssessmentModule: React.FC = () => {
-  const { user, activeClass, isTeacher, isAdminRole, isGuruPengampu, canAssessTarget } = useAuth();
+  const {
+    user, activeClass, isAdminRole, isGuruPengampu, canAssessTarget,
+  } = useAuth();
   const { showToast } = useToast();
 
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [sessions, setSessions] = useState<AttendanceSession[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-  const [submissions, setSubmissions] = useState<DeadlineSubmission[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null);
   const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
   const [searchQuery, setSearchQuery] = useState('');
   const [isGradingOpen, setIsGradingOpen] = useState(false);
-  const [isLockedByTeacher, setIsLockedByTeacher] = useState(false);
   const [manualScores, setManualScores] = useState<Record<string, number>>({});
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Subscribe data
+  // ✅ Stage config
+  const [stageConfig, setStageConfig] = useState<any>(null);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
+  // ✅ Admin/guru bisa reset & edit
+  const canManageAll = isGuruPengampu || isAdminRole;
+
+  // =========================================================
+  // SUBSCRIBE DATA
+  // =========================================================
   useEffect(() => {
     if (!activeClass) return;
     fetchUsersByClass(activeClass.id).then(u => {
@@ -194,20 +200,51 @@ export const AssessmentModule: React.FC = () => {
     (async () => {
       const q = query(collection(db, 'deadlineSubmissions'), where('classId', '==', activeClass.id));
       unsub5 = onSnapshot(q, snap => {
-        setSubmissions(snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineSubmission)));
+        setSubmissions(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       });
     })();
 
     return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, [activeClass]);
 
+  // ✅ Subscribe stage config
+  useEffect(() => {
+    if (!activeClass) return;
+    const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setStageConfig(data);
+        // Auto set ke currentStage
+        if (data.currentStage) {
+          setSelectedStage(data.currentStage);
+        }
+      }
+    });
+    return () => unsub();
+  }, [activeClass]);
+
+  // =========================================================
+  // STAGE GATE
+  // =========================================================
+  const isStageEnabled = (stageId: ProductionStage): boolean => {
+    if (!stageConfig?.stageDeadlines) return true; // kalau config belum ada → semua boleh
+    const cfg = stageConfig.stageDeadlines[stageId];
+    if (!cfg) return true;
+    return cfg.enabled !== false;
+  };
+
+  const isStageLocked = !isStageEnabled(selectedStage);
+  const currentActiveStage = stageConfig?.currentStage || 'PELAKSANAAN';
+  const isSelectedNotCurrent = selectedStage !== currentActiveStage;
+
+  // =========================================================
+  // AUTO SCORE
+  // =========================================================
   const isPemeran = selectedStudent?.role === 'Pemeran';
   const criteriaList = isPemeran ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
   const manualCriteria = criteriaList.filter(c => c.source === 'MANUAL');
 
-  // =========================================================
-  // AUTO SCORES CALC
-  // =========================================================
   const computeAutoScoresFor = (student: UserProfile, stage: ProductionStage) => {
     const taskResult = computeTaskResponsibility(student, tasks, submissions, stage);
     const attendResult = computeAttendanceScore(student, sessions, attendanceRecords, stage);
@@ -219,7 +256,6 @@ export const AssessmentModule: React.FC = () => {
     if (student.role === 'Pemeran') {
       autoScores.kedisiplinan = computePemeranDiscipline(taskResult.score, attendResult.score);
     }
-
     return { autoScores, taskResult, attendResult };
   };
 
@@ -247,7 +283,14 @@ export const AssessmentModule: React.FC = () => {
     return totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 80;
   };
 
+  // =========================================================
+  // OPEN GRADING
+  // =========================================================
   const openGradingModal = (student: UserProfile) => {
+    if (isStageLocked) {
+      showToast(`Tahap ${selectedStage} belum dibuka oleh Guru.`, 'warning');
+      return;
+    }
     if (!canAssessTarget(student)) {
       showToast('Anda tidak memiliki wewenang menilai siswa ini.', 'warning');
       return;
@@ -260,8 +303,16 @@ export const AssessmentModule: React.FC = () => {
     setIsGradingOpen(true);
   };
 
+  // =========================================================
+  // SAVE ASSESSMENT
+  // =========================================================
   const handleSaveAssessment = async () => {
     if (!user || !selectedStudent || !activeClass) return;
+    if (isStageLocked) {
+      showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning');
+      return;
+    }
+
     const hasLowManual = Object.values(manualScores).some(v => v <= 2);
     if (hasLowManual && (!comment || comment.trim().length < 5)) {
       showToast('Komentar pembinaan wajib diisi bila ada nilai ≤ 2!', 'error');
@@ -317,6 +368,103 @@ export const AssessmentModule: React.FC = () => {
     }
   };
 
+  // =========================================================
+  // ✅ RESET SEMUA PENILAIAN PER TAHAP
+  // =========================================================
+  const handleResetStage = async () => {
+    if (!canManageAll || !activeClass || !user) return;
+    if (resetConfirmText.trim() !== activeClass.name) {
+      showToast('Nama kelas tidak cocok. Coba lagi.', 'error');
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      const q = query(
+        collection(db, 'assessments'),
+        where('classId', '==', activeClass.id),
+        where('stage', '==', selectedStage)
+      );
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        showToast('Tidak ada penilaian di tahap ini.', 'info');
+        setIsResetting(false);
+        setResetConfirmOpen(false);
+        setResetConfirmText('');
+        return;
+      }
+
+      // Backup ke assessmentHistory dulu
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => {
+        const histRef = doc(collection(db, 'assessmentHistory'));
+        batch.set(histRef, {
+          ...d.data(),
+          id: histRef.id,
+          originalId: d.id,
+          supersededAt: new Date().toISOString(),
+          supersededBy: user.uid,
+          reason: `RESET tahap ${selectedStage} oleh ${user.displayName}`,
+        });
+        batch.delete(d.ref);
+      });
+      await batch.commit();
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'DELETE', targetType: 'AssessmentStageReset',
+        targetId: activeClass.id,
+        details: `RESET ${snap.size} penilaian tahap ${selectedStage} kelas ${activeClass.name}`,
+      });
+
+      showToast(`${snap.size} penilaian di tahap ${selectedStage} direset!`, 'success');
+      setResetConfirmOpen(false);
+      setResetConfirmText('');
+    } catch (err: any) {
+      showToast('Gagal reset: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  // =========================================================
+  // ✅ DELETE INDIVIDUAL ASSESSMENT
+  // =========================================================
+  const handleDeleteOneAssessment = async (rec: AssessmentRecord) => {
+    if (!canManageAll || !user) return;
+    if (!confirm(`Hapus penilaian ${rec.studentName} oleh ${rec.assessorName} (${rec.assessorCategory})?`)) return;
+
+    try {
+      // Backup ke history
+      const histRef = doc(collection(db, 'assessmentHistory'));
+      await writeBatch(db).set(histRef, {
+        ...rec,
+        id: histRef.id,
+        originalId: rec.id,
+        supersededAt: new Date().toISOString(),
+        supersededBy: user.uid,
+        reason: `Dihapus manual oleh ${user.displayName}`,
+      }).commit();
+
+      await deleteDoc(doc(db, 'assessments', rec.id));
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'DELETE', targetType: 'Assessment',
+        targetId: rec.id,
+        details: `Hapus penilaian ${rec.studentName} (${rec.stage}) oleh ${rec.assessorName}`,
+      });
+
+      showToast(`Penilaian ${rec.studentName} dihapus.`, 'info');
+    } catch (err: any) {
+      showToast('Gagal hapus: ' + (err?.message || 'Unknown'), 'error');
+    }
+  };
+
+  // =========================================================
+  // AGGREGATED SCORE
+  // =========================================================
   const getAggregatedScore = (studentId: string, studentRole: string) => {
     const records = assessments.filter(a => a.studentId === studentId && a.stage === selectedStage);
     if (records.length === 0) return null;
@@ -344,7 +492,7 @@ export const AssessmentModule: React.FC = () => {
     if (bawahanScore !== null && weights.BAWAHAN > 0) { weightedSum += bawahanScore * weights.BAWAHAN; weightTotal += weights.BAWAHAN; }
 
     const finalVal = weightTotal > 0 ? Math.round((weightedSum / weightTotal) * 10) / 10 : 0;
-    return { finalVal, guruScore, atasanScore, rekanScore, bawahanScore, count: records.length };
+    return { finalVal, guruScore, atasanScore, rekanScore, bawahanScore, count: records.length, records };
   };
 
   const filteredStudents = students.filter(s =>
@@ -352,8 +500,13 @@ export const AssessmentModule: React.FC = () => {
     s.role.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  // Count assessments per stage (untuk info)
+  const stageCount = (stageId: ProductionStage) =>
+    assessments.filter(a => a.stage === stageId).length;
+
   return (
     <div className="space-y-6">
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -369,24 +522,114 @@ export const AssessmentModule: React.FC = () => {
               </p>
             </div>
           </div>
-          <select value={selectedStage}
-            onChange={(e) => setSelectedStage(e.target.value as ProductionStage)}
-            className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-white">
-            {STAGES.map(s => (
-              <option key={s.id} value={s.id}>{s.name} ({s.defaultWeight}%)</option>
-            ))}
-          </select>
         </div>
+
+        {/* Stage Selector dengan Gate */}
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Pilih Tahapan Penilaian:
+            </span>
+            {stageConfig?.currentStage && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40">
+                🎯 Tahap Aktif: {stageConfig.currentStage}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+            {STAGES.map(s => {
+              const enabled = isStageEnabled(s.id);
+              const isActive = selectedStage === s.id;
+              const count = stageCount(s.id);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedStage(s.id)}
+                  disabled={!enabled && !canManageAll}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-2 ${
+                    isActive
+                      ? enabled
+                        ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md'
+                        : 'bg-rose-500 text-white shadow-md'
+                      : enabled
+                      ? 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 opacity-60 cursor-not-allowed'
+                  }`}
+                >
+                  {!enabled && <Lock className="w-3 h-3" />}
+                  {enabled && <Unlock className="w-3 h-3 opacity-70" />}
+                  <span>{s.id}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    isActive ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Info untuk stage yang dipilih */}
+        {isStageLocked && (
+          <div className="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
+            <Lock className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed">
+              <p className="font-bold">🔒 Tahap {selectedStage} Belum Dibuka</p>
+              <p className="mt-0.5">
+                {canManageAll
+                  ? 'Anda bisa lihat riwayat, tapi tidak bisa menilai/edit. Buka tahap ini di menu "Kelola Tahapan" dulu.'
+                  : 'Tahap ini belum dibuka oleh Guru. Tunggu info dari pengajar.'}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!isStageLocked && isSelectedNotCurrent && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
+            <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+              Anda melihat tahap <strong>{selectedStage}</strong>, tapi tahap aktif saat ini adalah <strong>{currentActiveStage}</strong>.
+            </p>
+          </div>
+        )}
 
         <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
           <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
           <div className="text-[11px] text-blue-900 dark:text-blue-200">
             <p><strong>Skor otomatis</strong>: Tanggung Jawab (25%), Kehadiran (20%), Kedisiplinan Pemeran (10%).</p>
             <p className="mt-1"><strong>Skor manual</strong>: Kerja Sama (25%), Kreativitas (15%), Teknis (15%) — atau untuk Pemeran: Hafalan, Penjiwaan, Suara, Blocking, Interaksi.</p>
+            {canManageAll && (
+              <p className="mt-1.5 pt-1.5 border-t border-blue-200 dark:border-blue-500/30">
+                👑 <strong>Guru/Admin:</strong> bisa reset semua penilaian tahap ini atau hapus per penilaian (dengan konfirmasi).
+              </p>
+            )}
           </div>
         </div>
       </div>
 
+      {/* AKSI GURU */}
+      {canManageAll && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
+            <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            Aksi Khusus Guru/Admin
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setResetConfirmOpen(true)}
+              disabled={isStageLocked}
+              className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm disabled:opacity-50 transition"
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset Nilai Tahap {selectedStage}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SEARCH */}
       <div className="relative max-w-md">
         <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
         <input type="text" placeholder="Cari siswa atau peran..."
@@ -394,6 +637,7 @@ export const AssessmentModule: React.FC = () => {
           className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
       </div>
 
+      {/* TABLE */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -414,7 +658,8 @@ export const AssessmentModule: React.FC = () => {
               {filteredStudents.map(student => {
                 const agg = getAggregatedScore(student.uid, student.role);
                 const predInfo = agg ? getPredikat(agg.finalVal) : null;
-                const canGrade = canAssessTarget(student);
+                const canGrade = canAssessTarget(student) && !isStageLocked;
+
                 return (
                   <tr key={student.uid} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/50">
                     <td className="py-3.5 px-4 font-bold text-slate-900 dark:text-white">{student.displayName}</td>
@@ -441,15 +686,43 @@ export const AssessmentModule: React.FC = () => {
                         </span>
                       ) : '-'}
                     </td>
-                    <td className="py-3.5 px-4 text-right">
-                      {canGrade && !isLockedByTeacher ? (
-                        <button onClick={() => openGradingModal(student)}
-                          className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs">
-                          Nilai
-                        </button>
-                      ) : (
-                        <span className="text-[11px] text-slate-400">{isLockedByTeacher ? 'Terkunci' : 'Hanya Lihat'}</span>
-                      )}
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        {canGrade ? (
+                          <button onClick={() => openGradingModal(student)}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs">
+                            {agg ? 'Edit Nilai' : 'Nilai'}
+                          </button>
+                        ) : isStageLocked ? (
+                          <span className="text-[11px] text-rose-500 font-bold flex items-center gap-1">
+                            <Lock className="w-3 h-3" /> Terkunci
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">Hanya Lihat</span>
+                        )}
+
+                        {canManageAll && agg && agg.count > 0 && (
+                          <button
+                            onClick={() => {
+                              if (agg.records.length === 1) {
+                                handleDeleteOneAssessment(agg.records[0]);
+                              } else {
+                                // Kalau lebih dari 1, tampilkan pilihan
+                                const ids = agg.records.map((r: any) => `${r.assessorName} (${r.assessorCategory}): ${r.totalScore}`).join('\n');
+                                const pick = prompt(`Ada ${agg.count} penilaian:\n\n${ids}\n\nKetik nama penilai yang mau dihapus (persis):`);
+                                if (!pick) return;
+                                const target = agg.records.find((r: any) => r.assessorName === pick);
+                                if (target) handleDeleteOneAssessment(target);
+                                else showToast('Nama penilai tidak cocok.', 'error');
+                              }
+                            }}
+                            className="p-1.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-600 dark:text-rose-400 transition"
+                            title="Hapus penilaian"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -459,6 +732,7 @@ export const AssessmentModule: React.FC = () => {
         </div>
       </div>
 
+      {/* MODAL GRADING */}
       {isGradingOpen && selectedStudent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
@@ -577,6 +851,70 @@ export const AssessmentModule: React.FC = () => {
               <button onClick={handleSaveAssessment} disabled={isSubmitting}
                 className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-md disabled:opacity-50">
                 {isSubmitting ? 'Menyimpan...' : 'Finalisasi & Simpan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL RESET KONFIRMASI */}
+      {resetConfirmOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-rose-300 dark:border-rose-500/40 p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-xl bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400">
+                <AlertTriangle className="w-5 h-5" />
+              </span>
+              <h3 className="text-base font-extrabold text-rose-900 dark:text-rose-200">
+                Reset Semua Penilaian
+              </h3>
+            </div>
+
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
+              <p className="text-xs font-bold text-rose-900 dark:text-rose-200">
+                ⚠️ Tindakan ini akan MENGHAPUS semua penilaian tahap <strong>{selectedStage}</strong> untuk kelas <strong>{activeClass?.name}</strong>.
+              </p>
+              <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1.5 leading-relaxed">
+                Data akan dibackup dulu ke <strong>assessmentHistory</strong>, jadi masih bisa dilihat kalau diperlukan.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                Ketik nama kelas "<strong>{activeClass?.name}</strong>" untuk konfirmasi:
+              </label>
+              <input
+                type="text"
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value)}
+                placeholder={activeClass?.name}
+                autoFocus
+                className={`w-full px-3.5 py-2.5 rounded-xl border-2 font-semibold text-sm text-slate-800 dark:text-white bg-white dark:bg-slate-800 transition ${
+                  resetConfirmText.trim() === activeClass?.name
+                    ? 'border-emerald-500'
+                    : 'border-rose-200 dark:border-rose-500/40'
+                }`}
+              />
+              {resetConfirmText.length > 0 && resetConfirmText.trim() !== activeClass?.name && (
+                <p className="text-[11px] text-rose-600 mt-1 font-bold">❌ Nama kelas tidak cocok.</p>
+              )}
+              {resetConfirmText.trim() === activeClass?.name && (
+                <p className="text-[11px] text-emerald-600 mt-1 font-bold">✅ Cocok. Anda bisa reset.</p>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                onClick={() => { setResetConfirmOpen(false); setResetConfirmText(''); }}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                Batal
+              </button>
+              <button
+                onClick={handleResetStage}
+                disabled={isResetting || resetConfirmText.trim() !== activeClass?.name}
+                className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5">
+                <RotateCcw className="w-3.5 h-3.5" />
+                {isResetting ? 'Mereset...' : `Reset ${selectedStage}`}
               </button>
             </div>
           </div>
