@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import {
   GraduationCap, Search, RefreshCw, Trash2, X,
   Save, UserCog, Camera, TrendingUp, ArrowLeft, AlertTriangle,
-  Mail, Phone, Send,
+  Mail, Phone, Send, Eye, EyeOff, KeyRound, Copy, Check, Shield,
+  Lock, Unlock, User as UserIcon,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -14,7 +15,7 @@ import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { getDivisionFromRole } from '../../core/constants';
 import { PhotoUploadModal } from '../common/PhotoUploadModal';
-import { resetStudentPassword } from '../../services/adminService';
+import { resetStudentPassword, getUserCredentials } from '../../services/adminService';
 
 interface ManageStudentModuleProps {
   onNavigate?: (m: string) => void;
@@ -26,6 +27,20 @@ const ROLE_OPTIONS: { group: string; roles: UserRole[] }[] = [
   { group: '📋 Koordinator Divisi', roles: ['Koordinator Perlengkapan', 'Koordinator Publikasi', 'Koordinator Tata Panggung', 'Koordinator Tata Rias', 'Koordinator Tata Busana', 'Koordinator Tata Musik'] },
   { group: '🎭 Anggota Divisi', roles: ['Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung', 'Anggota Tata Rias', 'Anggota Tata Busana', 'Anggota Tata Musik'] },
 ];
+
+// =====================================================
+// STATE CREDENTIAL MODAL
+// =====================================================
+interface CredentialModalState {
+  open: boolean;
+  student: UserProfile | null;
+  loading: boolean;
+  success: boolean;
+  email?: string;
+  password?: string;
+  displayName?: string;
+  message?: string;
+}
 
 export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavigate }) => {
   const { user, activeClass } = useAuth();
@@ -49,7 +64,16 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletingStudent, setDeletingStudent] = useState(false);
 
-  // ✅ Ganti tasks → deadlines + submissions
+  // ====== CREDENTIAL MODAL STATE (BARU) ======
+  const [credModal, setCredModal] = useState<CredentialModalState>({
+    open: false,
+    student: null,
+    loading: false,
+    success: false,
+  });
+  const [showPasswordInModal, setShowPasswordInModal] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
   const [deadlines, setDeadlines] = useState<DeadlineItem[]>([]);
   const [submissions, setSubmissions] = useState<DeadlineSubmission[]>([]);
 
@@ -58,9 +82,6 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClass?.id]);
 
-  // ═══════════════════════════════════════════════════════
-  // SUBSCRIBE deadlines + submissions
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
 
@@ -95,9 +116,6 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
     }
   };
 
-  // ═══════════════════════════════════════════════════════
-  // HELPER: Apakah deadline menargetkan user?
-  // ═══════════════════════════════════════════════════════
   const isDeadlineForUser = (d: DeadlineItem, u: UserProfile): boolean => {
     const scope = d.targetScope as string;
     const targetUserIds: string[] = (d as any).targetUserIds || [];
@@ -121,9 +139,6 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
     return sub.status === 'SELESAI' || sub.status === 'TERLAMBAT';
   };
 
-  // ═══════════════════════════════════════════════════════
-  // HITUNG PROGRESS per siswa
-  // ═══════════════════════════════════════════════════════
   const getStudentProgress = (s: UserProfile) => {
     const myDeadlines = deadlines.filter(d => isDeadlineForUser(d, s));
     const completed = myDeadlines.filter(d => {
@@ -284,6 +299,79 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     } finally {
       setResettingId(null);
+    }
+  };
+
+  // =====================================================
+  // 🆕 LIHAT PASSWORD
+  // =====================================================
+  const handleViewCredentials = async (s: UserProfile) => {
+    setCredModal({
+      open: true,
+      student: s,
+      loading: true,
+      success: false,
+    });
+    setShowPasswordInModal(false);
+    setCopiedField(null);
+
+    try {
+      const res = await getUserCredentials(s.uid);
+      if (res.success) {
+        setCredModal({
+          open: true,
+          student: s,
+          loading: false,
+          success: true,
+          email: res.email || s.email,
+          password: res.password,
+          displayName: res.displayName || s.displayName,
+        });
+
+        // Log aktivitas
+        if (user) {
+          try {
+            await recordAuditLog({
+              userId: user.uid, userName: user.displayName, role: user.role,
+              action: 'UPDATE', targetType: 'ViewCredentials', targetId: s.uid,
+              details: `Lihat kredensial siswa: ${s.displayName}`,
+            });
+          } catch { /* non-fatal */ }
+        }
+      } else {
+        setCredModal({
+          open: true,
+          student: s,
+          loading: false,
+          success: false,
+          message: res.message || 'Kredensial tidak tersedia untuk siswa ini.',
+        });
+      }
+    } catch (err: any) {
+      setCredModal({
+        open: true,
+        student: s,
+        loading: false,
+        success: false,
+        message: err?.message || 'Gagal memuat kredensial.',
+      });
+    }
+  };
+
+  const closeCredModal = () => {
+    setCredModal({ open: false, student: null, loading: false, success: false });
+    setShowPasswordInModal(false);
+    setCopiedField(null);
+  };
+
+  const handleCopy = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      showToast(`${field} disalin ke clipboard.`, 'success');
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      showToast('Gagal menyalin.', 'error');
     }
   };
 
@@ -459,6 +547,13 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
                       </td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* 🆕 LIHAT PASSWORD */}
+                          <button onClick={() => handleViewCredentials(s)}
+                            className="px-2.5 py-1.5 rounded-lg bg-purple-50 hover:bg-purple-100 dark:bg-purple-500/20 dark:hover:bg-purple-500/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/40 text-[11px] font-bold transition flex items-center gap-1"
+                            title="Lihat Email & Password">
+                            <KeyRound className="w-3 h-3" /> Lihat Pass
+                          </button>
+
                           <button onClick={() => handleResetPassword(s)}
                             disabled={isResetting}
                             className="px-2.5 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 dark:bg-orange-500/20 dark:hover:bg-orange-500/30 text-orange-700 dark:text-orange-300 border border-orange-200 dark:border-orange-500/40 text-[11px] font-bold transition flex items-center gap-1 disabled:opacity-50"
@@ -487,6 +582,152 @@ export const ManageStudentModule: React.FC<ManageStudentModuleProps> = ({ onNavi
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ===================================================== */}
+      {/* MODAL LIHAT PASSWORD (BARU) */}
+      {/* ===================================================== */}
+      {credModal.open && credModal.student && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-purple-200 dark:border-purple-500/40 my-auto overflow-hidden">
+
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-purple-600 to-indigo-700 text-white">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="p-2 rounded-xl bg-white/20 backdrop-blur-sm">
+                    <KeyRound className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-90">
+                      Kredensial Akun Siswa
+                    </p>
+                    <h3 className="text-base font-black mt-0.5">
+                      {credModal.student.displayName}
+                    </h3>
+                  </div>
+                </div>
+                <button onClick={closeCredModal}
+                  className="p-1.5 rounded-lg hover:bg-white/20 transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              {credModal.loading ? (
+                <div className="py-8 text-center">
+                  <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin text-purple-500" />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Memuat kredensial...</p>
+                </div>
+              ) : credModal.success ? (
+                <>
+                  {/* Warning */}
+                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
+                    <Shield className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                      <strong>Rahasia!</strong> Jangan bagikan kredensial ini ke orang lain.
+                      Hanya untuk membantu siswa yang lupa password.
+                    </p>
+                  </div>
+
+                  {/* Email */}
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1">
+                        <Mail className="w-3 h-3" /> Email
+                      </p>
+                      <button
+                        onClick={() => handleCopy(credModal.email || '', 'Email')}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+                        {copiedField === 'Email' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <p className="text-xs font-mono font-bold text-slate-900 dark:text-white break-all">
+                      {credModal.email}
+                    </p>
+                  </div>
+
+                  {/* Password */}
+                  <div className="p-3 rounded-xl bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10 border-2 border-purple-200 dark:border-purple-500/40">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[10px] font-bold text-purple-700 dark:text-purple-300 uppercase flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Password
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => setShowPasswordInModal(!showPasswordInModal)}
+                          className="p-1 rounded-md text-purple-500 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition"
+                          title={showPasswordInModal ? 'Sembunyikan' : 'Tampilkan'}>
+                          {showPasswordInModal ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                        <button
+                          onClick={() => handleCopy(credModal.password || '', 'Password')}
+                          className="p-1 rounded-md text-purple-500 hover:text-purple-700 dark:hover:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition">
+                          {copiedField === 'Password' ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                    <p className="text-sm font-mono font-black text-purple-900 dark:text-purple-200 break-all">
+                      {showPasswordInModal
+                        ? credModal.password
+                        : '•'.repeat(Math.min((credModal.password || '').length || 8, 20))
+                      }
+                    </p>
+                    {!showPasswordInModal && (
+                      <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-1 flex items-center gap-1">
+                        <EyeOff className="w-2.5 h-2.5" /> Klik ikon mata untuk menampilkan
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Saran */}
+                  <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
+                    <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                    <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
+                      <strong>Saran:</strong> Minta siswa untuk mengganti password setelah login
+                      pertama, agar lebih aman dan mudah diingat.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Credential tidak tersedia */}
+                  <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-200 dark:border-rose-500/40 text-center">
+                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-rose-100 dark:bg-rose-500/20 border-2 border-rose-300 dark:border-rose-500/40 mb-3">
+                      <AlertTriangle className="w-7 h-7 text-rose-600 dark:text-rose-400" />
+                    </div>
+                    <p className="text-sm font-bold text-rose-900 dark:text-rose-200">
+                      Kredensial Tidak Tersedia
+                    </p>
+                    <p className="text-xs text-rose-700 dark:text-rose-300 mt-1 leading-relaxed">
+                      {credModal.message || 'Siswa ini mendaftar sebelum fitur kredensial aktif, atau kredensial sudah dihapus.'}
+                    </p>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      💡 Alternatif:
+                    </p>
+                    <ul className="text-[11px] text-slate-600 dark:text-slate-400 space-y-0.5 pl-4 list-disc">
+                      <li>Klik tombol <strong>Reset</strong> untuk kirim link reset password ke email siswa</li>
+                      <li>Siswa buka email → klik link → buat password baru sendiri</li>
+                    </ul>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end">
+              <button onClick={closeCredModal}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 dark:hover:bg-slate-600 text-white font-bold text-xs">
+                Tutup
+              </button>
+            </div>
           </div>
         </div>
       )}
