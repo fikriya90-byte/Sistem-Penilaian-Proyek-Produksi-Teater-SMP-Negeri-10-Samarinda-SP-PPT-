@@ -4,11 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 
-    <!-- ⚠️ ANTI-CACHE -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
-
     <title>SP-PPT - Sistem Penilaian & Manajemen Proyek Produksi Teater SMPN 10 Samarinda</title>
     <meta name="description" content="Platform terintegrasi penilaian multi-peran, manajemen tugas, absensi, jadwal, deadline, dan koordinasi produksi teater siswa kelas IX SMP Negeri 10 Samarinda." />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
@@ -17,103 +12,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Cinzel:wght@600;700;900&display=swap" rel="stylesheet">
-
-    <!-- ============================================================ -->
-    <!-- GITHUB PAGES TRAILING SLASH FIX                             -->
-    <!-- ============================================================ -->
-    <script>
-      (function () {
-        try {
-          var host = window.location.hostname || '';
-          var path = window.location.pathname || '';
-          var search = window.location.search || '';
-          var hash = window.location.hash || '';
-
-          if (host.indexOf('.github.io') === -1) return;
-          if (path.slice(-1) === '/') return;
-          if (/\.html?$/i.test(path)) return;
-
-          window.location.replace(path + '/' + search + hash);
-        } catch (e) { /* ignore */ }
-      })();
-    </script>
-
-    <!-- ============================================================ -->
-    <!-- NUCLEAR CLEANUP — jalan SEBELUM bundle JS dimuat            -->
-    <!-- ============================================================ -->
-    <script>
-      (function() {
-        try {
-          var CLEANUP_VERSION = 'v8-nuclear';
-          var FLAG_KEY = 'spppt-nuclear-done';
-          var alreadyDone = false;
-
-          try {
-            alreadyDone = sessionStorage.getItem(FLAG_KEY) === CLEANUP_VERSION;
-          } catch (e) { /* ignore */ }
-
-          if (alreadyDone) return;
-
-          var needsReload = false;
-
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(regs) {
-              if (regs && regs.length > 0) {
-                regs.forEach(function(reg) {
-                  try { reg.unregister(); } catch (e) {}
-                });
-                needsReload = true;
-                doFinalCleanup();
-              } else {
-                doFinalCleanup();
-              }
-            }).catch(function() {
-              doFinalCleanup();
-            });
-          } else {
-            doFinalCleanup();
-          }
-
-          function doFinalCleanup() {
-            if ('caches' in window) {
-              caches.keys().then(function(names) {
-                if (names && names.length > 0) {
-                  Promise.all(names.map(function(n) {
-                    return caches.delete(n);
-                  })).then(function() {
-                    needsReload = true;
-                    finalize();
-                  }).catch(finalize);
-                } else {
-                  finalize();
-                }
-              }).catch(finalize);
-            } else {
-              finalize();
-            }
-          }
-
-          function finalize() {
-            try {
-              sessionStorage.setItem(FLAG_KEY, CLEANUP_VERSION);
-            } catch (e) {}
-
-            if (needsReload) {
-              setTimeout(function() {
-                try {
-                  var url = window.location.pathname + '?clean=' + Date.now();
-                  window.location.replace(url);
-                } catch (e) {
-                  window.location.reload();
-                }
-              }, 150);
-            }
-          }
-        } catch (err) {
-          console.warn('Nuclear cleanup skip:', err);
-        }
-      })();
-    </script>
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased selection:bg-amber-500/20 selection:text-amber-900">
     <div id="root"></div>
