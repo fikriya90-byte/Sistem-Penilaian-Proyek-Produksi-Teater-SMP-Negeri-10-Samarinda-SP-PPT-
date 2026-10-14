@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  GraduationCap, Plus, Users, BookOpen, ChevronRight, X, Sparkles,
-  Hash, ShieldCheck, Copy, Check, Trash2, AlertTriangle,
+  Users, BookOpen, ChevronRight, X, Sparkles,
+  Plus, ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from './Toast';
 import { ClassRoom } from '../../core/types';
 import {
-  doc, setDoc, deleteDoc, collection, query, where, onSnapshot, getDocs,
+  doc, setDoc, collection, query, where, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
@@ -18,8 +18,7 @@ interface TeacherClassPickerProps {
 }
 
 export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
-  onEnterClass,
-  embedded = false,
+  onEnterClass, embedded = false,
 }) => {
   const { user, classes, setActiveClass, reloadClasses } = useAuth();
   const { showToast } = useToast();
@@ -29,12 +28,7 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
   const [newCode, setNewCode] = useState('');
   const [kerabatKerja, setKerabatKerja] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [studentCountMap, setStudentCountMap] = useState<Record<string, number>>({});
-
-  const [deleteTarget, setDeleteTarget] = useState<ClassRoom | null>(null);
-  const [confirmCode, setConfirmCode] = useState('');
-  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (classes.length === 0) return;
@@ -54,41 +48,23 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
   }, [classes]);
 
   const handleEnterClass = (c: ClassRoom) => {
-    if (onEnterClass) {
-      onEnterClass(c);
-    } else {
-      setActiveClass(c);
-      showToast(`Masuk ke kelas ${c.name}`, 'success');
-    }
+    if (onEnterClass) onEnterClass(c);
+    else { setActiveClass(c); showToast(`Masuk ke ${c.name}`, 'success'); }
   };
 
   const generateCode = () => {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    let a = '';
-    for (let i = 0; i < 4; i++) a += chars.charAt(Math.floor(Math.random() * chars.length));
-    let b = '';
-    for (let i = 0; i < 4; i++) b += chars.charAt(Math.floor(Math.random() * chars.length));
+    let a = ''; for (let i = 0; i < 4; i++) a += chars.charAt(Math.floor(Math.random() * chars.length));
+    let b = ''; for (let i = 0; i < 4; i++) b += chars.charAt(Math.floor(Math.random() * chars.length));
     const prefix = newName.trim().slice(0, 3).toUpperCase() || 'KLS';
     return `${prefix}-${a}${b}`.slice(0, 12);
-  };
-
-  const handleCopyCode = async (code: string) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopiedCode(code);
-      showToast(`Kode "${code}" disalin!`, 'success');
-      setTimeout(() => setCopiedCode(null), 2500);
-    } catch {
-      showToast('Gagal menyalin.', 'error');
-    }
   };
 
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
     if (!newName.trim() || !newCode.trim()) {
-      showToast('Nama kelas dan kode kelas wajib diisi.', 'warning');
-      return;
+      showToast('Nama & kode wajib diisi.', 'warning'); return;
     }
     setSubmitting(true);
     try {
@@ -107,73 +83,23 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'Class', targetId: newId,
-        details: `Membuat kelas: ${newClass.name} (${newClass.code})`,
+        details: `Buat kelas: ${newClass.name} (${newClass.code})`,
       });
       await reloadClasses();
       showToast(`Kelas ${newClass.name} berhasil dibuat!`, 'success');
       setIsAddOpen(false);
       setNewName(''); setNewCode(''); setKerabatKerja('');
-    } catch (err: any) {
-      showToast('Gagal membuat kelas: ' + (err?.message || 'Unknown'), 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setSubmitting(false); }
   };
-
-  const openDeleteConfirm = (c: ClassRoom) => {
-    setDeleteTarget(c);
-    setConfirmCode('');
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget || !user) return;
-    if (confirmCode.trim().toUpperCase() !== deleteTarget.code.toUpperCase()) {
-      showToast('Kode kelas tidak cocok!', 'error');
-      return;
-    }
-    setDeleting(true);
-    try {
-      const userQ = query(collection(db, 'users'), where('classId', '==', deleteTarget.id));
-      const userSnap = await getDocs(userQ);
-      const studentCount = userSnap.docs.filter(d => {
-        const r = d.data().role;
-        return r !== 'Guru Pengampu' && r !== 'Admin' && r !== 'Super Admin';
-      }).length;
-      if (studentCount > 0) {
-        showToast(`Kelas masih memiliki ${studentCount} siswa. Pindahkan/hapus siswa dulu.`, 'warning');
-        setDeleting(false);
-        return;
-      }
-      await deleteDoc(doc(db, 'classes', deleteTarget.id));
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'DELETE', targetType: 'Class', targetId: deleteTarget.id,
-        details: `Menghapus kelas: ${deleteTarget.name} (${deleteTarget.code})`,
-      });
-      await reloadClasses();
-      showToast(`Kelas ${deleteTarget.name} dihapus.`, 'success');
-      setDeleteTarget(null);
-      setConfirmCode('');
-    } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const isCodeMatch = deleteTarget
-    ? confirmCode.trim().toUpperCase() === deleteTarget.code.toUpperCase()
-    : false;
 
   return (
     <div className="space-y-6">
-      {/* HERO — hanya tampil jika embedded */}
       {embedded && (
         <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-slate-900 via-slate-800 to-amber-950 text-white shadow-xl border border-amber-500/20">
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              Beranda Utama Guru
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" /> Beranda Utama Guru
             </span>
             <span className="text-xs text-slate-400">T.A. 2025/2026</span>
           </div>
@@ -181,24 +107,19 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
             Selamat datang, {user?.displayName?.split(',')[0] || 'Guru'}!
           </h1>
           <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-xl leading-relaxed">
-            Pilih kelas yang ingin Anda kelola, atau buat kelas baru. Setelah masuk kelas,
-            sidebar akan menampilkan semua modul (Nilai, Absensi, Tugas, dll).
+            Pilih kelas untuk dikelola. Setelah masuk kelas, Anda bisa atur siswa, nilai, tugas, presensi, dan pengaturan kelas.
           </p>
         </div>
       )}
 
-      {/* Baris aksi */}
       <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
         <div className="flex items-center gap-2 text-sm font-bold text-slate-700 dark:text-slate-200">
           <Users className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-          <span>Daftar Kelas ({classes.length})</span>
+          <span>Pilih Kelas ({classes.length})</span>
         </div>
-        <button
-          onClick={() => setIsAddOpen(true)}
-          className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-md transition"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Tambah Kelas Baru</span>
+        <button onClick={() => setIsAddOpen(true)}
+          className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-md transition">
+          <Plus className="w-4 h-4" /> Tambah Kelas Baru
         </button>
       </div>
 
@@ -206,11 +127,9 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
         <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <BookOpen className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
           <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Kelas</h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">Mulai dengan menambahkan kelas pertama.</p>
-          <button
-            onClick={() => setIsAddOpen(true)}
-            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs"
-          >
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-4">Mulai dengan menambahkan kelas pertama Anda.</p>
+          <button onClick={() => setIsAddOpen(true)}
+            className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs">
             Tambah Kelas
           </button>
         </div>
@@ -218,85 +137,46 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {classes.map(c => {
             const realCount = studentCountMap[c.id] ?? 0;
-            const isCopied = copiedCode === c.code;
             return (
-              <div
+              <button
                 key={c.id}
-                className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-amber-400 dark:hover:border-amber-500/50 hover:shadow-lg transition relative overflow-hidden group"
+                onClick={() => handleEnterClass(c)}
+                className="p-5 rounded-3xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 hover:border-amber-400 dark:hover:border-amber-500/50 hover:shadow-lg transition text-left relative overflow-hidden group"
               >
                 <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full -mr-12 -mt-12 group-hover:bg-amber-500/10 transition" />
 
                 <div className="relative">
-                  <button onClick={() => handleEnterClass(c)} className="w-full text-left">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-black text-lg shadow-sm">
-                        {c.name.replace(/[^0-9A-Z]/gi, '').slice(-2) || 'IX'}
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-slate-300 dark:text-slate-600 group-hover:text-amber-500 transition" />
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-black text-lg shadow-md">
+                      {c.name.replace(/[^0-9A-Z]/gi, '').slice(-2) || 'IX'}
                     </div>
+                    <ChevronRight className="w-6 h-6 text-slate-300 dark:text-slate-600 group-hover:text-amber-500 group-hover:translate-x-1 transition-all" />
+                  </div>
 
-                    <h3 className="text-lg font-black text-slate-900 dark:text-white tracking-tight">{c.name}</h3>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-                      T.A. {c.academicYear}
-                    </p>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                    {c.name}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">
+                    T.A. {c.academicYear}
+                  </p>
 
-                    {c.kerabatKerja && (
-                      <div className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
-                        <Sparkles className="w-3 h-3 text-amber-500 dark:text-amber-400" />
-                        <span className="truncate">{c.kerabatKerja}</span>
-                      </div>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => handleCopyCode(c.code)}
-                    className={`mt-3 w-full p-2.5 rounded-xl border flex items-center justify-between transition ${
-                      isCopied
-                        ? 'bg-emerald-50 dark:bg-emerald-500/20 border-emerald-300 dark:border-emerald-500/40'
-                        : 'bg-slate-50 dark:bg-slate-800 hover:bg-amber-50 dark:hover:bg-amber-500/10 border-slate-200 dark:border-slate-700 hover:border-amber-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <Hash className="w-3.5 h-3.5 text-slate-400" />
-                      <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300">{c.code}</span>
+                  {c.kerabatKerja && (
+                    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+                      <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                      <span className="truncate">{c.kerabatKerja}</span>
                     </div>
-                    <div className="flex items-center gap-1">
-                      {isCopied ? (
-                        <>
-                          <Check className="w-3 h-3 text-emerald-600" />
-                          <span className="text-[10px] font-bold text-emerald-700">Tersalin!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3 h-3 text-slate-400" />
-                          <span className="text-[10px] font-bold text-slate-500">Salin</span>
-                        </>
-                      )}
-                    </div>
-                  </button>
+                  )}
 
-                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-[11px]">
-                    <span className="flex items-center gap-1 text-slate-500 dark:text-slate-400">
-                      <Users className="w-3 h-3" /> {realCount} siswa
+                  <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-bold">
+                      <Users className="w-3.5 h-3.5" /> {realCount} siswa
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openDeleteConfirm(c); }}
-                        className="p-1.5 rounded-lg text-rose-500 hover:text-white hover:bg-rose-500 transition"
-                        title="Hapus kelas"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleEnterClass(c)}
-                        className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] flex items-center gap-1 transition"
-                      >
-                        Masuk <ChevronRight className="w-3 h-3" />
-                      </button>
-                    </div>
+                    <span className="flex items-center gap-1 text-amber-700 dark:text-amber-400 font-black text-[11px]">
+                      Masuk Kelas <ChevronRight className="w-3.5 h-3.5" />
+                    </span>
                   </div>
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -305,12 +185,11 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
       <div className="mt-6 p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3 max-w-2xl mx-auto">
         <ShieldCheck className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Bagikan kode kelas</strong> ke siswa agar mereka bisa mendaftar. Klik kotak kode untuk menyalin.
-          Untuk menghapus kelas, klik tombol <Trash2 className="w-3 h-3 inline" /> di kartu kelas.
+          <strong>Tips:</strong> Klik kartu kelas untuk masuk. Untuk <strong>edit nama/kode kelas</strong> atau <strong>hapus kelas</strong>, buka menu <strong>Kelola Kelas</strong> setelah masuk ke kelas.
         </div>
       </div>
 
-      {/* ═══ MODAL TAMBAH KELAS ═══ */}
+      {/* MODAL TAMBAH KELAS */}
       {isAddOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6">
@@ -322,136 +201,40 @@ export const TeacherClassPicker: React.FC<TeacherClassPickerProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <form onSubmit={handleCreateClass} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Kelas <span className="text-rose-500">*</span>
-                </label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nama Kelas <span className="text-rose-500">*</span></label>
                 <input type="text" required value={newName} onChange={(e) => setNewName(e.target.value)}
                   placeholder="Contoh: IX-G"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white uppercase" />
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Kode Kelas <span className="text-rose-500">*</span>
-                </label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Kode Kelas <span className="text-rose-500">*</span></label>
                 <div className="relative">
-                  <input type="text" required value={newCode}
-                    onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                  <input type="text" required value={newCode} onChange={(e) => setNewCode(e.target.value.toUpperCase())}
                     placeholder="Contoh: IXG-9101"
                     className="w-full px-3.5 py-2 pr-20 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono font-semibold text-slate-800 dark:text-white uppercase" />
                   <button type="button" onClick={() => setNewCode(generateCode())}
-                    className="absolute right-2 top-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200">
+                    className="absolute right-2 top-1.5 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-200">
                     Acak
                   </button>
                 </div>
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Nama Produksi / Kerabat Kerja
-                </label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nama Produksi / Kerabat Kerja</label>
                 <input type="text" value={kerabatKerja} onChange={(e) => setKerabatKerja(e.target.value)}
                   placeholder="Contoh: Gema Senandika Production"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
-
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
                 <button type="button" onClick={() => setIsAddOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
-                  Batal
-                </button>
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100">Batal</button>
                 <button type="submit" disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50">
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs disabled:opacity-50">
                   {submitting ? 'Menyimpan...' : 'Simpan Kelas'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* ═══ MODAL HAPUS ═══ */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-rose-200 dark:border-rose-500/40 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-extrabold text-rose-900 dark:text-rose-300 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-rose-500" />
-                Hapus Kelas {deleteTarget.name}?
-              </h3>
-              <button onClick={() => setDeleteTarget(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 mb-4">
-              <p className="text-xs text-rose-900 dark:text-rose-200 font-bold">
-                ⚠️ PERINGATAN: Tindakan ini TIDAK BISA DIBATALKAN!
-              </p>
-              <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1.5 leading-relaxed">
-                Kelas <strong>{deleteTarget.name}</strong> beserta seluruh data terkait akan dihapus permanen.
-                Siswa yang terdaftar harus dipindahkan atau dihapus terlebih dahulu.
-              </p>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                Ketik kode kelas untuk konfirmasi:
-              </label>
-              <div className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2 mb-2">
-                <Hash className="w-3.5 h-3.5 text-slate-400" />
-                <span className="text-xs font-mono font-bold text-slate-700 dark:text-slate-300 select-all">
-                  {deleteTarget.code}
-                </span>
-              </div>
-              <input
-                type="text"
-                value={confirmCode}
-                onChange={(e) => setConfirmCode(e.target.value.toUpperCase())}
-                placeholder="Ketik kode kelas di sini..."
-                autoFocus
-                className={`w-full px-3.5 py-2.5 rounded-xl border-2 font-mono font-bold text-sm text-slate-800 dark:text-white uppercase bg-white dark:bg-slate-800 transition ${
-                  confirmCode.length === 0
-                    ? 'border-slate-200 dark:border-slate-700'
-                    : isCodeMatch
-                    ? 'border-emerald-500 dark:border-emerald-500'
-                    : 'border-rose-300 dark:border-rose-500/60'
-                }`}
-              />
-              {confirmCode.length > 0 && !isCodeMatch && (
-                <p className="text-[11px] text-rose-600 dark:text-rose-400 mt-1 font-bold">
-                  ❌ Kode tidak cocok.
-                </p>
-              )}
-              {isCodeMatch && (
-                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1 font-bold">
-                  ✅ Kode cocok.
-                </p>
-              )}
-            </div>
-
-            <div className="flex gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => { setDeleteTarget(null); setConfirmCode(''); }}
-                className="flex-1 px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                disabled={!isCodeMatch || deleting}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                {deleting ? 'Menghapus...' : 'Hapus Permanen'}
-              </button>
-            </div>
           </div>
         </div>
       )}
