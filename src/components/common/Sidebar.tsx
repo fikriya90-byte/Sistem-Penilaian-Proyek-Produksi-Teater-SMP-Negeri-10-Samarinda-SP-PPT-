@@ -22,13 +22,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, isGuruPengampu, isAdminRole } = useAuth();
   const role = user?.role || '';
 
-  // ═══════════════════════════════════════════════
-  // MENU WELCOME
-  // ═══════════════════════════════════════════════
+  // ═══ WELCOME MENU ═══
   const buildWelcomeMenu = () => {
     if (isGuruPengampu) {
       return [
-        { id: 'dashboard', label: 'Beranda Utama', icon: GraduationCap },
+        { id: 'dashboard', label: 'Kelola Kelas', icon: BookOpen },
         { id: 'welcome-broadcast', label: 'Broadcast Lintas Kelas', icon: Radio },
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
@@ -41,7 +39,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings },
       ];
     }
-
     return [
       { id: 'dashboard', label: 'Beranda Saya', icon: Home },
       { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
@@ -51,9 +48,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ];
   };
 
-  // ═══════════════════════════════════════════════
-  // MENU IN-CLASS
-  // ═══════════════════════════════════════════════
+  // ═══ IN-CLASS MENU ═══
   const buildInClassMenu = () => {
     if (isAdminRole) {
       return [
@@ -77,12 +72,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
 
     if (isGuruPengampu) {
+      // ✅ 'kelola-kelas' DIHAPUS dari sini (sudah pindah ke welcome)
       return [
         { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
         { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
         { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
         { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
-        { id: 'kelola-kelas', label: 'Kelola Kelas', icon: BookOpen },
         { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
         { id: 'debug-users', label: '🔧 Debug Users', icon: Bug },
         { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
@@ -309,7 +304,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {isOpen && (
         <div onClick={onClose} className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden" />
       )}
-
       <aside
         className={`fixed top-0 bottom-0 left-0 z-40 w-64 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-700/80 transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
