@@ -4,23 +4,20 @@ import {
   TrendingUp, Info, AlertTriangle, Sparkles, Bot, Download,
   Trash2, RotateCcw, X, Edit3, ShieldAlert, Clock,
   RefreshCw, AlertCircle, Timer, Users, ListChecks,
-  ExternalLink, CheckSquare, Square, Shield, Eye,
+  ExternalLink, CheckSquare, Square, Shield,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
   PEMERAN_CRITERIA, GENERAL_CRITERIA, getPredikat, SCORE_SCALE, STAGES,
   getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS,
 } from '../../core/constants';
-import {
-  AssessmentRecord, ProductionStage, UserProfile,
-} from '../../core/types';
+import { AssessmentRecord, ProductionStage, UserProfile } from '../../core/types';
 import {
   fetchUsersByClass, fetchAllUsers, recordAuditLog, saveAssessment,
-  subscribeAssessments, subscribeAttendanceSessions,
-  subscribeAllAttendanceRecords,
+  subscribeAssessments, subscribeAttendanceSessions, subscribeAllAttendanceRecords,
 } from '../../services/firestoreService';
 import {
-  collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch, updateDoc,
+  collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { useToast } from '../common/Toast';
@@ -38,52 +35,20 @@ const CATEGORY_LABEL: Record<AssessorCategory, string> = {
 // =========================================================
 // TEMPLATE WA
 // =========================================================
-function templateFollowupPeerAssessment(
-  studentName: string,
-  teacherName: string,
-  classKerabat: string,
-  className: string
-) {
-  return `Halo ${studentName},\n\n` +
-    `Saya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\n` +
-    `Kami ingatkan bahwa Anda belum mengisi *penilaian rekan kerja (peer assessment)*.\n\n` +
-    `Mohon segera isi melalui web SP-PPT → menu *Penilaian*.\n\n` +
-    `Terima kasih 🙏`;
+function templateFollowupPeerAssessment(studentName: string, teacherName: string, classKerabat: string, className: string) {
+  return `Halo ${studentName},\n\nSaya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\nKami ingatkan bahwa Anda belum mengisi *penilaian rekan kerja (peer assessment)*.\n\nMohon segera isi melalui web SP-PPT → menu *Penilaian*.\n\nTerima kasih 🙏`;
 }
 
-function templateAskAboutScore(
-  studentName: string,
-  teacherName: string,
-  classKerabat: string,
-  className: string,
-  stage: string
-) {
-  return `Halo ${studentName},\n\n` +
-    `Saya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\n` +
-    `Kami ingin *membahas nilai Anda* di tahap ${stage}.\n\n` +
-    `Jika ada pertanyaan atau keberatan terkait nilai, silakan hubungi saya untuk klarifikasi.\n\n` +
-    `Terima kasih 🙏`;
+function templateAskAboutScore(studentName: string, teacherName: string, classKerabat: string, className: string, stage: string) {
+  return `Halo ${studentName},\n\nSaya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\nKami ingin *membahas nilai Anda* di tahap ${stage}.\n\nJika ada pertanyaan atau keberatan terkait nilai, silakan hubungi saya untuk klarifikasi.\n\nTerima kasih 🙏`;
 }
 
-function templateAskClarification(
-  assessorName: string,
-  targetStudentName: string,
-  teacherName: string,
-  classKerabat: string,
-  className: string,
-  stage: string,
-  reason: string
-) {
-  return `Halo ${assessorName},\n\n` +
-    `Saya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\n` +
-    `Saya melihat Anda memberi penilaian kepada *${targetStudentName}* di tahap *${stage}*.\n\n` +
-    `Catatan: ${reason}\n\n` +
-    `Boleh dijelaskan dasar penilaian Anda? Kami ingin memastikan penilaian ini objektif dan adil.\n\n` +
-    `Mohon balas pesan ini untuk klarifikasi. Terima kasih 🙏`;
+function templateAskClarification(assessorName: string, targetStudentName: string, teacherName: string, classKerabat: string, className: string, stage: string, reason: string) {
+  return `Halo ${assessorName},\n\nSaya ${teacherName}, guru pengampu ${classKerabat} kelas ${className}.\n\nSaya melihat Anda memberi penilaian kepada *${targetStudentName}* di tahap *${stage}*.\n\nCatatan: ${reason}\n\nBoleh dijelaskan dasar penilaian Anda? Kami ingin memastikan penilaian ini objektif dan adil.\n\nMohon balas pesan ini untuk klarifikasi. Terima kasih 🙏`;
 }
 
 // =========================================================
-// TASK HELPERS — pakai `deadlines` & field `stage`
+// TASK HELPERS
 // =========================================================
 interface TaskWithStatus {
   task: any;
@@ -94,12 +59,7 @@ interface TaskWithStatus {
   color: string;
 }
 
-function getStudentTasks(
-  student: UserProfile,
-  deadlines: any[],
-  submissions: any[],
-  stage: ProductionStage
-): TaskWithStatus[] {
+function getStudentTasks(student: UserProfile, deadlines: any[], submissions: any[], stage: ProductionStage): TaskWithStatus[] {
   const myTasks = deadlines.filter(t => {
     if (t.stage && t.stage !== stage) return false;
     if (t.status === 'CANCELLED') return false;
@@ -141,8 +101,7 @@ function getStudentTasks(
         status = 'PROSES'; label = 'Sedang proses'; color = 'bg-blue-100 text-blue-800 border-blue-300';
       }
     } else {
-      const dueMs = new Date(t.dueDate).getTime();
-      if (dueMs < Date.now()) { label = 'Belum & lewat deadline'; color = 'bg-rose-100 text-rose-800 border-rose-300'; }
+      if (new Date(t.dueDate).getTime() < Date.now()) { label = 'Belum & lewat deadline'; color = 'bg-rose-100 text-rose-800 border-rose-300'; }
     }
     return { task: t, submission: sub, status, daysLate, label, color };
   }).sort((a, b) => {
@@ -151,9 +110,6 @@ function getStudentTasks(
   });
 }
 
-// =========================================================
-// AUTO SCORE
-// =========================================================
 function computeTaskResponsibility(student: UserProfile, deadlines: any[], submissions: any[], stage: ProductionStage) {
   const myTasks = deadlines.filter(t => {
     if (t.stage && t.stage !== stage) return false;
@@ -180,9 +136,7 @@ function computeTaskResponsibility(student: UserProfile, deadlines: any[], submi
   myTasks.forEach(task => {
     const sub = submissions.find(s => s.deadlineId === task.id && s.studentId === student.uid);
     const isCritical = !!task.isCritical;
-    if (!sub || sub.status === 'BELUM') {
-      belum += 1; if (isCritical) criticalMissed += 1; return;
-    }
+    if (!sub || sub.status === 'BELUM') { belum += 1; if (isCritical) criticalMissed += 1; return; }
     if (sub.status === 'SELESAI' && sub.submittedAt) {
       const dueMs = new Date(task.dueDate).getTime();
       const subMs = new Date(sub.submittedAt).getTime();
@@ -191,9 +145,7 @@ function computeTaskResponsibility(student: UserProfile, deadlines: any[], submi
       else if (diffDays === 0) tepat += 1;
       else if (diffDays <= 2) { telatRingan += 1; if (isCritical && diffDays > 1) criticalLate += 1; }
       else { telatBerat += 1; if (isCritical) criticalLate += 1; }
-    } else if (sub.status === 'TERLAMBAT') {
-      telatBerat += 1; if (isCritical) criticalLate += 1;
-    }
+    } else if (sub.status === 'TERLAMBAT') { telatBerat += 1; if (isCritical) criticalLate += 1; }
   });
 
   const totalTasks = myTasks.length;
@@ -244,9 +196,6 @@ function computePemeranDiscipline(taskScore: number, attendScore: number): 1 | 2
   return Math.floor((taskScore + attendScore) / 2) as 1 | 2 | 3 | 4;
 }
 
-// =========================================================
-// JADWAL PENILAIAN
-// =========================================================
 function isAssessmentOpen(stageDeadlines: any, stageId: ProductionStage) {
   const cfg = stageDeadlines?.[stageId];
   if (!cfg) return { open: false, reason: 'no-config' as const };
@@ -295,15 +244,9 @@ interface Anomaly {
   type: string;
 }
 
-function detectAnomalies(
-  assessments: AssessmentRecord[],
-  students: UserProfile[],
-  stage: ProductionStage
-): Anomaly[] {
+function detectAnomalies(assessments: AssessmentRecord[], students: UserProfile[], stage: ProductionStage): Anomaly[] {
   const result: Anomaly[] = [];
   const stageAssessments = assessments.filter(a => a.stage === stage);
-
-  // Kelompokkan per student untuk cek outlier
   const byStudent: Record<string, AssessmentRecord[]> = {};
   stageAssessments.forEach(a => {
     if (!byStudent[a.studentId]) byStudent[a.studentId] = [];
@@ -311,65 +254,33 @@ function detectAnomalies(
   });
 
   stageAssessments.forEach(rec => {
-    // Skip guru penilaian guru lain
     const scores = Object.values(rec.scores || {}).filter(v => typeof v === 'number');
     if (scores.length === 0) return;
-
     const assessorUser = students.find(s => s.uid === rec.assessorId);
     const targetUser = students.find(s => s.uid === rec.studentId);
 
-    // 1. Semua nilai 1 (rendah ekstrem)
     const allOne = scores.every(v => v === 1);
     if (allOne) {
-      result.push({
-        record: rec,
-        assessorUser,
-        targetUser,
-        reason: `Semua ${scores.length} kriteria diberi nilai 1 (Kurang) — kemungkinan perlu klarifikasi`,
-        severity: 'high',
-        type: 'Nilai Sangat Rendah',
-      });
+      result.push({ record: rec, assessorUser, targetUser, reason: `Semua ${scores.length} kriteria diberi nilai 1 (Kurang) — perlu klarifikasi`, severity: 'high', type: 'Nilai Sangat Rendah' });
       return;
     }
-
-    // 2. Semua nilai 4 (tinggi ekstrem)
     const allFour = scores.every(v => v === 4);
     if (allFour) {
-      result.push({
-        record: rec,
-        assessorUser,
-        targetUser,
-        reason: `Semua ${scores.length} kriteria diberi nilai 4 (Sangat Baik) — cek apakah objektif`,
-        severity: 'medium',
-        type: 'Nilai Sangat Tinggi',
-      });
+      result.push({ record: rec, assessorUser, targetUser, reason: `Semua ${scores.length} kriteria diberi nilai 4 (Sangat Baik) — cek objektivitas`, severity: 'medium', type: 'Nilai Sangat Tinggi' });
       return;
     }
-
-    // 3. Semua nilai sama (tapi bukan 1 atau 4)
     const allSame = scores.every(v => v === scores[0]);
     if (allSame && scores[0] !== 1 && scores[0] !== 4) {
-      result.push({
-        record: rec,
-        assessorUser,
-        targetUser,
-        reason: `Semua kriteria diberi nilai ${scores[0]} — penilaian bisa jadi asal-asalan`,
-        severity: 'low',
-        type: 'Nilai Seragam',
-      });
+      result.push({ record: rec, assessorUser, targetUser, reason: `Semua kriteria diberi nilai ${scores[0]} — penilaian bisa jadi asal-asalan`, severity: 'low', type: 'Nilai Seragam' });
       return;
     }
-
-    // 4. Outlier — nilai sangat berbeda dengan rata-rata assessor lain untuk siswa yang sama
     const sameTargetRecords = (byStudent[rec.studentId] || []).filter(r => r.id !== rec.id);
     if (sameTargetRecords.length >= 2) {
       const othersAvg = sameTargetRecords.reduce((s, r) => s + r.totalScore, 0) / sameTargetRecords.length;
       const diff = Math.abs(rec.totalScore - othersAvg);
       if (diff >= 25) {
         result.push({
-          record: rec,
-          assessorUser,
-          targetUser,
+          record: rec, assessorUser, targetUser,
           reason: `Nilai (${rec.totalScore}) berbeda jauh dari rata-rata penilai lain (${othersAvg.toFixed(1)}) — selisih ${diff.toFixed(1)} poin`,
           severity: diff >= 35 ? 'high' : 'medium',
           type: 'Outlier vs Penilai Lain',
@@ -378,7 +289,6 @@ function detectAnomalies(
     }
   });
 
-  // Sort: high dulu
   return result.sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
     return order[a.severity] - order[b.severity];
@@ -413,8 +323,6 @@ export const AssessmentModule: React.FC = () => {
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [, setTick] = useState(0);
-
-  // Anomaly section
   const [showAnomalies, setShowAnomalies] = useState(false);
 
   useEffect(() => {
@@ -424,7 +332,6 @@ export const AssessmentModule: React.FC = () => {
 
   const canManageAll = isGuruPengampu || isAdminRole;
 
-  // ✅ Guru/Admin bisa nilai & edit SIAPA SAJA (override matrix)
   const canGradeStudent = (student: UserProfile) => {
     if (canManageAll) return true;
     return canAssessTarget(student);
@@ -441,7 +348,7 @@ export const AssessmentModule: React.FC = () => {
     try {
       let list: UserProfile[] = [];
       let source = 'fetchUsersByClass';
-      try { list = await fetchUsersByClass(activeClass.id); } catch (err: any) { console.warn('fetch gagal:', err); }
+      try { list = await fetchUsersByClass(activeClass.id); } catch { /* ignore */ }
       if (!list || list.length === 0) {
         try {
           const all = await fetchAllUsers();
@@ -470,9 +377,7 @@ export const AssessmentModule: React.FC = () => {
     if (!activeClass) return;
     const unsub1 = subscribeAssessments(activeClass.id, setAssessments);
     const qT = query(collection(db, 'deadlines'), where('classId', '==', activeClass.id));
-    const unsub2 = onSnapshot(qT, snap => {
-      setDeadlines(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-    });
+    const unsub2 = onSnapshot(qT, snap => { setDeadlines(snap.docs.map(d => ({ ...d.data(), id: d.id }))); });
     const unsub3 = subscribeAttendanceSessions(activeClass.id, setSessions);
     const unsub4 = subscribeAllAttendanceRecords(activeClass.id, setAttendanceRecords);
     let unsub5 = () => {};
@@ -541,6 +446,7 @@ export const AssessmentModule: React.FC = () => {
     return getStudentTasks(student, deadlines, submissions, selectedStage).length > 0;
   };
 
+  // ✅ PEER STATUS — cek apakah siswa sudah isi penilaian teman
   const getPeerStatus = (student: UserProfile) => {
     const matrix = getAssessmentMatrix(student.role);
     const targetRoles = new Set<string>();
@@ -550,14 +456,18 @@ export const AssessmentModule: React.FC = () => {
     });
     const targets = students.filter(s => s.uid !== student.uid && targetRoles.has(s.role));
     const filled = targets.filter(t => assessments.some(a => a.assessorId === student.uid && a.studentId === t.uid && a.stage === selectedStage)).length;
-    return { total: targets.length, filled, pending: targets.length - filled, pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, isComplete: filled >= targets.length };
+    return {
+      total: targets.length, filled,
+      pending: targets.length - filled,
+      pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100,
+      isComplete: filled >= targets.length,
+    };
   };
 
   const getStudentTaskList = (student: UserProfile): TaskWithStatus[] => {
     return getStudentTasks(student, deadlines, submissions, selectedStage);
   };
 
-  // Helper data guru
   const teacherName = user?.displayName || 'Guru Pengampu';
   const classKerabat = activeClass?.kerabatKerja || activeClass?.name || 'Teater';
   const className = activeClass?.name || 'IX';
@@ -595,7 +505,6 @@ export const AssessmentModule: React.FC = () => {
       const matrix = getAssessmentMatrix(selectedStudent.role);
       let category: AssessorCategory = 'REKAN';
       for (const rel of matrix) { if (rel.roles.includes(user.role)) { category = rel.category; break; } }
-      // Guru/admin selalu dapat kategori GURU
       if (canManageAll) category = 'GURU';
 
       await saveAssessment({
@@ -619,42 +528,26 @@ export const AssessmentModule: React.FC = () => {
     finally { setIsSubmitting(false); }
   };
 
-  // =====================================================
-  // WA ACTIONS
-  // =====================================================
   const handleWAFollowupPeer = (student: UserProfile) => {
     if (!student.phone) { showToast(`${student.displayName} belum punya nomor WA.`, 'warning'); return; }
-    const text = templateFollowupPeerAssessment(
-      student.displayName, teacherName, classKerabat, className
-    );
+    const text = templateFollowupPeerAssessment(student.displayName, teacherName, classKerabat, className);
     window.open(buildWhatsAppUrl(student.phone, text), '_blank', 'noopener,noreferrer');
     showToast(`Membuka WhatsApp ke ${student.displayName}...`, 'info');
   };
 
   const handleWAAskAboutScore = (student: UserProfile) => {
     if (!student.phone) { showToast(`${student.displayName} belum punya nomor WA.`, 'warning'); return; }
-    const text = templateAskAboutScore(
-      student.displayName, teacherName, classKerabat, className, selectedStage
-    );
+    const text = templateAskAboutScore(student.displayName, teacherName, classKerabat, className, selectedStage);
     window.open(buildWhatsAppUrl(student.phone, text), '_blank', 'noopener,noreferrer');
     showToast(`Membuka WhatsApp ke ${student.displayName}...`, 'info');
   };
 
   const handleWAAskClarification = (anomaly: Anomaly) => {
     const assessor = anomaly.assessorUser;
-    if (!assessor) {
-      showToast('Data penilai tidak ditemukan.', 'warning');
-      return;
-    }
-    if (!assessor.phone) {
-      showToast(`${assessor.displayName} belum punya nomor WA.`, 'warning');
-      return;
-    }
+    if (!assessor) { showToast('Data penilai tidak ditemukan.', 'warning'); return; }
+    if (!assessor.phone) { showToast(`${assessor.displayName} belum punya nomor WA.`, 'warning'); return; }
     const targetName = anomaly.targetUser?.displayName || anomaly.record.studentName;
-    const text = templateAskClarification(
-      assessor.displayName, targetName, teacherName, classKerabat, className,
-      selectedStage, anomaly.reason
-    );
+    const text = templateAskClarification(assessor.displayName, targetName, teacherName, classKerabat, className, selectedStage, anomaly.reason);
     window.open(buildWhatsAppUrl(assessor.phone, text), '_blank', 'noopener,noreferrer');
     showToast(`Membuka WhatsApp ke ${assessor.displayName}...`, 'info');
   };
@@ -672,9 +565,6 @@ export const AssessmentModule: React.FC = () => {
     showToast(`Membuka ${pending.length} chat WhatsApp...`, 'info');
   };
 
-  // =====================================================
-  // RESET / DELETE
-  // =====================================================
   const handleResetStage = async () => {
     if (!canManageAll || !activeClass || !user) return;
     if (resetConfirmText.trim() !== activeClass.name) { showToast('Nama kelas tidak cocok.', 'error'); return; }
@@ -697,9 +587,9 @@ export const AssessmentModule: React.FC = () => {
     finally { setIsResetting(false); }
   };
 
-  const handleDeleteOneAssessment = async (rec: AssessmentRecord, silent = false) => {
+  const handleDeleteOneAssessment = async (rec: AssessmentRecord) => {
     if (!canManageAll || !user) return;
-    if (!silent && !confirm(`Hapus penilaian ${rec.studentName} oleh ${rec.assessorName}?`)) return;
+    if (!confirm(`Hapus penilaian ${rec.studentName} oleh ${rec.assessorName}?`)) return;
     try {
       const histRef = doc(collection(db, 'assessmentHistory'));
       await writeBatch(db).set(histRef, { ...rec, id: histRef.id, originalId: rec.id, supersededAt: new Date().toISOString(), supersededBy: user.uid, reason: `Dihapus oleh ${user.displayName}` }).commit();
@@ -708,9 +598,6 @@ export const AssessmentModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + (err?.message || 'Unknown'), 'error'); }
   };
 
-  // =====================================================
-  // AGGREGATED
-  // =====================================================
   const getAggregatedScore = (studentId: string, studentRole: string) => {
     const records = assessments.filter(a => a.studentId === studentId && a.stage === selectedStage);
     if (records.length === 0) return null;
@@ -741,19 +628,20 @@ export const AssessmentModule: React.FC = () => {
 
   const stageCount = (stageId: ProductionStage) => assessments.filter(a => a.stage === stageId).length;
 
-  // ✅ Deteksi anomali
   const anomalies = canManageAll ? detectAnomalies(assessments, students, selectedStage) : [];
 
   const handleDownloadClassRecap = () => {
     const sheet1 = {
       name: 'Rekap Nilai',
-      headers: ['Nama', 'Peran', 'Divisi', 'Tugas Selesai', 'Total Tugas', CATEGORY_LABEL.GURU, CATEGORY_LABEL.ATASAN, CATEGORY_LABEL.REKAN, CATEGORY_LABEL.BAWAHAN, 'Nilai Akhir', 'Predikat'],
+      headers: ['Nama', 'Peran', 'Divisi', 'Tugas Selesai', 'Total Tugas', 'Peer Assess', CATEGORY_LABEL.GURU, CATEGORY_LABEL.ATASAN, CATEGORY_LABEL.REKAN, CATEGORY_LABEL.BAWAHAN, 'Nilai Akhir', 'Predikat'],
       rows: filteredStudents.map(s => {
         const agg = getAggregatedScore(s.uid, s.role);
         const pred = agg ? getPredikat(agg.finalVal) : null;
         const taskList = getStudentTaskList(s);
         const done = taskList.filter(t => t.status !== 'BELUM' && t.status !== 'PROSES').length;
-        return [s.displayName, s.role, s.divisionName || '-', done, taskList.length, agg?.guruScore?.toFixed(1) ?? '-', agg?.atasanScore?.toFixed(1) ?? '-', agg?.rekanScore?.toFixed(1) ?? '-', agg?.bawahanScore?.toFixed(1) ?? '-', agg?.finalVal ?? '-', pred?.predikat ?? '-'];
+        const ps = getPeerStatus(s);
+        const peerLabel = ps.total === 0 ? '-' : `${ps.filled}/${ps.total}`;
+        return [s.displayName, s.role, s.divisionName || '-', done, taskList.length, peerLabel, agg?.guruScore?.toFixed(1) ?? '-', agg?.atasanScore?.toFixed(1) ?? '-', agg?.rekanScore?.toFixed(1) ?? '-', agg?.bawahanScore?.toFixed(1) ?? '-', agg?.finalVal ?? '-', pred?.predikat ?? '-'];
       }),
     };
     const sheet2 = {
@@ -841,11 +729,13 @@ export const AssessmentModule: React.FC = () => {
           </div>
         </div>
 
+        {/* ✅ GATE WAKTU PENILAIAN — untuk SEMUA user */}
         {!isAssessmentLocked && assessmentStatus.endMs && (
           <div className="mt-3 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border-2 border-emerald-300 flex items-start gap-2">
             <Timer className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
             <div className="text-[11px] text-emerald-900 dark:text-emerald-200">
               <p className="font-bold">Penilaian TERBUKA — sisa {formatDuration(assessmentStatus.endMs - Date.now())}</p>
+              <p className="mt-0.5">Ditutup: {formatDateTime(new Date(assessmentStatus.endMs).toISOString())}</p>
             </div>
           </div>
         )}
@@ -875,7 +765,7 @@ export const AssessmentModule: React.FC = () => {
           <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
           <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
             <p className="font-bold">Penilaian berbasis tugas sesuai peran.</p>
-            <p className="mt-0.5">Siswa dinilai dari tugas-tugas yang ditugaskan ke peran/divisinya di tahap ini. <strong>Guru bisa edit nilai siapa saja</strong> untuk moderasi.</p>
+            <p className="mt-0.5">Siswa dinilai dari tugas-tugas yang ditugaskan ke peran/divisinya di tahap ini. <strong>Guru bisa edit nilai siapa saja</strong>.</p>
           </div>
         </div>
       </div>
@@ -893,59 +783,37 @@ export const AssessmentModule: React.FC = () => {
         </div>
       )}
 
-      {/* ═══ SECTION: ANOMALI PENILAIAN (GURU) ═══ */}
       {canManageAll && anomalies.length > 0 && (
         <div className="rounded-3xl border-2 border-rose-300 dark:border-rose-500/40 bg-gradient-to-br from-rose-50 to-orange-50 dark:from-rose-500/10 dark:to-orange-500/10 overflow-hidden shadow-sm">
-          <button
-            onClick={() => setShowAnomalies(!showAnomalies)}
-            className="w-full p-4 flex items-center justify-between gap-2 text-left hover:bg-rose-100/50 dark:hover:bg-rose-500/10 transition"
-          >
+          <button onClick={() => setShowAnomalies(!showAnomalies)}
+            className="w-full p-4 flex items-center justify-between gap-2 text-left hover:bg-rose-100/50 dark:hover:bg-rose-500/10 transition">
             <div className="flex items-center gap-3">
               <span className="p-2.5 rounded-xl bg-rose-500 text-white shrink-0">
                 <AlertTriangle className="w-5 h-5" />
               </span>
               <div>
-                <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
-                  {anomalies.length} Penilaian Perlu Klarifikasi
-                </h3>
-                <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
-                  Deteksi nilai ekstrem atau outlier — hubungi penilai via WA
-                </p>
+                <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">{anomalies.length} Penilaian Perlu Klarifikasi</h3>
+                <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">Deteksi nilai ekstrem atau outlier — hubungi penilai via WA</p>
               </div>
             </div>
-            <span className={`text-rose-600 dark:text-rose-400 transition-transform ${showAnomalies ? 'rotate-180' : ''}`}>
-              ▼
-            </span>
+            <span className={`text-rose-600 dark:text-rose-400 transition-transform ${showAnomalies ? 'rotate-180' : ''}`}>▼</span>
           </button>
 
           {showAnomalies && (
             <div className="p-4 pt-0 space-y-2 border-t border-rose-200 dark:border-rose-500/30">
               {anomalies.map((an, i) => {
-                const sevColor =
-                  an.severity === 'high' ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10'
+                const sevColor = an.severity === 'high' ? 'border-rose-400 bg-rose-50 dark:bg-rose-500/10'
                   : an.severity === 'medium' ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
                   : 'border-blue-400 bg-blue-50 dark:bg-blue-500/10';
-                const sevLabel =
-                  an.severity === 'high' ? 'KRITIS'
-                  : an.severity === 'medium' ? 'SEDANG'
-                  : 'RINGAN';
-                const sevBadge =
-                  an.severity === 'high' ? 'bg-rose-600 text-white'
-                  : an.severity === 'medium' ? 'bg-amber-500 text-white'
-                  : 'bg-blue-500 text-white';
-
+                const sevLabel = an.severity === 'high' ? 'KRITIS' : an.severity === 'medium' ? 'SEDANG' : 'RINGAN';
+                const sevBadge = an.severity === 'high' ? 'bg-rose-600 text-white' : an.severity === 'medium' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white';
                 return (
                   <div key={i} className={`p-3 rounded-2xl border-2 ${sevColor}`}>
                     <div className="flex items-start gap-3 flex-wrap">
                       <div className="flex-1 min-w-[200px]">
                         <div className="flex items-center gap-1.5 flex-wrap mb-1">
                           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${sevBadge}`}>{sevLabel}</span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-700 text-white">
-                            {an.type}
-                          </span>
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 ml-auto">
-                            {new Date(an.record.createdAt || an.record.updatedAt || '').toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                          </span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-700 text-white">{an.type}</span>
                         </div>
                         <p className="text-xs font-bold text-slate-900 dark:text-white">
                           {an.assessorUser?.displayName || an.record.assessorName}
@@ -953,12 +821,8 @@ export const AssessmentModule: React.FC = () => {
                           <span className="mx-1">→</span>
                           {an.targetUser?.displayName || an.record.studentName}
                         </p>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
-                          {an.reason}
-                        </p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          Total nilai: <strong className="font-mono">{an.record.totalScore}</strong>
-                        </p>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">{an.reason}</p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Total nilai: <strong className="font-mono">{an.record.totalScore}</strong></p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {an.assessorUser?.phone && (
@@ -968,8 +832,7 @@ export const AssessmentModule: React.FC = () => {
                           </button>
                         )}
                         <button onClick={() => handleDeleteOneAssessment(an.record)}
-                          className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:bg-rose-200 transition"
-                          title="Hapus penilaian ini">
+                          className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-500/20 text-rose-600 dark:text-rose-300 hover:bg-rose-200 transition">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1002,6 +865,8 @@ export const AssessmentModule: React.FC = () => {
                 <th className="py-3.5 px-4">Nama</th>
                 <th className="py-3.5 px-4">Peran</th>
                 <th className="py-3.5 px-4 text-center">Tugas</th>
+                {/* ✅ KOLOM PEER ASSESS BARU */}
+                <th className="py-3.5 px-4 text-center">Peer Assess</th>
                 <th className="py-3.5 px-4 text-center">{CATEGORY_LABEL.GURU}</th>
                 <th className="py-3.5 px-4 text-center">{CATEGORY_LABEL.ATASAN}</th>
                 <th className="py-3.5 px-4 text-center">{CATEGORY_LABEL.REKAN}</th>
@@ -1012,9 +877,9 @@ export const AssessmentModule: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
               {studentsLoading ? (
-                <tr><td colSpan={9} className="py-8 text-center text-xs text-slate-400"><RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin" /> Memuat...</td></tr>
+                <tr><td colSpan={10} className="py-8 text-center text-xs text-slate-400"><RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin" /> Memuat...</td></tr>
               ) : filteredStudents.length === 0 ? (
-                <tr><td colSpan={9} className="py-8 text-center">
+                <tr><td colSpan={10} className="py-8 text-center">
                   <AlertCircle className="w-8 h-8 mx-auto text-amber-400 mb-2" />
                   <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
                     {students.length === 0 ? 'Data siswa tidak ter-load.' : onlyWithTasks ? 'Tidak ada siswa dengan tugas di tahap ini.' : 'Tidak ada yang cocok.'}
@@ -1023,7 +888,6 @@ export const AssessmentModule: React.FC = () => {
               ) : (
                 filteredStudents.map(student => {
                   const agg = getAggregatedScore(student.uid, student.role);
-                  const predInfo = agg ? getPredikat(agg.finalVal) : null;
                   const canGrade = canGradeStudent(student) && !isStageLocked && !isAssessmentLocked;
                   const peerStatus = getPeerStatus(student);
                   const taskList = getStudentTaskList(student);
@@ -1038,11 +902,35 @@ export const AssessmentModule: React.FC = () => {
                       <td className="py-3.5 px-4 text-center">
                         {taskList.length === 0 ? <span className="text-[10px] text-slate-400 italic">—</span> : (
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                            doneTasks === taskList.length ? 'bg-emerald-100 text-emerald-700 border-emerald-300'
-                              : 'bg-amber-100 text-amber-700 border-amber-300'
+                            doneTasks === taskList.length ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-amber-100 text-amber-700 border-amber-300'
                           }`}>{doneTasks}/{taskList.length}</span>
                         )}
                       </td>
+
+                      {/* ✅ KOLOM PEER ASSESS */}
+                      <td className="py-3.5 px-4 text-center">
+                        {peerStatus.total === 0 ? (
+                          <span className="text-[10px] text-slate-400 italic">—</span>
+                        ) : peerStatus.isComplete ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 inline-flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" /> {peerStatus.filled}/{peerStatus.total}
+                          </span>
+                        ) : (
+                          <button onClick={() => student.phone && handleWAFollowupPeer(student)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center gap-1 transition ${
+                              peerStatus.filled === 0
+                                ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/40'
+                                : 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-500/40'
+                            } ${student.phone ? 'hover:brightness-95 cursor-pointer' : 'cursor-default'}`}
+                            title={student.phone ? `Klik untuk WA follow-up ke ${student.displayName}` : 'Siswa belum punya nomor WA'}
+                          >
+                            <AlertTriangle className="w-3 h-3" />
+                            {peerStatus.filled}/{peerStatus.total}
+                            {student.phone && <MessageCircle className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </td>
+
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">{agg?.guruScore != null ? agg.guruScore.toFixed(1) : '-'}</td>
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">{agg?.atasanScore != null ? agg.atasanScore.toFixed(1) : '-'}</td>
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700 dark:text-slate-300">{agg?.rekanScore != null ? agg.rekanScore.toFixed(1) : '-'}</td>
@@ -1061,11 +949,6 @@ export const AssessmentModule: React.FC = () => {
                             <span className="text-[11px] text-slate-400">
                               {isStageLocked ? 'Tahap tutup' : isAssessmentLocked ? 'Terkunci' : 'Hanya lihat'}
                             </span>
-                          )}
-                          {canManageAll && peerStatus.total > 0 && !peerStatus.isComplete && student.phone && (
-                            <button onClick={() => handleWAFollowupPeer(student)} className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700" title="WA follow-up peer">
-                              <MessageCircle className="w-3.5 h-3.5" />
-                            </button>
                           )}
                           {canManageAll && agg && student.phone && (
                             <button onClick={() => handleWAAskAboutScore(student)} className="p-1.5 rounded-lg bg-blue-50 text-blue-700" title="Tanya nilai">
@@ -1143,11 +1026,6 @@ export const AssessmentModule: React.FC = () => {
                               <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
                                 Deadline: {new Date(item.task.dueDate).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                               </p>
-                              {item.submission?.submittedAt && (
-                                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                                  Submit: {new Date(item.submission.submittedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                                </p>
-                              )}
                               {(item.submission?.proofUrl || item.submission?.proofNote) && (
                                 <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
                                   {item.submission.proofNote && <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-800 text-[10px] italic">"{item.submission.proofNote}"</div>}
@@ -1167,7 +1045,6 @@ export const AssessmentModule: React.FC = () => {
                 })()}
               </div>
 
-              {/* Daftar penilaian yang sudah ada (khusus guru) */}
               {canManageAll && (() => {
                 const existingRecords = assessments.filter(a => a.studentId === selectedStudent.uid && a.stage === selectedStage);
                 if (existingRecords.length === 0) return null;
@@ -1182,9 +1059,7 @@ export const AssessmentModule: React.FC = () => {
                         const cat = (r as any).assessorCategory || 'REKAN';
                         const isSelf = r.assessorId === user?.uid;
                         return (
-                          <div key={r.id} className={`p-2.5 rounded-lg bg-white dark:bg-slate-800 border flex items-center justify-between gap-2 ${
-                            isSelf ? 'border-emerald-300' : 'border-slate-200 dark:border-slate-700'
-                          }`}>
+                          <div key={r.id} className={`p-2.5 rounded-lg bg-white dark:bg-slate-800 border flex items-center justify-between gap-2 ${isSelf ? 'border-emerald-300' : 'border-slate-200 dark:border-slate-700'}`}>
                             <div className="flex-1 min-w-0">
                               <p className="text-[11px] font-bold text-slate-900 dark:text-white truncate">
                                 {r.assessorName} <span className="text-slate-400 font-normal">({CATEGORY_LABEL[cat]})</span>
@@ -1192,26 +1067,20 @@ export const AssessmentModule: React.FC = () => {
                               </p>
                               <p className="text-[10px] text-slate-500 dark:text-slate-400">
                                 Nilai: <strong className="font-mono">{r.totalScore}</strong>
-                                {r.comment && <span className="ml-1 italic truncate">— "{r.comment.slice(0, 40)}..."</span>}
                               </p>
                             </div>
                             <button onClick={() => handleDeleteOneAssessment(r)}
-                              className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 shrink-0"
-                              title="Hapus penilaian ini">
+                              className="p-1 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 shrink-0">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         );
                       })}
                     </div>
-                    <p className="text-[10px] text-indigo-700 dark:text-indigo-300 mt-2 italic">
-                      Anda bisa hapus penilaian anomali di sini, lalu isi nilai baru di bawah.
-                    </p>
                   </div>
                 );
               })()}
 
-              {/* AUTO SCORE */}
               <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border border-blue-200">
                 <div className="flex items-center gap-2 mb-3">
                   <Bot className="w-4 h-4 text-blue-600" />
@@ -1220,26 +1089,24 @@ export const AssessmentModule: React.FC = () => {
                 {(() => {
                   const { autoScores, taskResult, attendResult } = computeAutoScoresFor(selectedStudent, selectedStage);
                   return (
-                    <>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-blue-200">
-                          <p className="text-[10px] font-bold text-blue-700">Tanggung Jawab</p>
-                          <p className="text-2xl font-black text-blue-900 font-mono">{autoScores.tanggung_jawab}</p>
-                          <p className="text-[9px] text-blue-600">{taskResult.pctOnTime}% tepat waktu</p>
-                        </div>
-                        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-blue-200">
-                          <p className="text-[10px] font-bold text-blue-700">Kehadiran</p>
-                          <p className="text-2xl font-black text-blue-900 font-mono">{autoScores.kehadiran}</p>
-                          <p className="text-[9px] text-blue-600">{attendResult.pct}% hadir</p>
-                        </div>
-                        {selectedStudent.role === 'Pemeran' && (
-                          <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-blue-200">
-                            <p className="text-[10px] font-bold text-blue-700">Kedisiplinan</p>
-                            <p className="text-2xl font-black text-blue-900 font-mono">{autoScores.kedisiplinan}</p>
-                          </div>
-                        )}
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-blue-200">
+                        <p className="text-[10px] font-bold text-blue-700">Tanggung Jawab</p>
+                        <p className="text-2xl font-black text-blue-900 font-mono">{autoScores.tanggung_jawab}</p>
+                        <p className="text-[9px] text-blue-600">{taskResult.pctOnTime}% tepat waktu</p>
                       </div>
-                    </>
+                      <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-blue-200">
+                        <p className="text-[10px] font-bold text-blue-700">Kehadiran</p>
+                        <p className="text-2xl font-black text-blue-900 font-mono">{autoScores.kehadiran}</p>
+                        <p className="text-[9px] text-blue-600">{attendResult.pct}% hadir</p>
+                      </div>
+                      {selectedStudent.role === 'Pemeran' && (
+                        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-blue-200">
+                          <p className="text-[10px] font-bold text-blue-700">Kedisiplinan</p>
+                          <p className="text-2xl font-black text-blue-900 font-mono">{autoScores.kedisiplinan}</p>
+                        </div>
+                      )}
+                    </div>
                   );
                 })()}
               </div>
@@ -1303,7 +1170,6 @@ export const AssessmentModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL RESET */}
       {resetConfirmOpen && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 bg-slate-950/85 backdrop-blur-md">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 space-y-4">
