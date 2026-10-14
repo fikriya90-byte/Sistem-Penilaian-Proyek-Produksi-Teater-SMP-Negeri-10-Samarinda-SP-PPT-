@@ -53,11 +53,8 @@ import { BookingModule } from './components/modules/BookingModule';
 import { InterClassCoordModule } from './components/modules/InterClassCoordModule';
 import { DebugUsersModule } from './components/modules/DebugUsersModule';
 
-// ✅ RAB MODULE — sekarang STATIC import (sebelumnya lazy → sering 404 di GH Pages)
+// ✅ RAB MODULE — STATIC IMPORT (sebelumnya lazy → 404 di GitHub Pages)
 import { RABModule } from './components/modules/RABModule';
-
-// ✅ AUTO-TRANSITION TAHAPAN PRODUKSI
-import { runAutoTransitionWithSideEffects } from './services/stageAutoTransition';
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
@@ -174,53 +171,6 @@ const MainLayout: React.FC = () => {
       viewInitRef.current = true;
     }
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
-
-  // ============================================================
-  // AUTO-TRANSITION TAHAPAN PRODUKSI
-  // ============================================================
-  useEffect(() => {
-    if (!activeClass || !user) return;
-    let cancelled = false;
-
-    const runCheck = async () => {
-      if (cancelled) return;
-      try {
-        const res = await runAutoTransitionWithSideEffects(activeClass.id, {
-          uid: user.uid,
-          displayName: user.displayName,
-          role: user.role,
-        });
-
-        if (!cancelled && res.transitioned && res.fromStage && res.toStage) {
-          try {
-            window.dispatchEvent(new CustomEvent('spppt-toast', {
-              detail: {
-                message: `⚡ Tahap ${res.fromStage} ditutup otomatis. Tahap ${res.toStage} sekarang dibuka.`,
-                type: 'info',
-              },
-            }));
-          } catch { /* ignore */ }
-        }
-      } catch (err) {
-        console.warn('Auto-transition check error:', err);
-      }
-    };
-
-    runCheck();
-
-    const interval = setInterval(runCheck, 5 * 60 * 1000);
-
-    const onVisible = () => {
-      if (!document.hidden) runCheck();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [activeClass?.id, user?.uid]);
 
   const handleEnterClass = (c: any) => {
     setActiveClass(c);
