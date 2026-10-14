@@ -35,9 +35,14 @@ function buildWhatsAppUrl(phone: string, text: string): string {
   if (c.startsWith('0')) c = '62' + c.slice(1);
   return c ? `https://wa.me/${c}?text=${encodeURIComponent(text)}` : '#';
 }
+
+// ✅ FIX 1: Guard anti string "false"
 function isAssessmentOpen(sd: any, sid: ProductionStage) {
   const cfg = sd?.[sid];
-  if (!cfg || cfg.assessmentEnabled === false) return { open: false, reason: 'disabled' as const };
+  if (!cfg) return { open: false, reason: 'disabled' as const };
+  const raw = cfg.assessmentEnabled;
+  const isEnabled = raw === true || raw === 'true';
+  if (!isEnabled) return { open: false, reason: 'disabled' as const };
   let sMs: number | undefined, eMs: number | undefined;
   if (cfg.assessmentStartDate) { const iso = buildISO(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00'); if (iso) sMs = new Date(iso).getTime(); }
   if (cfg.assessmentEndDate) { const iso = buildISO(cfg.assessmentEndDate, cfg.assessmentEndTime || '23:59'); if (iso) eMs = new Date(iso).getTime(); }
@@ -46,6 +51,7 @@ function isAssessmentOpen(sd: any, sid: ProductionStage) {
   if (eMs && !isNaN(eMs) && now > eMs) return { open: false, reason: 'ended' as const, startMs: sMs, endMs: eMs };
   return { open: true, reason: 'open' as const, startMs: sMs, endMs: eMs };
 }
+
 function computeTaskResponsibility(student: UserProfile, deadlines: any[], subs: any[], stage: ProductionStage) {
   const myTasks = deadlines.filter(t => {
     if (t.stage && t.stage !== stage) return false;
@@ -86,6 +92,7 @@ function computeTaskResponsibility(student: UserProfile, deadlines: any[], subs:
   if (cMiss > 0) score = 1;
   return { score, totalTasks: total, pctOnTime: pct };
 }
+
 function computeAttendance(student: UserProfile, sessions: any[], records: any[], stage: ProductionStage) {
   const stageSess = sessions.filter(s => !s.stageId || s.stageId === stage);
   const sIds = new Set(stageSess.map(s => s.id));
@@ -206,10 +213,23 @@ export const AssessmentModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
+  // ✅ FIX 2: Guard anti string "false" untuk stage enabled
   const isStageEnabled = (sid: ProductionStage) => {
     if (!stageConfig?.stageDeadlines) return true;
     const c = stageConfig.stageDeadlines[sid];
-    return !c || c.enabled !== false;
+    if (!c) return true;
+    const raw = c.enabled;
+    if (raw === false || raw === 'false') return false;
+    return true;
+  };
+
+  // ✅ Helper: cek langsung ke Firestore (anti-bypass)
+  const isDirectDisabled = () => {
+    const directCfg = stageConfig?.stageDeadlines?.[selectedStage];
+    if (!directCfg) return false;
+    const raw = directCfg.assessmentEnabled;
+    const enabled = raw === true || raw === 'true';
+    return !enabled;
   };
 
   const isStageLocked = !isStageEnabled(selectedStage);
@@ -292,7 +312,9 @@ export const AssessmentModule: React.FC = () => {
     return { finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs };
   };
 
+  // ✅ FIX 3: Guard di openGrading
   const openGrading = (s: UserProfile) => {
+    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan oleh Guru.', 'error'); return; }
     if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
     if (isAssessmentLocked) {
       if (aStatus.reason === 'not-started' && aStatus.startMs) showToast(`Dibuka dalam ${formatDuration(aStatus.startMs - Date.now())}.`, 'warning');
@@ -311,8 +333,10 @@ export const AssessmentModule: React.FC = () => {
     setIsGradingOpen(true);
   };
 
+  // ✅ FIX 4: Guard di handleSave
   const handleSave = async () => {
     if (!user || !selectedStudent || !activeClass) return;
+    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan. Tidak bisa menyimpan.', 'error'); return; }
     if (isStageLocked || isAssessmentLocked) { showToast('Penilaian terkunci.', 'warning'); return; }
     const low = Object.values(manualScores).some(v => v <= 2);
     if (low && (!comment || comment.trim().length < 5)) { showToast('Komentar wajib bila ada nilai <= 2!', 'error'); return; }
@@ -487,13 +511,8 @@ export const AssessmentModule: React.FC = () => {
 
       {canManageAll && pendingPeers.length > 0 && (() => {
         const allSelected = pendingPeers.every(p => selectedPeerIds.includes(p.uid));
-        const toggleAll = () => {
-          if (allSelected) setSelectedPeerIds([]);
-          else setSelectedPeerIds(pendingPeers.map(p => p.uid));
-        };
-        const toggleOne = (uid: string) => {
-          setSelectedPeerIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]);
-        };
+        const toggleAll = () => { if (allSelected) setSelectedPeerIds([]); else setSelectedPeerIds(pendingPeers.map(p => p.uid)); };
+        const toggleOne = (uid: string) => { setSelectedPeerIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]); };
         const selectedList = pendingPeers.filter(p => selectedPeerIds.includes(p.uid));
         const selectedWithPhone = selectedList.filter(p => p.phone);
 
