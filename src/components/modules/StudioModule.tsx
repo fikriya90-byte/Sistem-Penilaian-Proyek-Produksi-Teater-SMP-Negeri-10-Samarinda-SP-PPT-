@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   CheckCircle, Clock, Mic, Music, Play, Save,
   Sparkles, Square, Users, ExternalLink, Upload, Link2,
-  FileText, X, BookOpen, Wand2, Trash2, Edit3, AlertTriangle,
-  Rocket, Globe, Download, Eye, Lock, ShieldAlert, Search, Filter,
-  PlusCircle, Headphones, Youtube,
+  FileText, X, Wand2, Trash2, Edit3, AlertTriangle,
+  Rocket, Download, Eye, Lock, ShieldAlert, Search, Filter,
+  PlusCircle, Headphones, Volume2,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIALOG_PRACTICE_STEPS } from '../../core/constants';
@@ -12,8 +12,7 @@ import { UserProfile } from '../../core/types';
 import { fetchUsersByClass, recordAuditLog } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 import {
-  doc, setDoc, onSnapshot, deleteDoc, getDoc, collection, query, where,
-  updateDoc,
+  doc, setDoc, onSnapshot, deleteDoc, collection, query, where,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
@@ -54,7 +53,7 @@ interface MusicReference {
 }
 
 // ═══════════════════════════════════════════════════════
-// KONFIGURASI KATEGORI
+// KONFIGURASI
 // ═══════════════════════════════════════════════════════
 const CATEGORY_CONFIG: Record<MusicCategory, { label: string; color: string }> = {
   PEMBUKA:   { label: 'Musik Pembuka',    color: 'bg-amber-100 text-amber-800 border-amber-300' },
@@ -74,7 +73,7 @@ const SOURCE_CONFIG: Record<MusicSource, { label: string; color: string }> = {
 };
 
 // ═══════════════════════════════════════════════════════
-// HELPER: Cek URL audio
+// HELPER URL
 // ═══════════════════════════════════════════════════════
 function getDriveFileId(url: string): string | null {
   if (!url) return null;
@@ -97,19 +96,21 @@ function buildPreviewUrl(url: string): string | null {
   return `https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`;
 }
 
+// Link download langsung (tanpa buka Drive viewer)
 function buildDownloadUrl(url: string): string {
   const id = getDriveFileId(url);
-  if (id) return `https://drive.google.com/uc?export=download&id=${id}`;
+  if (id) {
+    // Format direct download dari Google Drive
+    return `https://drive.google.com/uc?export=download&id=${id}`;
+  }
   return url;
 }
 
-// Cek apakah URL bisa dimainkan langsung sebagai <audio>
 function isDirectAudioUrl(url: string): boolean {
   if (!url) return false;
   return /\.(mp3|wav|ogg|m4a|aac|flac|opus|webm)(\?|#|$)/i.test(url);
 }
 
-// Cek apakah URL YouTube
 function getYouTubeId(url: string): string | null {
   if (!url) return null;
   const patterns = [
@@ -125,8 +126,9 @@ function getYouTubeId(url: string): string | null {
   return null;
 }
 
-// Cek apakah URL bisa dimainkan sebagai audio (direct / youtube / drive)
-function getPlayableType(url: string): 'audio' | 'youtube' | 'drive' | 'external' {
+type PlayableType = 'audio' | 'youtube' | 'drive' | 'external';
+
+function getPlayableType(url: string): PlayableType {
   if (!url) return 'external';
   if (isDirectAudioUrl(url)) return 'audio';
   if (getYouTubeId(url)) return 'youtube';
@@ -141,7 +143,7 @@ export const StudioModule: React.FC = () => {
   const { user, activeClass, isSutradara, isAsisten, isTeacher, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'script' | 'dialog' | 'recorder' | 'timers' | 'music'>('script');
+  const [activeTab, setActiveTab] = useState<'script' | 'music' | 'dialog' | 'recorder' | 'timers'>('script');
   const [actors, setActors] = useState<UserProfile[]>([]);
 
   // ============ SCRIPT / NASKAH ============
@@ -197,7 +199,6 @@ export const StudioModule: React.FC = () => {
 
   const canViewScript = !!user;
 
-  // Yang bisa kelola referensi musik: Guru, Sutradara, Astrada, Koor/Anggota Musik
   const canManageMusic = !!user && (
     isGuruPengampu ||
     isTeacher ||
@@ -221,7 +222,7 @@ export const StudioModule: React.FC = () => {
     });
   }, [activeClass]);
 
-  // Subscribe naskah dari Firestore
+  // Subscribe naskah
   useEffect(() => {
     if (!activeClass) return;
     setScriptLoading(true);
@@ -237,7 +238,7 @@ export const StudioModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // Subscribe referensi musik
+  // Subscribe musik
   useEffect(() => {
     if (!activeClass) return;
     const q = query(
@@ -285,10 +286,6 @@ export const StudioModule: React.FC = () => {
       showToast('Judul dan link naskah wajib diisi.', 'warning');
       return;
     }
-    if (!scriptUrl.includes('drive.google.com') && !scriptUrl.includes('docs.google.com')) {
-      showToast('Link harus dari Google Drive/Docs.', 'warning');
-      return;
-    }
 
     setSavingScript(true);
     try {
@@ -328,16 +325,11 @@ export const StudioModule: React.FC = () => {
       showToast('Anda tidak berwenang menghapus naskah.', 'warning');
       return;
     }
-    if (!confirm('Hapus naskah kelas ini? Semua anggota tidak akan bisa lihat naskah lagi sampai di-upload ulang.')) return;
+    if (!confirm('Hapus naskah kelas ini?')) return;
 
     setDeletingScript(true);
     try {
       await deleteDoc(doc(db, 'scripts', activeClass.id));
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'DELETE', targetType: 'Script', targetId: activeClass.id,
-        details: `Hapus naskah kelas`,
-      });
       showToast('Naskah dihapus.', 'info');
     } catch (err: any) {
       showToast('Gagal hapus: ' + (err?.message || 'Unknown'), 'error');
@@ -443,15 +435,27 @@ export const StudioModule: React.FC = () => {
     if (!confirm(`Hapus referensi "${item.title}"?`)) return;
     try {
       await deleteDoc(doc(db, 'musicReferences', item.id));
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'DELETE', targetType: 'MusicReference', targetId: item.id,
-        details: `Hapus referensi musik: "${item.title}"`,
-      });
       showToast('Referensi dihapus.', 'info');
     } catch (err: any) {
       showToast('Gagal hapus: ' + (err?.message || 'Unknown'), 'error');
     }
+  };
+
+  // 🎯 DOWNLOAD AUDIO — PRIORITAS UTAMA UNTUK SISWA
+  const handleDownloadMusic = (item: MusicReference) => {
+    const type = getPlayableType(item.audioUrl);
+
+    if (type === 'youtube') {
+      // YouTube tidak bisa download langsung — arahkan ke YouTube
+      showToast('YouTube tidak bisa diunduh langsung. Buka YouTube dan download via app/web.', 'info');
+      window.open(item.audioUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    // Semua tipe lain: pakai buildDownloadUrl (khusus Drive → direct download)
+    const downloadUrl = buildDownloadUrl(item.audioUrl);
+    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+    showToast(`🎵 "${item.title}" sedang diunduh...`, 'success');
   };
 
   const filteredMusic = musicRefs.filter(m => {
@@ -592,27 +596,6 @@ export const StudioModule: React.FC = () => {
             </div>
           </div>
 
-          {canViewScript && (
-            <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-              {canManageScript ? (
-                <>
-                  <ShieldAlert className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                    <strong>Akses Anda: {user?.role}.</strong> Anda dapat <strong>mengupload, mengganti, dan menghapus</strong> naskah kelas ini.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                    <strong>Mode Lihat.</strong> Anda dapat melihat & mendownload naskah.
-                    Yang berhak mengelola: <strong>Sutradara, Asisten Sutradara, & Guru</strong>.
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-
           {scriptLoading ? (
             <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
@@ -658,13 +641,13 @@ export const StudioModule: React.FC = () => {
               </div>
 
               <div className="px-6 pb-4 flex flex-wrap gap-2">
-                <button onClick={() => setIsPreviewOpen(true)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition">
-                  <Eye className="w-4 h-4" /> Pratinjau Naskah
-                </button>
                 <button onClick={handleDownloadScript}
                   className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition">
-                  <Download className="w-4 h-4" /> Download
+                  <Download className="w-4 h-4" /> Download Naskah
+                </button>
+                <button onClick={() => setIsPreviewOpen(true)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition">
+                  <Eye className="w-4 h-4" /> Pratinjau
                 </button>
                 <a href={script.fileUrl} target="_blank" rel="noreferrer"
                   className="px-4 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm transition">
@@ -721,7 +704,7 @@ export const StudioModule: React.FC = () => {
       {/* ============================================ */}
       {activeTab === 'music' && (
         <div className="space-y-5">
-          {/* Header info */}
+          {/* Header */}
           <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-700 via-orange-800 to-rose-900 text-white shadow-xl border border-amber-500/20">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-start gap-3">
@@ -734,7 +717,7 @@ export const StudioModule: React.FC = () => {
                   </span>
                   <h3 className="text-lg font-black mt-1">Referensi Musik Sandima</h3>
                   <p className="text-xs text-slate-200 mt-0.5">
-                    Kumpulan audio referensi musik untuk produksi teater — paste link, ketik deskripsi
+                    🎯 Klik tombol <strong className="text-amber-300">DOWNLOAD</strong> untuk simpan audio ke perangkat Anda
                   </p>
                 </div>
               </div>
@@ -755,15 +738,14 @@ export const StudioModule: React.FC = () => {
                 <ShieldAlert className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
                   <strong>Akses Anda: {user?.role}.</strong> Anda dapat <strong>menambah, mengedit, dan menghapus</strong> referensi musik.
-                  Semua anggota kelas dapat memutar & melihat.
                 </p>
               </>
             ) : (
               <>
-                <Lock className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <Download className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                  <strong>Mode Lihat.</strong> Anda dapat memutar referensi musik.
-                  Yang berhak mengelola: <strong>Guru, Sutradara, Asisten Sutradara, & Divisi Tata Musik</strong>.
+                  <strong>Mode Siswa:</strong> klik tombol <strong>DOWNLOAD</strong> pada setiap referensi untuk menyimpan audio ke perangkat.
+                  Anda juga dapat memutar audio langsung di halaman ini (jika link-nya mendukung).
                 </p>
               </>
             )}
@@ -858,9 +840,21 @@ export const StudioModule: React.FC = () => {
                       </p>
                     )}
 
-                    {/* Player area */}
+                    {/* 🎯 DOWNLOAD BUTTON — PRIORITAS UTAMA */}
+                    <button
+                      onClick={() => handleDownloadMusic(item)}
+                      className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-[0.98]"
+                    >
+                      <Download className="w-5 h-5" />
+                      DOWNLOAD AUDIO
+                    </button>
+
+                    {/* Player (opsional, sekunder) */}
                     {playType === 'audio' && (
                       <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                        <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5 flex items-center gap-1">
+                          <Volume2 className="w-3 h-3" /> Pratinjau (opsional)
+                        </p>
                         <audio controls src={item.audioUrl} className="w-full" preload="none">
                           Browser Anda tidak mendukung pemutar audio.
                         </audio>
@@ -868,38 +862,47 @@ export const StudioModule: React.FC = () => {
                     )}
 
                     {playType === 'youtube' && ytId && (
-                      <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-black aspect-video">
-                        <iframe
-                          src={`https://www.youtube.com/embed/${ytId}`}
-                          title={item.title}
-                          className="w-full h-full border-0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      </div>
+                      <details className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+                        <summary className="p-2.5 cursor-pointer text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                          <Play className="w-3.5 h-3.5" /> Pratinjau YouTube (klik untuk buka)
+                        </summary>
+                        <div className="aspect-video bg-black">
+                          <iframe
+                            src={`https://www.youtube.com/embed/${ytId}`}
+                            title={item.title}
+                            className="w-full h-full border-0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      </details>
                     )}
 
                     {playType === 'drive' && drivePreview && (
-                      <div className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 aspect-video">
-                        <iframe
-                          src={drivePreview}
-                          title={item.title}
-                          className="w-full h-full border-0"
-                          allow="autoplay"
-                        />
-                      </div>
+                      <details className="rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+                        <summary className="p-2.5 cursor-pointer text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1.5">
+                          <Play className="w-3.5 h-3.5" /> Pratinjau Google Drive (klik untuk buka)
+                        </summary>
+                        <div className="aspect-video bg-slate-100 dark:bg-slate-900">
+                          <iframe
+                            src={drivePreview}
+                            title={item.title}
+                            className="w-full h-full border-0"
+                            allow="autoplay"
+                          />
+                        </div>
+                      </details>
                     )}
 
                     {playType === 'external' && (
-                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2">
-                        <Link2 className="w-4 h-4 text-slate-400 shrink-0" />
-                        <p className="text-[11px] text-slate-500 dark:text-slate-400 italic truncate flex-1">
-                          {item.audioUrl}
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">
+                          Link eksternal — tombol DOWNLOAD di atas akan membuka link sumber.
                         </p>
                       </div>
                     )}
 
-                    {/* Meta uploader */}
+                    {/* Meta */}
                     <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between gap-2 flex-wrap">
                       <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                         <Users className="w-3 h-3" />
@@ -914,19 +917,12 @@ export const StudioModule: React.FC = () => {
                       </span>
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 flex-wrap">
+                    {/* Aksi tambahan */}
+                    <div className="flex items-center gap-2">
                       <a href={item.audioUrl} target="_blank" rel="noreferrer"
-                        className="flex-1 py-2 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 transition">
-                        <ExternalLink className="w-3.5 h-3.5" /> Buka di Tab Baru
+                        className="flex-1 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-[11px] flex items-center justify-center gap-1.5 transition">
+                        <ExternalLink className="w-3.5 h-3.5" /> Buka Sumber
                       </a>
-
-                      {playType === 'audio' && (
-                        <a href={buildDownloadUrl(item.audioUrl)} target="_blank" rel="noreferrer"
-                          className="px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] flex items-center gap-1.5 transition">
-                          <Download className="w-3.5 h-3.5" /> Unduh
-                        </a>
-                      )}
 
                       {canManageMusic && (
                         <>
@@ -949,17 +945,18 @@ export const StudioModule: React.FC = () => {
             </div>
           )}
 
-          {/* Tips */}
-          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              <strong>Tips pemutaran:</strong>
-              <ul className="list-disc pl-4 mt-1 space-y-0.5">
-                <li><strong>MP3 / WAV / M4A (link langsung)</strong> → bisa diputar langsung di halaman ini</li>
-                <li><strong>Google Drive</strong> → file ditampilkan dalam pemutar Drive (pastikan izin "Anyone with the link")</li>
-                <li><strong>YouTube</strong> → otomatis jadi pemutar video embed</li>
-                <li>Kalau link lain (mis. SoundCloud/Spotify), pakai tombol <strong>Buka di Tab Baru</strong></li>
-              </ul>
+          {/* Tips download */}
+          <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
+            <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
+              <strong>💡 Cara siswa mengunduh audio:</strong>
+              <ol className="list-decimal pl-4 mt-1 space-y-0.5">
+                <li>Klik tombol <strong>DOWNLOAD AUDIO</strong> di card referensi</li>
+                <li>File akan ter-download ke perangkat (HP/laptop) siswa</li>
+                <li>Untuk Google Drive: tombol download akan buka link download langsung</li>
+                <li>Untuk YouTube: tombol akan buka YouTube — download via app YouTube Premium atau screen record</li>
+                <li>Untuk MP3 langsung: file akan ter-download otomatis</li>
+              </ol>
             </div>
           </div>
         </div>
@@ -1200,10 +1197,10 @@ export const StudioModule: React.FC = () => {
             </div>
 
             <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+              <Download className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
               <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                Paste link audio dari <strong>Google Drive, YouTube, SoundCloud,</strong> atau link MP3/WAV langsung.
-                Kalau dari Drive: pastikan izin <strong>"Anyone with the link can view"</strong>.
+                <strong>Penting:</strong> Siswa akan <strong>mengunduh audio</strong> ini.
+                Pastikan link Google Drive di-set <strong>"Anyone with the link can view"</strong> agar siswa bisa download.
               </p>
             </div>
 
@@ -1225,20 +1222,19 @@ export const StudioModule: React.FC = () => {
                 <Link2 className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                 <input type="url" required value={musicUrl}
                   onChange={(e) => setMusicUrl(e.target.value)}
-                  placeholder="https://drive.google.com/... atau https://youtu.be/... atau https://.../audio.mp3"
+                  placeholder="https://drive.google.com/... atau https://.../audio.mp3"
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
 
-              {/* Preview kecil info playable */}
               {musicUrl.trim().length > 8 && (
                 <div className="mt-2">
                   {(() => {
                     const t = getPlayableType(musicUrl);
                     const map: Record<string, { label: string; color: string }> = {
-                      audio:    { label: '🎵 Audio langsung — bisa diputar di halaman', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-                      youtube:  { label: '▶️ YouTube — akan jadi video embed', color: 'text-rose-700 bg-rose-50 border-rose-200' },
-                      drive:    { label: '📁 Google Drive — akan jadi pemutar Drive', color: 'text-blue-700 bg-blue-50 border-blue-200' },
-                      external: { label: '🔗 Link eksternal — pakai tombol "Buka di Tab Baru"', color: 'text-slate-600 bg-slate-50 border-slate-200' },
+                      audio:    { label: '🎵 MP3 langsung — bisa diputar & diunduh langsung', color: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+                      youtube:  { label: '▶️ YouTube — siswa akan diarahkan ke YouTube (bisa download via app)', color: 'text-rose-700 bg-rose-50 border-rose-200' },
+                      drive:    { label: '📁 Google Drive — siswa bisa download langsung dari card', color: 'text-blue-700 bg-blue-50 border-blue-200' },
+                      external: { label: '🔗 Link eksternal — tombol download akan buka link', color: 'text-slate-600 bg-slate-50 border-slate-200' },
                     };
                     const info = map[t];
                     return (
@@ -1284,10 +1280,10 @@ export const StudioModule: React.FC = () => {
               </label>
               <textarea rows={4} value={musicDescription}
                 onChange={(e) => setMusicDescription(e.target.value)}
-                placeholder="Contoh: Musik pembuka dengan instrumen sape khas Kutai, tempo lambat, nuansa mistis. Durasi 1:30. Cocok untuk pembukaan adegan pertama sebelum Ratu masuk."
+                placeholder="Contoh: Musik pembuka dengan instrumen sape khas Kutai, tempo lambat, nuansa mistis. Durasi 1:30."
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white leading-relaxed" />
               <p className="text-[10px] text-slate-400 mt-1">
-                Deskripsi bebas — bisa menjelaskan nuansa, instrumen, tempo, durasi, atau kapan dipakai.
+                Deskripsi bebas — nuansa, instrumen, tempo, durasi, kapan dipakai.
               </p>
             </div>
 
@@ -1307,7 +1303,7 @@ export const StudioModule: React.FC = () => {
       )}
 
       {/* ============================================ */}
-      {/* MODAL PREVIEW FULL SCREEN */}
+      {/* MODAL PREVIEW NASKAH */}
       {/* ============================================ */}
       {isPreviewOpen && script && (
         <div className="fixed inset-0 z-[80] flex flex-col bg-slate-950/95 backdrop-blur-md">
@@ -1326,10 +1322,6 @@ export const StudioModule: React.FC = () => {
                 className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5">
                 <Download className="w-3.5 h-3.5" /> Download
               </button>
-              <a href={script.fileUrl} target="_blank" rel="noreferrer"
-                className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5">
-                <ExternalLink className="w-3.5 h-3.5" /> Tab Baru
-              </a>
               <button onClick={() => setIsPreviewOpen(false)}
                 className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white">
                 <X className="w-4 h-4" />
@@ -1345,7 +1337,6 @@ export const StudioModule: React.FC = () => {
                   <div className="w-full h-full flex flex-col items-center justify-center text-white p-6 text-center">
                     <FileText className="w-12 h-12 text-slate-600 mb-3" />
                     <p className="text-sm font-bold">Preview tidak tersedia</p>
-                    <p className="text-xs text-slate-400 mt-1">Gunakan tombol "Tab Baru" atau "Download".</p>
                   </div>
                 );
               }
