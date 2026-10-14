@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, Save, AlertTriangle,
-  BookOpen, Star, Flag, Palette, Award,
+  BookOpen, Star, Flag, Palette, Award, Sparkles,
   Zap, RefreshCw, ArrowRight, Info, Timer,
   ToggleLeft,
 } from 'lucide-react';
@@ -73,7 +73,7 @@ function getAssessmentStatus(cfg: StageDeadline): {
   startMs?: number; endMs?: number; label: string; color: string;
 } {
   if (!cfg.assessmentEnabled) {
-    return { status: 'off', label: 'Nonaktif', color: 'bg-slate-100 text-slate-700 border-slate-300' };
+    return { status: 'off', label: 'Nonaktif', color: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600' };
   }
   const startMs = cfg.assessmentStartDate
     ? new Date(buildISO(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00')).getTime()
@@ -83,22 +83,22 @@ function getAssessmentStatus(cfg: StageDeadline): {
     : undefined;
 
   if (!startMs && !endMs) {
-    return { status: 'open-no-limit', label: 'Terbuka tanpa batas', color: 'bg-emerald-50 text-emerald-700 border-emerald-300' };
+    return { status: 'open-no-limit', label: 'Terbuka tanpa batas', color: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40' };
   }
   if (startMs && endMs && startMs >= endMs) {
-    return { status: 'incomplete', label: 'Waktu tidak valid (mulai >= selesai)', color: 'bg-rose-50 text-rose-700 border-rose-300', startMs, endMs };
+    return { status: 'incomplete', label: 'Waktu tidak valid (mulai ≥ selesai)', color: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40', startMs, endMs };
   }
   const now = Date.now();
   if (startMs && now < startMs) {
-    return { status: 'not-started', label: `Akan dibuka dalam ${formatDuration(startMs - now)}`, color: 'bg-blue-50 text-blue-700 border-blue-300', startMs, endMs };
+    return { status: 'not-started', label: `Akan dibuka dalam ${formatDuration(startMs - now)}`, color: 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40', startMs, endMs };
   }
   if (endMs && now > endMs) {
-    return { status: 'ended', label: 'Sudah ditutup', color: 'bg-rose-50 text-rose-700 border-rose-300', startMs, endMs };
+    return { status: 'ended', label: 'Sudah ditutup', color: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40', startMs, endMs };
   }
   if (endMs) {
-    return { status: 'open', label: `Terbuka — sisa ${formatDuration(endMs - now)}`, color: 'bg-emerald-50 text-emerald-700 border-emerald-300', startMs, endMs };
+    return { status: 'open', label: `Terbuka — sisa ${formatDuration(endMs - now)}`, color: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40', startMs, endMs };
   }
-  return { status: 'open-no-limit', label: 'Terbuka tanpa batas', color: 'bg-emerald-50 text-emerald-700 border-emerald-300', startMs, endMs };
+  return { status: 'open-no-limit', label: 'Terbuka tanpa batas', color: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40', startMs, endMs };
 }
 
 export const StageManagerModule: React.FC = () => {
@@ -303,6 +303,7 @@ export const StageManagerModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -311,7 +312,7 @@ export const StageManagerModule: React.FC = () => {
             </span>
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
-                Manajemen Tahapan
+                Manajemen Tahapan & Penilaian
               </span>
               <h2 className="text-xl font-black text-white mt-1">Tahapan & Jadwal Penilaian</h2>
               <p className="text-xs text-slate-300 mt-0.5">Atur kapan tahapan aktif & kapan penilaian dibuka</p>
@@ -324,30 +325,32 @@ export const StageManagerModule: React.FC = () => {
         </div>
       </div>
 
-      <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 flex items-start gap-3">
-        <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-900 leading-relaxed">
+      {/* INFO */}
+      <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3">
+        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
           <p><strong>2 jadwal terpisah:</strong></p>
           <ul className="list-disc pl-4 mt-1 space-y-0.5">
-            <li><strong>A. Jadwal Tahapan</strong> — kapan siswa boleh mengerjakan tugas</li>
-            <li><strong>B. Jadwal Penilaian</strong> — kapan siswa boleh mengisi nilai</li>
+            <li><strong>A. Jadwal Tahapan</strong> → kapan siswa boleh <em>mengerjakan tugas</em></li>
+            <li><strong>B. Jadwal Penilaian</strong> → kapan siswa boleh <em>mengisi nilai</em></li>
           </ul>
         </div>
       </div>
 
+      {/* CARRY OVER */}
       {carryOverCount > 0 && (
-        <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md">
+        <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border-2 border-amber-300 dark:border-amber-500/40 shadow-md">
           <div className="flex items-start gap-3">
             <span className="p-2.5 rounded-2xl bg-amber-500 text-white shrink-0"><Zap className="w-5 h-5" /></span>
             <div className="flex-1">
-              <h3 className="text-sm font-extrabold text-amber-900">{carryOverCount} Deadline dari Tahap Sebelumnya</h3>
+              <h3 className="text-sm font-extrabold text-amber-900 dark:text-amber-200">{carryOverCount} Deadline dari Tahap Sebelumnya</h3>
               <div className="flex items-center gap-2 mt-3 flex-wrap">
                 <button onClick={handleCarryOver} disabled={isCarryingOver}
                   className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 disabled:opacity-50">
                   <ArrowRight className="w-3.5 h-3.5" /> Carry Over ke {currentStage}
                 </button>
                 <button onClick={checkCarryOver} disabled={checkingCarryOver}
-                  className="px-3 py-2.5 rounded-xl bg-white border border-amber-300 text-amber-800 font-bold text-xs flex items-center gap-1.5">
+                  className="px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-amber-300 text-amber-800 dark:text-amber-300 font-bold text-xs flex items-center gap-1.5">
                   <RefreshCw className={`w-3.5 h-3.5 ${checkingCarryOver ? 'animate-spin' : ''}`} /> Cek Ulang
                 </button>
               </div>
@@ -356,9 +359,10 @@ export const StageManagerModule: React.FC = () => {
         </div>
       )}
 
-      <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm">
-        <h3 className="text-base font-extrabold text-slate-900 mb-1">Tahapan Aktif</h3>
-        <p className="text-xs text-slate-500 mb-4">Pilih tahapan yang sedang berlangsung.</p>
+      {/* TAHAPAN AKTIF */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-base font-extrabold text-slate-900 dark:text-white mb-1">Tahapan Aktif</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Pilih tahapan yang sedang berlangsung.</p>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {STAGES.map(stage => {
             const meta = STAGE_META[stage.id];
@@ -369,8 +373,8 @@ export const StageManagerModule: React.FC = () => {
               <button key={stage.id} onClick={() => setCurrentStage(stage.id)}
                 className={`p-4 rounded-2xl border text-left transition ${
                   isActive ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-md ring-2 ring-amber-400/30'
-                    : enabled ? 'bg-white text-slate-700 border-slate-200 hover:border-amber-400'
-                    : 'bg-slate-100 text-slate-400 border-slate-200 opacity-70'
+                    : enabled ? 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-amber-400'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 opacity-70'
                 }`}>
                 <Icon className={`w-5 h-5 mb-2 ${isActive ? 'text-slate-950' : enabled ? 'text-amber-500' : 'text-slate-400'}`} />
                 <p className="text-xs font-black uppercase tracking-wider">{stage.id}</p>
@@ -381,9 +385,10 @@ export const StageManagerModule: React.FC = () => {
         </div>
       </div>
 
+      {/* PER-TAHAP */}
       <div className="space-y-6">
-        <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-indigo-600" /> Pengaturan Per Tahap
+        <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+          <Clock className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> Pengaturan Per Tahap
         </h3>
 
         {STAGES.map(stage => {
@@ -394,19 +399,19 @@ export const StageManagerModule: React.FC = () => {
           const aStatus = getAssessmentStatus(config);
 
           return (
-            <div key={stage.id} className={`rounded-3xl border-2 overflow-hidden ${isActiveStage ? 'border-amber-400 shadow-lg' : 'border-slate-200'}`}>
+            <div key={stage.id} className={`rounded-3xl border-2 overflow-hidden ${isActiveStage ? 'border-amber-400 shadow-lg' : 'border-slate-200 dark:border-slate-700'}`}>
               <div className={`p-4 flex items-center gap-3 ${
-                isActiveStage ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-slate-100'
+                isActiveStage ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-slate-100 dark:bg-slate-800'
               }`}>
                 <span className={`p-2 rounded-xl ${isActiveStage ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-600'}`}>
                   <Icon className="w-5 h-5" />
                 </span>
                 <div className="flex-1">
-                  <h4 className={`text-sm font-black ${isActiveStage ? 'text-white' : 'text-slate-900'}`}>
+                  <h4 className={`text-sm font-black ${isActiveStage ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
                     {stage.name}
                   </h4>
-                  <p className={`text-[10px] ${isActiveStage ? 'text-white/80' : 'text-slate-500'}`}>
-                    {meta.desc} — Bobot {stage.defaultWeight}%
+                  <p className={`text-[10px] ${isActiveStage ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'}`}>
+                    {meta.desc} • Bobot {stage.defaultWeight}%
                   </p>
                 </div>
                 {isActiveStage && (
@@ -416,20 +421,20 @@ export const StageManagerModule: React.FC = () => {
                 )}
               </div>
 
-              <div className="p-5 space-y-4 bg-white">
-                {/* CARD A */}
-                <div className="rounded-2xl border-2 border-slate-200 overflow-hidden">
-                  <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <div className="p-5 space-y-4 bg-white dark:bg-slate-900">
+                {/* CARD A: JADWAL TAHAPAN */}
+                <div className="rounded-2xl border-2 border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <BookOpen className="w-4 h-4 text-slate-600" />
-                      <span className="text-xs font-extrabold text-slate-800">A. Jadwal Tahapan</span>
-                      <span className="text-[10px] text-slate-500">— kapan siswa mengerjakan tugas</span>
+                      <BookOpen className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                      <span className="text-xs font-extrabold text-slate-800 dark:text-white">A. Jadwal Tahapan</span>
+                      <span className="text-[10px] text-slate-500 dark:text-slate-400">— kapan siswa mengerjakan tugas</span>
                     </div>
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input type="checkbox" checked={config.enabled}
                         onChange={(e) => updateStage(stage.id, 'enabled', e.target.checked)}
                         className="rounded border-slate-300 text-amber-500" />
-                      <span className="text-[10px] font-bold text-slate-600">
+                      <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
                         {config.enabled ? 'Dibuka' : 'Tutup'}
                       </span>
                     </label>
@@ -437,16 +442,16 @@ export const StageManagerModule: React.FC = () => {
                   {config.enabled && (
                     <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-1">Tanggal Mulai</label>
+                        <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">📅 Tanggal Mulai</label>
                         <input type="date" value={config.startDate}
                           onChange={(e) => updateStage(stage.id, 'startDate', e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800" />
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-600 mb-1">Deadline Akhir</label>
+                        <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">🏁 Deadline Akhir</label>
                         <input type="date" value={config.endDate}
                           onChange={(e) => updateStage(stage.id, 'endDate', e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800" />
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                       </div>
                     </div>
                   )}
@@ -457,20 +462,20 @@ export const StageManagerModule: React.FC = () => {
                   )}
                 </div>
 
-                {/* CARD B */}
-                <div className="rounded-2xl border-2 border-purple-200 overflow-hidden bg-gradient-to-br from-purple-50 to-indigo-50">
-                  <div className="p-3 bg-purple-100 border-b border-purple-200 flex items-center justify-between flex-wrap gap-2">
+                {/* CARD B: JADWAL PENILAIAN */}
+                <div className="rounded-2xl border-2 border-purple-200 dark:border-purple-500/40 overflow-hidden bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10">
+                  <div className="p-3 bg-purple-100 dark:bg-purple-500/20 border-b border-purple-200 dark:border-purple-500/40 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
-                      <Award className="w-4 h-4 text-purple-700" />
-                      <span className="text-xs font-extrabold text-purple-900">B. Jadwal Penilaian</span>
-                      <span className="text-[10px] text-purple-700">— kapan siswa mengisi nilai</span>
+                      <Award className="w-4 h-4 text-purple-700 dark:text-purple-300" />
+                      <span className="text-xs font-extrabold text-purple-900 dark:text-purple-200">B. Jadwal Penilaian</span>
+                      <span className="text-[10px] text-purple-700 dark:text-purple-300">— kapan siswa mengisi nilai</span>
                     </div>
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input type="checkbox"
                         checked={!!config.assessmentEnabled}
                         onChange={(e) => updateStage(stage.id, 'assessmentEnabled', e.target.checked)}
                         className="rounded border-purple-300 text-purple-500" />
-                      <span className="text-[10px] font-bold text-purple-700">
+                      <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300">
                         {config.assessmentEnabled ? 'Aktifkan' : 'Nonaktif'}
                       </span>
                     </label>
@@ -484,63 +489,65 @@ export const StageManagerModule: React.FC = () => {
                       </div>
 
                       <div>
-                        <p className="text-[11px] font-black text-purple-900 uppercase mb-2 flex items-center gap-1.5">
+                        <p className="text-[11px] font-black text-purple-900 dark:text-purple-200 uppercase mb-2 flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5" /> Waktu Mulai Dibuka
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-[10px] font-bold text-purple-700 mb-1">Tanggal</label>
+                            <label className="block text-[10px] font-bold text-purple-700 dark:text-purple-300 mb-1">📅 Tanggal</label>
                             <input type="date"
                               value={config.assessmentStartDate || ''}
                               onChange={(e) => updateStage(stage.id, 'assessmentStartDate', e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 bg-white text-xs font-semibold text-slate-800" />
+                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 dark:border-purple-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-purple-700 mb-1">Jam</label>
+                            <label className="block text-[10px] font-bold text-purple-700 dark:text-purple-300 mb-1">🕐 Jam</label>
                             <input type="time"
                               value={config.assessmentStartTime || ''}
                               onChange={(e) => updateStage(stage.id, 'assessmentStartTime', e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 bg-white text-xs font-semibold text-slate-800" />
+                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 dark:border-purple-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                           </div>
                         </div>
                         {config.assessmentStartDate && (
-                          <p className="text-[10px] text-purple-700 mt-1.5 font-semibold">
+                          <p className="text-[10px] text-purple-700 dark:text-purple-300 mt-1.5 font-semibold">
                             Mulai: {formatDateTime(config.assessmentStartDate, config.assessmentStartTime || '00:00')}
                           </p>
                         )}
                       </div>
 
                       <div>
-                        <p className="text-[11px] font-black text-purple-900 uppercase mb-2 flex items-center gap-1.5">
+                        <p className="text-[11px] font-black text-purple-900 dark:text-purple-200 uppercase mb-2 flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5" /> Waktu Selesai Ditutup
                         </p>
                         <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <label className="block text-[10px] font-bold text-purple-700 mb-1">Tanggal</label>
+                            <label className="block text-[10px] font-bold text-purple-700 dark:text-purple-300 mb-1">📅 Tanggal</label>
                             <input type="date"
                               value={config.assessmentEndDate || ''}
                               onChange={(e) => updateStage(stage.id, 'assessmentEndDate', e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 bg-white text-xs font-semibold text-slate-800" />
+                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 dark:border-purple-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                           </div>
                           <div>
-                            <label className="block text-[10px] font-bold text-purple-700 mb-1">Jam</label>
+                            <label className="block text-[10px] font-bold text-purple-700 dark:text-purple-300 mb-1">🕐 Jam</label>
                             <input type="time"
                               value={config.assessmentEndTime || ''}
                               onChange={(e) => updateStage(stage.id, 'assessmentEndTime', e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 bg-white text-xs font-semibold text-slate-800" />
+                              className="w-full px-3 py-2 rounded-xl border-2 border-purple-200 dark:border-purple-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                           </div>
                         </div>
                         {config.assessmentEndDate && (
-                          <p className="text-[10px] text-purple-700 mt-1.5 font-semibold">
+                          <p className="text-[10px] text-purple-700 dark:text-purple-300 mt-1.5 font-semibold">
                             Selesai: {formatDateTime(config.assessmentEndDate, config.assessmentEndTime || '23:59')}
                           </p>
                         )}
                       </div>
 
                       {config.assessmentStartDate && config.assessmentEndDate && (
-                        <div className="p-3 rounded-xl bg-white border-2 border-purple-300">
-                          <p className="text-[11px] font-black text-purple-900 mb-1">Preview Jadwal Penilaian:</p>
-                          <p className="text-[11px] text-purple-800 leading-relaxed">
+                        <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border-2 border-purple-300 dark:border-purple-500/40">
+                          <p className="text-[11px] font-black text-purple-900 dark:text-purple-200 mb-1">
+                            📋 Preview Jadwal Penilaian:
+                          </p>
+                          <p className="text-[11px] text-purple-800 dark:text-purple-300 leading-relaxed">
                             Siswa bisa isi nilai dari <strong>{formatDateTime(config.assessmentStartDate, config.assessmentStartTime || '00:00')}</strong>
                             <br />sampai <strong>{formatDateTime(config.assessmentEndDate, config.assessmentEndTime || '23:59')}</strong>
                           </p>
@@ -548,22 +555,23 @@ export const StageManagerModule: React.FC = () => {
                       )}
 
                       {!config.assessmentStartDate && !config.assessmentEndDate && (
-                        <div className="p-2.5 rounded-xl bg-amber-50 border-2 border-amber-300 flex items-start gap-2">
+                        <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 flex items-start gap-2">
                           <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                          <p className="text-[10px] font-bold text-amber-900">
-                            Belum ada tanggal. Isi tanggal + jam untuk membatasi waktu. Kosong = terbuka tanpa batas.
+                          <p className="text-[10px] font-bold text-amber-900 dark:text-amber-200">
+                            Belum ada tanggal. Isi tanggal & jam mulai + selesai agar siswa tahu kapan boleh mengisi.
+                            Kalau dibiarkan kosong = <strong>terbuka tanpa batas</strong>.
                           </p>
                         </div>
                       )}
                     </div>
                   ) : (
                     <div className="p-5 text-center">
-                      <ToggleLeft className="w-8 h-8 mx-auto text-purple-300 mb-2" />
-                      <p className="text-xs font-bold text-purple-700 mb-1">
+                      <ToggleLeft className="w-8 h-8 mx-auto text-purple-300 dark:text-purple-500 mb-2" />
+                      <p className="text-xs font-bold text-purple-700 dark:text-purple-300 mb-1">
                         Penilaian tahap ini NONAKTIF
                       </p>
-                      <p className="text-[10px] text-purple-600">
-                        Centang "Aktifkan" untuk mulai mengatur.
+                      <p className="text-[10px] text-purple-600 dark:text-purple-400">
+                        Siswa tidak bisa isi nilai untuk tahap ini. Centang "Aktifkan" di atas untuk mulai mengatur.
                       </p>
                     </div>
                   )}
@@ -574,9 +582,10 @@ export const StageManagerModule: React.FC = () => {
         })}
       </div>
 
+      {/* SAVE BOTTOM */}
       <div className="p-4 rounded-3xl bg-gradient-to-r from-slate-900 to-slate-800 flex items-center justify-between flex-wrap gap-3">
         <div className="text-xs text-slate-300">
-          Tips: Set jadwal penilaian pendek (3-7 hari) per tahap.
+          💡 <strong className="text-white">Tips:</strong> Set jadwal penilaian pendek (mis. 3-7 hari) di setiap tahap.
         </div>
         <button onClick={handleSave} disabled={submitting}
           className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50">
