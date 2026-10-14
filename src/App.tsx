@@ -5,13 +5,11 @@ import {
 
 import { AuthProvider, useAuth } from './core/authContext';
 import { ThemeProvider } from './core/themeContext';
-
 import { ToastProvider } from './components/common/Toast';
 import { Navbar } from './components/common/Navbar';
 import { Sidebar } from './components/common/Sidebar';
 import { LoginModal } from './components/auth/LoginModal';
 import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
-import { TeacherClassPicker } from './components/common/TeacherClassPicker';
 import { StudentWelcomePage } from './components/welcome/StudentWelcomePage';
 import { DashboardReminder } from './components/common/DashboardReminder';
 
@@ -53,13 +51,14 @@ import { BookingModule } from './components/modules/BookingModule';
 import { InterClassCoordModule } from './components/modules/InterClassCoordModule';
 import { DebugUsersModule } from './components/modules/DebugUsersModule';
 import { RABModule } from './components/modules/RABModule';
-
-// ✅ BARU: Broadcast Lintas Kelas untuk welcome
 import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastModule';
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
 
+// ============================================================
+// WELCOME LAYOUT — guru dapat ManageClassModule (full CRUD)
+// ============================================================
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
   onNavigate: (m: string) => void;
@@ -83,7 +82,7 @@ const WelcomeLayout: React.FC<{
       case 'dashboard':
       default:
         return isGuruPengampu || isAdminRole ? (
-          <TeacherClassPicker onEnterClass={onEnterClass} embedded />
+          <ManageClassModule embedded onEnterClass={onEnterClass} />
         ) : (
           <StudentWelcomePage onEnterClass={onEnterClass} onNavigate={onNavigate} />
         );
@@ -244,6 +243,7 @@ const MainLayout: React.FC = () => {
     );
   }
 
+  // ✅ CATATAN: 'kelola-kelas' SUDAH DIHAPUS dari sini (pindah ke welcome)
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
@@ -273,7 +273,6 @@ const MainLayout: React.FC = () => {
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
       case 'kelola-siswa': return <ManageStudentModule onNavigate={setCurrentModule} />;
-      case 'kelola-kelas': return <ManageClassModule embedded />;
       case 'kelola-tahapan': return <StageManagerModule />;
       case 'aktivitas': return <ActivityLogModule />;
       case 'backup': return <BackupModule />;
@@ -375,4 +374,4 @@ export default function App() {
       </ToastProvider>
     </ThemeProvider>
   );
-} 
+}
