@@ -3,7 +3,7 @@ import {
   Award, Lock, Unlock, Search, Users, CheckCircle,
   Calculator, TrendingUp, Info, AlertTriangle, Sparkles, Bot,
   Trash2, RotateCcw, X, Edit3, ShieldAlert, Filter, Clock,
-  RefreshCw, Bug, AlertCircle,
+  RefreshCw, Bug, AlertCircle, ArrowLeft,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
@@ -159,6 +159,7 @@ export const AssessmentModule: React.FC = () => {
   } = useAuth();
   const { showToast } = useToast();
 
+  // =========================== STATE ===========================
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [studentsLoading, setStudentsLoading] = useState(true);
   const [studentsDebug, setStudentsDebug] = useState<{
@@ -166,7 +167,7 @@ export const AssessmentModule: React.FC = () => {
     matched: number;
     source: string;
     error?: string;
-  }>({ totalUsers: 0, matched: 0, source: '-' });
+  }>({ totalUsers: 0, matched: 0, source: 'idle' });
 
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
@@ -188,12 +189,12 @@ export const AssessmentModule: React.FC = () => {
 
   const canManageAll = isGuruPengampu || isAdminRole;
 
-  // =========================================================
-  // LOAD STUDENTS — dengan fallback berlapis
-  // =========================================================
+  // =========================== LOAD STUDENTS ===========================
   const loadStudents = async () => {
     if (!activeClass) {
       setStudentsLoading(false);
+      setStudents([]);
+      setStudentsDebug({ totalUsers: 0, matched: 0, source: 'no-active-class' });
       return;
     }
 
@@ -201,17 +202,17 @@ export const AssessmentModule: React.FC = () => {
     setStudentsDebug({ totalUsers: 0, matched: 0, source: 'loading...' });
 
     try {
-      // ==== LANGKAH 1: coba fetchUsersByClass (paling akurat) ====
       let list: UserProfile[] = [];
       let source = 'fetchUsersByClass';
 
+      // ==== LANGKAH 1: coba fetchUsersByClass ====
       try {
         list = await fetchUsersByClass(activeClass.id);
-      } catch (err) {
+      } catch (err: any) {
         console.warn('fetchUsersByClass gagal:', err);
       }
 
-      // ==== LANGKAH 2: kalau kosong → fallback fetchAllUsers + filter lokal ====
+      // ==== LANGKAH 2: kalau kosong → fallback fetchAllUsers ====
       if (!list || list.length === 0) {
         console.warn('fetchUsersByClass kosong, fallback ke fetchAllUsers...');
         try {
@@ -241,7 +242,7 @@ export const AssessmentModule: React.FC = () => {
         setStudentsDebug(prev => ({ ...prev, source }));
       }
 
-      // ==== Filter role ====
+      // ==== Filter role (buang guru/admin) ====
       const filtered = list.filter(s =>
         s.role !== 'Guru Pengampu' &&
         s.role !== 'Guru Pembina' &&
@@ -251,7 +252,6 @@ export const AssessmentModule: React.FC = () => {
 
       setStudents(filtered);
 
-      // Update debug
       setStudentsDebug(prev => ({
         ...prev,
         totalUsers: prev.totalUsers || list.length,
@@ -272,15 +272,12 @@ export const AssessmentModule: React.FC = () => {
     }
   };
 
-  // Initial load
+  // =========================== USE EFFECTS ===========================
   useEffect(() => {
     loadStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClass?.id]);
 
-  // =========================================================
-  // SUBSCRIBE DATA PENDUKUNG
-  // =========================================================
   useEffect(() => {
     if (!activeClass) return;
 
@@ -300,7 +297,6 @@ export const AssessmentModule: React.FC = () => {
     return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, [activeClass]);
 
-  // Subscribe stage config
   useEffect(() => {
     if (!activeClass) return;
     const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
@@ -316,9 +312,7 @@ export const AssessmentModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // =========================================================
-  // STAGE GATE
-  // =========================================================
+  // =========================== STAGE GATE ===========================
   const isStageEnabled = (stageId: ProductionStage): boolean => {
     if (!stageConfig?.stageDeadlines) return true;
     const cfg = stageConfig.stageDeadlines[stageId];
@@ -330,9 +324,7 @@ export const AssessmentModule: React.FC = () => {
   const currentActiveStage = stageConfig?.currentStage || 'PELAKSANAAN';
   const isSelectedNotCurrent = selectedStage !== currentActiveStage;
 
-  // =========================================================
-  // AUTO SCORE
-  // =========================================================
+  // =========================== AUTO SCORE ===========================
   const isPemeran = selectedStudent?.role === 'Pemeran';
   const criteriaList = isPemeran ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
   const manualCriteria = criteriaList.filter(c => c.source === 'MANUAL');
@@ -375,9 +367,7 @@ export const AssessmentModule: React.FC = () => {
     return totalWeight > 0 ? Math.round((weightedSum / totalWeight) * 10) / 10 : 80;
   };
 
-  // =========================================================
-  // OPEN GRADING
-  // =========================================================
+  // =========================== OPEN GRADING ===========================
   const openGradingModal = (student: UserProfile) => {
     if (isStageLocked) {
       showToast(`Tahap ${selectedStage} belum dibuka oleh Guru.`, 'warning');
@@ -395,9 +385,7 @@ export const AssessmentModule: React.FC = () => {
     setIsGradingOpen(true);
   };
 
-  // =========================================================
-  // SAVE ASSESSMENT
-  // =========================================================
+  // =========================== SAVE ASSESSMENT ===========================
   const handleSaveAssessment = async () => {
     if (!user || !selectedStudent || !activeClass) return;
     if (isStageLocked) {
@@ -460,9 +448,7 @@ export const AssessmentModule: React.FC = () => {
     }
   };
 
-  // =========================================================
-  // RESET
-  // =========================================================
+  // =========================== RESET STAGE ===========================
   const handleResetStage = async () => {
     if (!canManageAll || !activeClass || !user) return;
     if (resetConfirmText.trim() !== activeClass.name) {
@@ -549,9 +535,7 @@ export const AssessmentModule: React.FC = () => {
     }
   };
 
-  // =========================================================
-  // AGGREGATED SCORE
-  // =========================================================
+  // =========================== AGGREGATED SCORE ===========================
   const getAggregatedScore = (studentId: string, studentRole: string) => {
     const records = assessments.filter(a => a.studentId === studentId && a.stage === selectedStage);
     if (records.length === 0) return null;
@@ -595,6 +579,51 @@ export const AssessmentModule: React.FC = () => {
   const stageCount = (stageId: ProductionStage) =>
     assessments.filter(a => a.stage === stageId).length;
 
+  // =========================================================
+  // GUARD: activeClass NULL — taruh SETELAH semua hooks
+  // (supaya tidak melanggar Rules of Hooks React)
+  // =========================================================
+  if (!activeClass) {
+    return (
+      <div className="p-8 rounded-3xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 text-center max-w-2xl mx-auto my-8">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-500/20 border-2 border-amber-300 dark:border-amber-500/40 mb-4">
+          <AlertCircle className="w-8 h-8 text-amber-600 dark:text-amber-400" />
+        </div>
+        <h3 className="text-base font-extrabold text-amber-900 dark:text-amber-200">
+          Anda Belum Masuk ke Kelas
+        </h3>
+        <p className="text-xs text-amber-800 dark:text-amber-300 mt-2 leading-relaxed max-w-md mx-auto">
+          Fitur penilaian membutuhkan <strong>kelas aktif</strong>. Sepertinya akun Anda
+          belum memiliki <strong>classId</strong> yang valid, atau belum masuk ke kelas.
+        </p>
+
+        <div className="mt-5 p-4 rounded-xl bg-white/70 dark:bg-slate-800/70 border border-amber-200 dark:border-amber-500/30 text-left max-w-md mx-auto">
+          <p className="text-[11px] font-bold text-amber-900 dark:text-amber-200 mb-2 flex items-center gap-1.5">
+            💡 Yang perlu dilakukan:
+          </p>
+          <ol className="text-[11px] text-amber-800 dark:text-amber-300 space-y-1.5 pl-4 list-decimal leading-relaxed">
+            <li>Kembali ke <strong>Beranda</strong> → masuk ke kelas yang benar</li>
+            <li>Kalau tidak bisa masuk, hubungi <strong>Guru Pengampu</strong></li>
+            <li>Minta beliau buka menu <strong>🔧 Debug Users</strong> di sidebar</li>
+            <li>Klik <strong>"Fix ke [nama kelas]"</strong> untuk akun Anda</li>
+            <li>Logout, login ulang, coba lagi</li>
+          </ol>
+        </div>
+
+        <div className="mt-4 p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-left max-w-md mx-auto">
+          <p className="text-[10px] font-mono text-slate-600 dark:text-slate-400 leading-relaxed">
+            <strong>Debug info:</strong><br />
+            • User UID: {user?.uid?.slice(0, 12)}...<br />
+            • Role: {user?.role || '(kosong)'}<br />
+            • classId user: {user?.classId || '(kosong)'}<br />
+            • className user: {user?.className || '(kosong)'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // =========================== RENDER ===========================
   return (
     <div className="space-y-6">
       {/* HEADER */}
@@ -617,7 +646,7 @@ export const AssessmentModule: React.FC = () => {
           <button
             onClick={loadStudents}
             disabled={studentsLoading}
-            className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition shrink-0"
+            className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs flex items-center gap-1.5 transition shrink-0 disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${studentsLoading ? 'animate-spin' : ''}`} />
             Refresh Data
@@ -671,23 +700,36 @@ export const AssessmentModule: React.FC = () => {
           </div>
         </div>
 
+        {/* Stage Locked Warning */}
+        {isStageLocked && (
+          <div className="mt-3 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
+            <Lock className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed">
+              <p className="font-bold">🔒 Tahap {selectedStage} Belum Dibuka</p>
+              <p className="mt-0.5">
+                {canManageAll
+                  ? 'Anda bisa lihat riwayat, tapi tidak bisa menilai/edit. Buka tahap ini di menu "Kelola Tahapan" dulu.'
+                  : 'Tahap ini belum dibuka oleh Guru. Tunggu info dari pengajar.'}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Info box */}
         <div className="mt-4 p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
           <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
           <div className="text-[11px] text-blue-900 dark:text-blue-200">
             <p><strong>Skor otomatis</strong>: Tanggung Jawab (25%), Kehadiran (20%), Kedisiplinan Pemeran (10%).</p>
-            <p className="mt-1"><strong>Skor manual</strong>: Kerja Sama (25%), Kreativitas (15%), Teknis (15%).</p>
+            <p className="mt-1"><strong>Skor manual</strong>: Kerja Sama (25%), Kreativitas (15%), Teknis (15%) — atau untuk Pemeran: Hafalan, Penjiwaan, Suara, Blocking, Interaksi.</p>
           </div>
         </div>
 
-        {/* DEBUG INFO — muncul saat loading atau kosong */}
+        {/* DEBUG PANEL — muncul saat loading atau kosong */}
         {(studentsLoading || students.length === 0) && (
           <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
             <Bug className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              <p className="font-bold">
-                🔍 Diagnostik Data Siswa
-              </p>
+            <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed flex-1">
+              <p className="font-bold">🔍 Diagnostik Data Siswa</p>
               <ul className="mt-1 space-y-0.5 font-mono text-[10px]">
                 <li>• Kelas ID: <strong>{activeClass?.id || '(kosong)'}</strong></li>
                 <li>• Kelas Nama: <strong>{activeClass?.name || '(kosong)'}</strong></li>
@@ -702,10 +744,10 @@ export const AssessmentModule: React.FC = () => {
                 {studentsLoading
                   ? '⏳ Memuat data...'
                   : studentsDebug.totalUsers === 0
-                  ? '❌ Firestore tidak bisa diakses. Kemungkinan: Firestore Rules memblokir read. Cek Firebase Console → Firestore → Rules.'
+                  ? '❌ Firestore tidak bisa diakses. Kemungkinan: Firestore Rules memblokir read.'
                   : studentsDebug.matched === 0
                   ? '⚠️ User ada di Firestore, tapi tidak ada yang match dengan kelas ini. Cek: apakah classId di user = classId kelas aktif?'
-                  : '✓ Seharusnya muncul. Coba klik Refresh Data di atas.'}
+                  : '✓ Data ter-load. Kalau tabel masih kosong, klik Refresh Data.'}
               </p>
             </div>
           </div>
@@ -1003,6 +1045,9 @@ export const AssessmentModule: React.FC = () => {
               <p className="text-xs font-bold text-rose-900 dark:text-rose-200">
                 ⚠️ Tindakan ini akan MENGHAPUS semua penilaian tahap <strong>{selectedStage}</strong> untuk kelas <strong>{activeClass?.name}</strong>.
               </p>
+              <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1.5 leading-relaxed">
+                Data akan dibackup dulu ke <strong>assessmentHistory</strong>.
+              </p>
             </div>
 
             <div>
@@ -1021,6 +1066,12 @@ export const AssessmentModule: React.FC = () => {
                     : 'border-rose-200 dark:border-rose-500/40'
                 }`}
               />
+              {resetConfirmText.length > 0 && resetConfirmText.trim() !== activeClass?.name && (
+                <p className="text-[11px] text-rose-600 mt-1 font-bold">❌ Nama kelas tidak cocok.</p>
+              )}
+              {resetConfirmText.trim() === activeClass?.name && (
+                <p className="text-[11px] text-emerald-600 mt-1 font-bold">✅ Cocok. Anda bisa reset.</p>
+              )}
             </div>
 
             <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
