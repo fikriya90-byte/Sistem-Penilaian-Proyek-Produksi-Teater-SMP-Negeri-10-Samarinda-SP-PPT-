@@ -1,10 +1,9 @@
-// src/components/modules/StageManagerModule.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, Save, AlertTriangle,
   BookOpen, Star, Flag, Palette, Award, Sparkles,
   Zap, RefreshCw, ArrowRight, Info, Timer,
-  ToggleLeft, ToggleRight, Power,
+  ToggleLeft,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -22,12 +21,11 @@ interface StageDeadline {
   endDate: string;
   enabled: boolean;
   notes: string;
-  // ✅ JADWAL PENILAIAN — TERPISAH dari tahapan
   assessmentEnabled?: boolean;
-  assessmentStartDate?: string;  // YYYY-MM-DD
-  assessmentStartTime?: string;  // HH:mm
-  assessmentEndDate?: string;    // YYYY-MM-DD
-  assessmentEndTime?: string;    // HH:mm
+  assessmentStartDate?: string;
+  assessmentStartTime?: string;
+  assessmentEndDate?: string;
+  assessmentEndTime?: string;
 }
 
 const STAGE_META: Record<ProductionStage, { icon: any; desc: string }> = {
@@ -39,13 +37,11 @@ const STAGE_META: Record<ProductionStage, { icon: any; desc: string }> = {
 
 const STAGE_ORDER: ProductionStage[] = ['PERSIAPAN', 'PELAKSANAAN', 'PERTUNJUKAN', 'PASCA'];
 
-// Helper: bikin ISO dari date + time
 function buildISO(dateStr: string, timeStr: string): string {
   if (!dateStr) return '';
   const t = timeStr || '00:00';
-  try {
-    return new Date(`${dateStr}T${t}:00`).toISOString();
-  } catch { return ''; }
+  try { return new Date(`${dateStr}T${t}:00`).toISOString(); }
+  catch { return ''; }
 }
 
 function formatDateTime(dateStr: string, timeStr: string): string {
@@ -71,18 +67,13 @@ function formatDuration(ms: number): string {
   return `${Math.floor(ms / 1000)} detik`;
 }
 
-// Cek status penilaian tahap
 function getAssessmentStatus(cfg: StageDeadline): {
   status: 'off' | 'incomplete' | 'not-started' | 'open' | 'ended' | 'open-no-limit';
-  startMs?: number;
-  endMs?: number;
-  label: string;
-  color: string;
+  startMs?: number; endMs?: number; label: string; color: string;
 } {
-  if (cfg.assessmentEnabled === false) {
+  if (!cfg.assessmentEnabled) {
     return { status: 'off', label: 'Nonaktif', color: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600' };
   }
-
   const startMs = cfg.assessmentStartDate
     ? new Date(buildISO(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00')).getTime()
     : undefined;
@@ -93,11 +84,9 @@ function getAssessmentStatus(cfg: StageDeadline): {
   if (!startMs && !endMs) {
     return { status: 'open-no-limit', label: 'Terbuka tanpa batas', color: 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40' };
   }
-
   if (startMs && endMs && startMs >= endMs) {
     return { status: 'incomplete', label: 'Waktu tidak valid (mulai ≥ selesai)', color: 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40', startMs, endMs };
   }
-
   const now = Date.now();
   if (startMs && now < startMs) {
     return { status: 'not-started', label: `Akan dibuka dalam ${formatDuration(startMs - now)}`, color: 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40', startMs, endMs };
@@ -116,10 +105,10 @@ export const StageManagerModule: React.FC = () => {
   const { showToast } = useToast();
 
   const [stageDeadlines, setStageDeadlines] = useState<Record<ProductionStage, StageDeadline>>({
-    PERSIAPAN:    { stageId: 'PERSIAPAN',    startDate: '', endDate: '', enabled: true,  notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
-    PELAKSANAAN:  { stageId: 'PELAKSANAAN',  startDate: '', endDate: '', enabled: true,  notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
-    PERTUNJUKAN:  { stageId: 'PERTUNJUKAN',  startDate: '', endDate: '', enabled: false, notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
-    PASCA:        { stageId: 'PASCA',        startDate: '', endDate: '', enabled: false, notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
+    PERSIAPAN:   { stageId: 'PERSIAPAN',   startDate: '', endDate: '', enabled: true,  notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
+    PELAKSANAAN: { stageId: 'PELAKSANAAN', startDate: '', endDate: '', enabled: true,  notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
+    PERTUNJUKAN: { stageId: 'PERTUNJUKAN', startDate: '', endDate: '', enabled: false, notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
+    PASCA:       { stageId: 'PASCA',       startDate: '', endDate: '', enabled: false, notes: '', assessmentEnabled: false, assessmentStartDate: '', assessmentStartTime: '', assessmentEndDate: '', assessmentEndTime: '' },
   });
 
   const [currentStage, setCurrentStage] = useState<ProductionStage>('PELAKSANAAN');
@@ -162,12 +151,11 @@ export const StageManagerModule: React.FC = () => {
             merged[k] = {
               ...merged[k],
               ...src,
-              // Migrasi: kalau ada field lama assessmentStart/End (ISO), konversi ke date/time
               assessmentEnabled: src.assessmentEnabled === true,
-              assessmentStartDate: src.assessmentStartDate || (src.assessmentStart ? new Date(src.assessmentStart).toISOString().slice(0, 10) : ''),
-              assessmentStartTime: src.assessmentStartTime || (src.assessmentStart ? new Date(src.assessmentStart).toTimeString().slice(0, 5) : ''),
-              assessmentEndDate: src.assessmentEndDate || (src.assessmentEnd ? new Date(src.assessmentEnd).toISOString().slice(0, 10) : ''),
-              assessmentEndTime: src.assessmentEndTime || (src.assessmentEnd ? new Date(src.assessmentEnd).toTimeString().slice(0, 5) : ''),
+              assessmentStartDate: src.assessmentStartDate || '',
+              assessmentStartTime: src.assessmentStartTime || '',
+              assessmentEndDate: src.assessmentEndDate || '',
+              assessmentEndTime: src.assessmentEndTime || '',
             };
           });
           setStageDeadlines(merged);
@@ -251,26 +239,20 @@ export const StageManagerModule: React.FC = () => {
   const handleSave = async () => {
     if (!activeClass || !user) return;
 
-    // Validasi: untuk setiap tahap, cek assessment
     for (const stageId of STAGE_ORDER) {
       const cfg = stageDeadlines[stageId];
-      if (cfg.assessmentEnabled) {
-        const hasStart = !!cfg.assessmentStartDate;
-        const hasEnd = !!cfg.assessmentEndDate;
-        if (hasStart && hasEnd) {
-          const s = new Date(buildISO(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00')).getTime();
-          const e = new Date(buildISO(cfg.assessmentEndDate, cfg.assessmentEndTime || '23:59')).getTime();
-          if (s >= e) {
-            showToast(`Tahap ${stageId}: waktu mulai penilaian harus lebih awal dari selesai.`, 'error');
-            return;
-          }
+      if (cfg.assessmentEnabled && cfg.assessmentStartDate && cfg.assessmentEndDate) {
+        const s = new Date(buildISO(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00')).getTime();
+        const e = new Date(buildISO(cfg.assessmentEndDate, cfg.assessmentEndTime || '23:59')).getTime();
+        if (s >= e) {
+          showToast(`Tahap ${stageId}: waktu mulai penilaian harus lebih awal dari selesai.`, 'error');
+          return;
         }
       }
     }
 
     setSubmitting(true);
     try {
-      // Susun data untuk Firestore — hanya field yang relevan
       const cleanedStageDeadlines: any = {};
       STAGE_ORDER.forEach(stageId => {
         const cfg = stageDeadlines[stageId];
@@ -285,8 +267,6 @@ export const StageManagerModule: React.FC = () => {
           assessmentStartTime: cfg.assessmentStartTime || '',
           assessmentEndDate: cfg.assessmentEndDate || '',
           assessmentEndTime: cfg.assessmentEndTime || '',
-          assessmentStart: undefined,
-          assessmentEnd: undefined,
         };
       });
 
@@ -331,7 +311,7 @@ export const StageManagerModule: React.FC = () => {
             </span>
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
-                Manajemen Tahapan
+                Manajemen Tahapan & Penilaian
               </span>
               <h2 className="text-xl font-black text-white mt-1">Tahapan & Jadwal Penilaian</h2>
               <p className="text-xs text-slate-300 mt-0.5">Atur kapan tahapan aktif & kapan penilaian dibuka</p>
@@ -350,10 +330,9 @@ export const StageManagerModule: React.FC = () => {
         <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
           <p><strong>2 jadwal terpisah:</strong></p>
           <ul className="list-disc pl-4 mt-1 space-y-0.5">
-            <li><strong>Jadwal Tahapan</strong> → kapan siswa boleh <em>mengerjakan tugas</em> (rentang panjang, mis. 1 bulan)</li>
-            <li><strong>Jadwal Penilaian</strong> → kapan siswa boleh <em>mengisi nilai</em> (rentang pendek, mis. 3 hari)</li>
+            <li><strong>A. Jadwal Tahapan</strong> → kapan siswa boleh <em>mengerjakan tugas</em></li>
+            <li><strong>B. Jadwal Penilaian</strong> → kapan siswa boleh <em>mengisi nilai</em></li>
           </ul>
-          <p className="mt-1.5">Guru set tanggal & jam penilaian manual per tahap. Di luar rentang → siswa <strong>tidak bisa mengisi nilai</strong>.</p>
         </div>
       </div>
 
@@ -405,7 +384,7 @@ export const StageManagerModule: React.FC = () => {
         </div>
       </div>
 
-      {/* PER-TAHAP: TAHAPAN + PENILAIAN */}
+      {/* PER-TAHAP */}
       <div className="space-y-6">
         <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
           <Clock className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> Pengaturan Per Tahap
@@ -420,7 +399,6 @@ export const StageManagerModule: React.FC = () => {
 
           return (
             <div key={stage.id} className={`rounded-3xl border-2 overflow-hidden ${isActiveStage ? 'border-amber-400 shadow-lg' : 'border-slate-200 dark:border-slate-700'}`}>
-              {/* Header tahap */}
               <div className={`p-4 flex items-center gap-3 ${
                 isActiveStage ? 'bg-gradient-to-r from-amber-500 to-orange-500' : 'bg-slate-100 dark:bg-slate-800'
               }`}>
@@ -483,7 +461,7 @@ export const StageManagerModule: React.FC = () => {
                   )}
                 </div>
 
-                {/* CARD B: JADWAL PENILAIAN (TERPISAH) */}
+                {/* CARD B: JADWAL PENILAIAN */}
                 <div className="rounded-2xl border-2 border-purple-200 dark:border-purple-500/40 overflow-hidden bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-500/10 dark:to-indigo-500/10">
                   <div className="p-3 bg-purple-100 dark:bg-purple-500/20 border-b border-purple-200 dark:border-purple-500/40 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
@@ -504,13 +482,11 @@ export const StageManagerModule: React.FC = () => {
 
                   {config.assessmentEnabled ? (
                     <div className="p-4 space-y-4">
-                      {/* Status */}
                       <div className={`p-3 rounded-xl border-2 flex items-center gap-2 ${aStatus.color}`}>
                         <Timer className="w-4 h-4 shrink-0" />
                         <span className="text-[11px] font-bold">{aStatus.label}</span>
                       </div>
 
-                      {/* Input jam mulai */}
                       <div>
                         <p className="text-[11px] font-black text-purple-900 dark:text-purple-200 uppercase mb-2 flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5" /> Waktu Mulai Dibuka
@@ -538,7 +514,6 @@ export const StageManagerModule: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Input jam selesai */}
                       <div>
                         <p className="text-[11px] font-black text-purple-900 dark:text-purple-200 uppercase mb-2 flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5" /> Waktu Selesai Ditutup
@@ -566,7 +541,6 @@ export const StageManagerModule: React.FC = () => {
                         )}
                       </div>
 
-                      {/* Preview rentang */}
                       {config.assessmentStartDate && config.assessmentEndDate && (
                         <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border-2 border-purple-300 dark:border-purple-500/40">
                           <p className="text-[11px] font-black text-purple-900 dark:text-purple-200 mb-1">
@@ -588,14 +562,6 @@ export const StageManagerModule: React.FC = () => {
                           </p>
                         </div>
                       )}
-
-                      <div className="pt-3 border-t border-purple-200 dark:border-purple-500/30">
-                        <label className="block text-[10px] font-bold text-purple-700 dark:text-purple-300 mb-1">Catatan (opsional)</label>
-                        <textarea rows={2} value={config.notes}
-                          onChange={(e) => updateStage(stage.id, 'notes', e.target.value)}
-                          placeholder="Contoh: Isi nilai rekan hanya untuk yang sudah tampil di gladi kering."
-                          className="w-full px-3 py-2 rounded-xl border border-purple-200 dark:border-purple-500/40 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
-                      </div>
                     </div>
                   ) : (
                     <div className="p-5 text-center">
@@ -615,10 +581,10 @@ export const StageManagerModule: React.FC = () => {
         })}
       </div>
 
-      {/* SAVE */}
+      {/* SAVE BOTTOM */}
       <div className="p-4 rounded-3xl bg-gradient-to-r from-slate-900 to-slate-800 flex items-center justify-between flex-wrap gap-3">
         <div className="text-xs text-slate-300">
-          💡 <strong className="text-white">Tips:</strong> Set jadwal penilaian pendek (mis. 3-7 hari) di setiap tahap. Berbeda dengan jadwal tahapan yang bisa panjang.
+          💡 <strong className="text-white">Tips:</strong> Set jadwal penilaian pendek (mis. 3-7 hari) di setiap tahap.
         </div>
         <button onClick={handleSave} disabled={submitting}
           className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg disabled:opacity-50">
