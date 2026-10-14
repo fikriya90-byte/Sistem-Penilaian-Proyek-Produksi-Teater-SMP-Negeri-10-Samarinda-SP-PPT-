@@ -339,3 +339,307 @@ export const MyGradeModule: React.FC = () => {
         }`}>
           <div className={`inline-flex items-center justify-center w-20 h-20 rounded-full border-4 mb-4 ${
             assessmentStatus.reason === 'not-started'
+              ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-300 dark:border-blue-500/40'
+              : 'bg-rose-100 dark:bg-rose-500/20 border-rose-300 dark:border-rose-500/40'
+          }`}>
+            {assessmentStatus.reason === 'not-started' ? (
+              <Clock className="w-10 h-10 text-blue-600 dark:text-blue-400" />
+            ) : (
+              <Lock className="w-10 h-10 text-rose-600 dark:text-rose-400" />
+            )}
+          </div>
+          <h2 className={`text-xl font-black ${
+            assessmentStatus.reason === 'not-started' ? 'text-blue-900 dark:text-blue-200' : 'text-rose-900 dark:text-rose-200'
+          }`}>
+            {assessmentStatus.reason === 'not-started'
+              ? 'Waktu Penilaian Belum Dibuka'
+              : assessmentStatus.reason === 'ended'
+              ? 'Waktu Penilaian Sudah Ditutup'
+              : 'Penilaian Tahap Ini Dinonaktifkan'}
+          </h2>
+          <p className={`text-xs mt-3 leading-relaxed max-w-md mx-auto ${
+            assessmentStatus.reason === 'not-started' ? 'text-blue-800 dark:text-blue-300' : 'text-rose-800 dark:text-rose-300'
+          }`}>
+            {assessmentStatus.reason === 'not-started' && assessmentStatus.startMs ? (
+              <>
+                Penilaian untuk tahap <strong>{selectedStage}</strong> akan dibuka dalam{' '}
+                <strong>{formatDuration(assessmentStatus.startMs - Date.now())}</strong>.
+                <br />Tepat pada: <strong>{formatDateTime(new Date(assessmentStatus.startMs).toISOString())}</strong>
+              </>
+            ) : assessmentStatus.reason === 'ended' && assessmentStatus.endMs ? (
+              <>
+                Penilaian tahap <strong>{selectedStage}</strong> sudah ditutup pada{' '}
+                <strong>{formatDateTime(new Date(assessmentStatus.endMs).toISOString())}</strong>.
+                Nilai rapor Anda tetap bisa diunduh setelah tahap berikutnya dibuka.
+              </>
+            ) : (
+              <>Guru menonaktifkan penilaian untuk tahap <strong>{selectedStage}</strong>.</>
+            )}
+          </p>
+
+          <div className={`mt-5 p-4 rounded-2xl bg-white/70 dark:bg-slate-800/70 border max-w-md mx-auto ${
+            assessmentStatus.reason === 'not-started' ? 'border-blue-200 dark:border-blue-500/30' : 'border-rose-200 dark:border-rose-500/30'
+          }`}>
+            <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+              Info Tahap Aktif
+            </p>
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Tahap aktif kelas Anda: <strong className="text-slate-900 dark:text-white">{stageConfig?.currentStage || '-'}</strong>
+            </p>
+            {assessmentStatus.startMs && assessmentStatus.endMs && (
+              <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700 text-[11px] text-slate-500 dark:text-slate-400">
+                <p>Rentang: {formatDateTime(new Date(assessmentStatus.startMs).toISOString())}</p>
+                <p>s/d {formatDateTime(new Date(assessmentStatus.endMs).toISOString())}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ TAMPIL NILAI ============
+  if (!hasAnyScore) {
+    return (
+      <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 max-w-2xl mx-auto">
+        <Award className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+        <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Nilai</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          Nilai akan muncul setelah penilai mengisi formulir.
+        </p>
+      </div>
+    );
+  }
+
+  const radarData = STAGES.map(s => ({
+    stage: s.name.replace('Tahap ', '').replace(/^\d+:\s*/, ''),
+    score: stageScores[s.id] || 0,
+  }));
+
+  const barData = STAGES.map(s => ({ name: s.id.slice(0, 6), Nilai: stageScores[s.id] || 0 }));
+
+  const categoryData = [
+    { name: 'GURU', value: myAssessments.filter(a => (a as any).assessorCategory === 'GURU').length, color: '#F59E0B' },
+    { name: 'ATASAN', value: myAssessments.filter(a => (a as any).assessorCategory === 'ATASAN').length, color: '#3B82F6' },
+    { name: 'REKAN', value: myAssessments.filter(a => (a as any).assessorCategory === 'REKAN').length, color: '#10B981' },
+    { name: 'BAWAHAN', value: myAssessments.filter(a => (a as any).assessorCategory === 'BAWAHAN').length, color: '#8B5CF6' },
+  ].filter(d => d.value > 0);
+
+  const comments = myAssessments.filter(a => a.comment && a.comment.trim()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const criteriaScores: Record<string, number[]> = {};
+  myAssessments.forEach(a => {
+    Object.entries(a.scores || {}).forEach(([k, v]) => {
+      if (!criteriaScores[k]) criteriaScores[k] = [];
+      criteriaScores[k].push(v);
+    });
+  });
+
+  const getCategoryBadgeClass = (cat: AssessorCategory) => {
+    const map: Record<AssessorCategory, string> = {
+      GURU: 'bg-amber-100 text-amber-800 border-amber-300',
+      ATASAN: 'bg-blue-100 text-blue-800 border-blue-300',
+      REKAN: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      BAWAHAN: 'bg-purple-100 text-purple-800 border-purple-300',
+    };
+    return map[cat];
+  };
+
+  return (
+    <div className="space-y-6" id="rapor-container">
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-600 via-amber-700 to-orange-800 text-white shadow-xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="p-3 rounded-2xl bg-white/20 border border-white/30">
+              <Award className="w-7 h-7" />
+            </span>
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-200 bg-white/10 px-2.5 py-0.5 rounded-full border border-white/30">
+                Rapor Digital 360°
+              </span>
+              <h2 className="text-xl font-black text-white mt-1">Nilai Saya — {activeClass?.name || ''}</h2>
+              <p className="text-xs text-amber-100 mt-0.5">
+                {user?.displayName} • {user?.role}
+                {user?.divisionName ? ` • ${user.divisionName}` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap print:hidden">
+            <button onClick={handleWAAskTeacher}
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
+              <MessageCircle className="w-4 h-4" /> Tanya Guru
+            </button>
+            <button onClick={handleDownload}
+              className="px-4 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
+              <Download className="w-4 h-4" /> Unduh Rapor
+            </button>
+            <button onClick={() => setTimeout(() => window.print(), 300)}
+              className="px-4 py-2.5 rounded-xl bg-white text-amber-800 hover:bg-amber-50 font-bold text-xs flex items-center gap-2 shadow-lg">
+              <Printer className="w-4 h-4" /> PDF
+            </button>
+          </div>
+        </div>
+
+        {canBypassGate && (
+          <div className="mt-4 p-2.5 rounded-xl bg-white/10 border border-white/20 text-[11px] text-amber-100 flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5" />
+            <span><strong>Mode Guru/Admin:</strong> melihat rapor tanpa gate.</span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className={`p-6 rounded-3xl border-2 shadow-md ${predikatInfo.color}`}>
+          <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">Nilai Akhir</p>
+          <p className="text-5xl font-black mt-2 font-mono">{finalScore.toFixed(1)}</p>
+          <p className="text-lg font-black mt-2">Predikat {predikatInfo.predikat}</p>
+          <p className="text-xs mt-1 font-medium opacity-90">{predikatInfo.label}</p>
+        </div>
+
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm md:col-span-2">
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+            <Target className="w-4 h-4 text-amber-600" /> Grafik Radar 4 Tahapan
+          </h3>
+          <div className="w-full h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData} outerRadius="75%">
+                <PolarGrid stroke="#E2E8F0" />
+                <PolarAngleAxis dataKey="stage" tick={{ fontSize: 10, fill: '#475569' }} />
+                <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#94A3B8' }} />
+                <Radar name="Nilai" dataKey="score" stroke="#D97706" fill="#F59E0B" fillOpacity={0.5} />
+                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {categoryData.length > 0 && (
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+            <Users className="w-4 h-4 text-blue-600" /> Siapa yang Menilai Saya
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {categoryData.map((cat, i) => (
+              <div key={i} className={`p-3 rounded-2xl border-2 ${getCategoryBadgeClass(cat.name as AssessorCategory)}`}>
+                <p className="text-[10px] font-bold uppercase opacity-80">{CATEGORY_LABEL[cat.name as AssessorCategory]}</p>
+                <p className="text-2xl font-black font-mono mt-1">{cat.value}</p>
+                <p className="text-[10px] opacity-70">penilaian</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-3 italic flex items-center gap-1">
+            <EyeOff className="w-3 h-3" />
+            Penilaian rekan kerja & anggota tim ditampilkan anonim.
+          </p>
+        </div>
+      )}
+
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-blue-600" /> Perbandingan Nilai Antar Tahapan
+        </h3>
+        <div className="w-full h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={barData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+              <Bar dataKey="Nilai" radius={[6, 6, 0, 0]}>
+                {barData.map((entry, i) => (
+                  <Cell key={i} fill={
+                    entry.Nilai >= 90 ? '#F59E0B' :
+                    entry.Nilai >= 80 ? '#3B82F6' :
+                    entry.Nilai >= 70 ? '#10B981' :
+                    entry.Nilai >= 60 ? '#F97316' : '#EF4444'
+                  } />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-emerald-600" /> Rincian Per Kriteria
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {(user.role === 'Pemeran' ? PEMERAN_CRITERIA : GENERAL_CRITERIA).map(c => {
+            const isAuto = c.source !== 'MANUAL';
+            const arr = criteriaScores[c.key] || [];
+            const avg = arr.length > 0 ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
+            const colorClass =
+              avg >= 3.5 ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10' :
+              avg >= 2.5 ? 'border-blue-300 bg-blue-50 dark:bg-blue-500/10' :
+              avg >= 1.5 ? 'border-amber-300 bg-amber-50 dark:bg-amber-500/10' :
+              avg > 0 ? 'border-rose-300 bg-rose-50 dark:bg-rose-500/10' :
+              'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800';
+            return (
+              <div key={c.key} className={`p-3 rounded-2xl border ${colorClass}`}>
+                <div className="flex items-start justify-between mb-1 gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-white">{c.label}</span>
+                  <span className="text-[10px] font-bold text-slate-500 shrink-0">{c.weight}%</span>
+                </div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  {isAuto ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 flex items-center gap-0.5">
+                      <Bot className="w-2.5 h-2.5" /> OTOMATIS
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">MANUAL</span>
+                  )}
+                </div>
+                <div className="flex items-end justify-between mt-2">
+                  <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">{avg > 0 ? avg.toFixed(1) : '-'}</span>
+                  <span className="text-[10px] text-slate-500">{avg > 0 ? `≈ ${SCORE_SCALE[Math.round(avg)]?.score100}` : 'Belum dinilai'}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-purple-600" /> Komentar dari Penilai ({comments.length})
+        </h3>
+        {comments.length === 0 ? (
+          <p className="text-xs text-slate-400 italic text-center py-6">Belum ada komentar.</p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {comments.map(c => {
+              const cat = ((c as any).assessorCategory as AssessorCategory) || 'REKAN';
+              const shouldAnonymize = cat === 'BAWAHAN' || cat === 'REKAN';
+              return (
+                <div key={c.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center justify-between text-[11px] mb-1 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-bold px-2 py-0.5 rounded-md border ${getCategoryBadgeClass(cat)}`}>{CATEGORY_LABEL[cat]}</span>
+                      {shouldAnonymize ? (
+                        <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                          <EyeOff className="w-3 h-3" /> Anonim
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">{c.assessorName}</span>
+                      )}
+                    </div>
+                    <span className="text-slate-400 text-[10px]">
+                      {new Date(c.createdAt || 0).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic">"{c.comment}"</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Tahap: {c.stage} • Nilai: {c.totalScore}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="hidden print:block text-center text-[10px] text-slate-500 pt-4 border-t">
+        SP-PPT — SMP Negeri 10 Samarinda • T.A. 2025/2026 • Dicetak: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+      </div>
+    </div>
+  );
+};
