@@ -155,6 +155,7 @@ export const AssessmentModule: React.FC = () => {
   const [resetConfirmText, setResetConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [showAnomalies, setShowAnomalies] = useState(false);
+  const [showPeerReminder, setShowPeerReminder] = useState(false);
   const [, setTick] = useState(0);
 
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
@@ -371,14 +372,42 @@ export const AssessmentModule: React.FC = () => {
 
   const handleWABulk = () => {
     const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
-    const pending = students.filter(s => { const p = getPeerStatus(s); return p.total > 0 && !p.isComplete && s.phone; });
-    if (pending.length === 0) { showToast('Semua sudah isi peer assessment.', 'success'); return; }
-    if (!confirm(`Kirim reminder WA ke ${pending.length} siswa?`)) return;
-    pending.forEach((s, i) => setTimeout(() => {
-      const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
-      window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
-    }, i * 800));
-    showToast(`Membuka ${pending.length} chat WhatsApp...`, 'info');
+    const pending = students.filter(s => {
+      const p = getPeerStatus(s);
+      return p.total > 0 && !p.isComplete && s.phone;
+    });
+    if (pending.length === 0) {
+      showToast('Semua sudah isi peer assessment.', 'success');
+      return;
+    }
+    if (pending.length > 3) {
+      const ok = confirm(
+        `Akan membuka ${pending.length} chat WhatsApp.\n\n` +
+        `Browser MUNGKIN memblokir popup setelah 1-2 tab pertama.\n\n` +
+        `Solusi:\n` +
+        `1. Klik "Izinkan" jika muncul permintaan popup\n` +
+        `2. Atau gunakan tombol WA per siswa (satu per satu)\n\n` +
+        `Lanjut buka semua?`
+      );
+      if (!ok) return;
+    } else {
+      if (!confirm(`Kirim reminder WA ke ${pending.length} siswa?`)) return;
+    }
+
+    pending.forEach((s, i) => {
+      setTimeout(() => {
+        const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
+        try {
+          window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
+        } catch { }
+      }, i * 2000);
+    });
+
+    if (pending.length > 3) {
+      showToast(`${pending.length} chat akan dibuka perlahan (2 detik antar tab). Jika diblokir, izinkan popup di browser.`, 'warning');
+    } else {
+      showToast(`Membuka ${pending.length} chat WhatsApp...`, 'info');
+    }
   };
 
   const handleWAPeer = (s: UserProfile) => {
@@ -498,40 +527,77 @@ export const AssessmentModule: React.FC = () => {
       </div>
 
       {canManageAll && pendingPeers.length > 0 && (
-        <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md">
-          <div className="flex items-start gap-3">
-            <span className="p-2.5 rounded-2xl bg-amber-500 text-white shrink-0"><AlertCircle className="w-5 h-5" /></span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap mb-1">
-                <h3 className="text-sm font-extrabold text-amber-900">{pendingPeers.length} Siswa Belum Isi Peer Assessment</h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">TAHAP {selectedStage}</span>
+        <div className="rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md overflow-hidden">
+          <button
+            onClick={() => setShowPeerReminder(!showPeerReminder)}
+            className="w-full p-4 flex items-center justify-between gap-3 text-left hover:bg-amber-100/40 transition">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="p-2 rounded-2xl bg-amber-500 text-white shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-sm font-extrabold text-amber-900 flex items-center gap-2 flex-wrap">
+                  {pendingPeers.length} Siswa Belum Isi Peer
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                    {selectedStage}
+                  </span>
+                </h3>
+                <p className="text-[10px] text-amber-700 mt-0.5">
+                  {showPeerReminder ? 'Klik untuk tutup' : 'Klik untuk lihat daftar'}
+                </p>
               </div>
-              <p className="text-[11px] text-amber-800 leading-relaxed mb-3">
-                Siswa berikut <strong>tidak akan bisa melihat nilai mereka sendiri</strong> sampai selesai mengisi penilaian rekan kerja. Klik ikon WA untuk kirim follow-up.
+            </div>
+            <span className={`text-amber-600 text-lg transition-transform ${showPeerReminder ? 'rotate-180' : ''}`}>v</span>
+          </button>
+
+          {showPeerReminder && (
+            <div className="px-4 pb-4 border-t border-amber-200/60">
+              <p className="text-[11px] text-amber-800 leading-relaxed my-3">
+                Siswa berikut <strong>tidak bisa melihat nilai mereka sendiri</strong> sampai selesai mengisi penilaian rekan. Klik ikon WA untuk follow-up.
               </p>
-              <div className="space-y-1.5 max-h-56 overflow-y-auto mb-3">
+
+              <div className="space-y-1.5 max-h-64 overflow-y-auto mb-3">
                 {pendingPeers.map(s => {
                   const ps = getPeerStatus(s);
                   return (
                     <div key={s.uid} className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-amber-200">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${ps.filled === 0 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>{s.displayName.charAt(0).toUpperCase()}</div>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${ps.filled === 0 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>
+                          {s.displayName.charAt(0).toUpperCase()}
+                        </div>
                         <div className="min-w-0">
                           <p className="text-[11px] font-bold text-slate-800 truncate">{s.displayName}</p>
-                          <p className="text-[9px] text-slate-500">{s.role} • <span className={ps.filled === 0 ? 'text-rose-600 font-bold' : 'text-amber-600 font-bold'}>{ps.filled}/{ps.total} peer</span></p>
+                          <p className="text-[9px] text-slate-500">
+                            {s.role} • <span className={ps.filled === 0 ? 'text-rose-600 font-bold' : 'text-amber-600 font-bold'}>{ps.filled}/{ps.total} peer</span>
+                          </p>
                         </div>
                       </div>
-                      {s.phone ? <button onClick={() => handleWAPeer(s)} className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shrink-0" title={`WA ke ${s.displayName}`}><MessageCircle className="w-3 h-3" /></button> : <span className="text-[9px] text-slate-400 italic px-1">no WA</span>}
+                      {s.phone ? (
+                        <button onClick={() => handleWAPeer(s)}
+                          className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shrink-0"
+                          title={`WA ke ${s.displayName}`}>
+                          <MessageCircle className="w-3 h-3" />
+                        </button>
+                      ) : (
+                        <span className="text-[9px] text-slate-400 italic px-1">no WA</span>
+                      )}
                     </div>
                   );
                 })}
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={handleWABulk} className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> WA Bulk ke Semua</button>
-                <span className="text-[10px] text-amber-700 italic">Tip: nilai siswa terbuka otomatis setelah peer lengkap</span>
+
+              <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 mb-3">
+                <p className="text-[10px] text-blue-900 leading-relaxed">
+                  <strong>Tips:</strong> Browser mungkin blokir popup jika dibuka sekaligus. Klik ikon WA per siswa (per baris) untuk hasil lebih stabil, atau izinkan popup di pengaturan browser.
+                </p>
               </div>
+
+              <button onClick={handleWABulk}
+                className="w-full py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center justify-center gap-1.5">
+                <MessageCircle className="w-3.5 h-3.5" /> WA Bulk ke {pendingPeers.filter(s => s.phone).length} Siswa
+              </button>
             </div>
-          </div>
+          )}
         </div>
       )}
 
