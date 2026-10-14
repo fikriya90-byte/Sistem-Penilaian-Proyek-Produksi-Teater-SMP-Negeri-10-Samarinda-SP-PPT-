@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, X, ShieldAlert, Bot, ExternalLink, CheckSquare, Square, Users } from 'lucide-react';
+import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES, getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS } from '../../core/constants';
 import { AssessmentRecord, ProductionStage, UserProfile } from '../../core/types';
@@ -423,6 +423,7 @@ export const AssessmentModule: React.FC = () => {
 
   const stageCount = (sid: ProductionStage) => assessments.filter(a => a.stage === sid).length;
   const anomalies = canManageAll ? detectAnomalies(assessments, students, selectedStage) : [];
+  const pendingPeers = canManageAll ? students.filter(s => { const p = getPeerStatus(s); return p.total > 0 && !p.isComplete; }) : [];
 
   if (!activeClass) {
     return <div className="p-8 rounded-3xl bg-amber-50 border-2 border-amber-300 text-center max-w-2xl mx-auto my-8"><AlertCircle className="w-16 h-16 mx-auto text-amber-600 mb-4" /><h3 className="text-base font-extrabold text-amber-900">Anda Belum Masuk ke Kelas</h3></div>;
@@ -495,6 +496,44 @@ export const AssessmentModule: React.FC = () => {
           <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja.</p></div>
         </div>
       </div>
+
+      {canManageAll && pendingPeers.length > 0 && (
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md">
+          <div className="flex items-start gap-3">
+            <span className="p-2.5 rounded-2xl bg-amber-500 text-white shrink-0"><AlertCircle className="w-5 h-5" /></span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <h3 className="text-sm font-extrabold text-amber-900">{pendingPeers.length} Siswa Belum Isi Peer Assessment</h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">TAHAP {selectedStage}</span>
+              </div>
+              <p className="text-[11px] text-amber-800 leading-relaxed mb-3">
+                Siswa berikut <strong>tidak akan bisa melihat nilai mereka sendiri</strong> sampai selesai mengisi penilaian rekan kerja. Klik ikon WA untuk kirim follow-up.
+              </p>
+              <div className="space-y-1.5 max-h-56 overflow-y-auto mb-3">
+                {pendingPeers.map(s => {
+                  const ps = getPeerStatus(s);
+                  return (
+                    <div key={s.uid} className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-amber-200">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${ps.filled === 0 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>{s.displayName.charAt(0).toUpperCase()}</div>
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold text-slate-800 truncate">{s.displayName}</p>
+                          <p className="text-[9px] text-slate-500">{s.role} • <span className={ps.filled === 0 ? 'text-rose-600 font-bold' : 'text-amber-600 font-bold'}>{ps.filled}/{ps.total} peer</span></p>
+                        </div>
+                      </div>
+                      {s.phone ? <button onClick={() => handleWAPeer(s)} className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shrink-0" title={`WA ke ${s.displayName}`}><MessageCircle className="w-3 h-3" /></button> : <span className="text-[9px] text-slate-400 italic px-1">no WA</span>}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={handleWABulk} className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> WA Bulk ke Semua</button>
+                <span className="text-[10px] text-amber-700 italic">Tip: nilai siswa terbuka otomatis setelah peer lengkap</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {canManageAll && (
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
