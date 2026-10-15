@@ -30,12 +30,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onExitClass,
 }) => {
   const { user, activeClass, classes, setActiveClass, logout, isGuruPengampu, isAdminRole } = useAuth();
-  const { theme, toggleTheme } = useTheme();
+  const { theme, effectiveTheme, setTheme, resetToAuto } = useTheme();
   const { showToast } = useToast();
   const [notifications, setNotifications] = useState<SystemNotification[]>([]);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showClassMenu, setShowClassMenu] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [notifFilter, setNotifFilter] = useState<NotifFilter>('ALL');
   const [notifSearch, setNotifSearch] = useState('');
   const [markingAll, setMarkingAll] = useState(false);
@@ -51,11 +52,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const unreadCount = notifications.filter(n => !n.read).length;
 
   // ============================================================
-  // ✅ FIX: HANDLE READ NOTIF
-  // 1. Mark as read
-  // 2. Resolve target module
-  // 3. Dispatch event global supaya App.tsx bisa handle switch view
-  //    (dari welcome → in-class) dan set current module
+  // KLIK NOTIFIKASI → ARAHKAN KE MODUL YANG TEPAT
   // ============================================================
   const handleReadNotif = async (n: SystemNotification) => {
     try {
@@ -65,20 +62,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
     setShowNotifMenu(false);
 
-    // Resolve modul target (link atau deteksi dari judul)
     let target = resolveNotificationLink(n);
 
-    // Cek apakah role user boleh akses modul itu
     const isGuru = !!user && (user.role === 'Guru Pengampu' || user.role === 'Guru Pembina');
     if (!isValidModuleForRole(target, user?.role || '', isGuru, isAdminRole)) {
       target = 'notifikasi';
     }
 
-    // ✅ Dispatch event global — App.tsx yang handle navigasi + switch view
     try {
       window.dispatchEvent(new CustomEvent('spppt-navigate', { detail: { module: target } }));
     } catch {
-      // Fallback kalau dispatchEvent gagal (browser lama)
       onNavigate(target);
     }
   };
@@ -132,6 +125,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     }
   };
 
+  // Ikon tema
   const themeIcon =
     theme === 'light' ? <Sun className="w-5 h-5" /> :
     theme === 'dark' ? <Moon className="w-5 h-5" /> :
@@ -242,14 +236,111 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* RIGHT */}
             <div className="flex items-center gap-1 sm:gap-2">
-              <button
-                onClick={toggleTheme}
-                className="flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/30 transition"
-                title={`Tema: ${themeLabel}`}
-              >
-                {themeIcon}
-                <span className="hidden sm:inline text-[11px] font-bold">{themeLabel}</span>
-              </button>
+
+              {/* ✅ THEME DROPDOWN — 3 pilihan eksplisit */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowThemeMenu(!showThemeMenu)}
+                  className="flex items-center gap-1.5 px-2 sm:px-3 py-2 rounded-xl bg-amber-50 dark:bg-amber-500/20 border border-amber-200 dark:border-amber-500/40 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-500/30 transition"
+                  title={`Tema: ${themeLabel} (klik untuk ganti)`}
+                >
+                  {themeIcon}
+                  <span className="hidden sm:inline text-[11px] font-bold">{themeLabel}</span>
+                  <ChevronDown className="w-3 h-3 opacity-60 hidden sm:block" />
+                </button>
+
+                {showThemeMenu && (
+                  <>
+                    {/* Backdrop tutup menu */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowThemeMenu(false)}
+                    />
+
+                    <div className="absolute right-0 mt-2 w-60 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 z-50">
+                      <div className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                        Pilih Tema
+                      </div>
+
+                      {/* Auto */}
+                      <button
+                        onClick={() => { setTheme('auto'); setShowThemeMenu(false); showToast('Tema: Auto (ikut device)', 'info'); }}
+                        className={`w-full text-left px-3.5 py-2.5 text-xs flex items-start gap-2.5 transition ${
+                          theme === 'auto'
+                            ? 'bg-amber-50 dark:bg-amber-500/20 font-bold text-amber-700 dark:text-amber-300'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                        }`}
+                      >
+                        <Monitor className="w-4 h-4 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span>Auto (Rekomendasi)</span>
+                            {theme === 'auto' && <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">AKTIF</span>}
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Ikut pengaturan {effectiveTheme === 'dark' ? 'gelap' : 'terang'} device Anda
+                          </p>
+                        </div>
+                      </button>
+
+                      {/* Terang */}
+                      <button
+                        onClick={() => { setTheme('light'); setShowThemeMenu(false); showToast('Tema: Terang', 'info'); }}
+                        className={`w-full text-left px-3.5 py-2.5 text-xs flex items-start gap-2.5 transition ${
+                          theme === 'light'
+                            ? 'bg-amber-50 dark:bg-amber-500/20 font-bold text-amber-700 dark:text-amber-300'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                        }`}
+                      >
+                        <Sun className="w-4 h-4 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span>Terang</span>
+                            {theme === 'light' && <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">AKTIF</span>}
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Selalu terang, tidak peduli device
+                          </p>
+                        </div>
+                      </button>
+
+                      {/* Gelap */}
+                      <button
+                        onClick={() => { setTheme('dark'); setShowThemeMenu(false); showToast('Tema: Gelap', 'info'); }}
+                        className={`w-full text-left px-3.5 py-2.5 text-xs flex items-start gap-2.5 transition ${
+                          theme === 'dark'
+                            ? 'bg-amber-50 dark:bg-amber-500/20 font-bold text-amber-700 dark:text-amber-300'
+                            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/60'
+                        }`}
+                      >
+                        <Moon className="w-4 h-4 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span>Gelap</span>
+                            {theme === 'dark' && <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400">AKTIF</span>}
+                          </div>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Selalu gelap, tidak peduli device
+                          </p>
+                        </div>
+                      </button>
+
+                      {/* Reset ke Auto — shortcut kalau bukan auto */}
+                      {theme !== 'auto' && (
+                        <div className="border-t border-slate-100 dark:border-slate-700 mt-1 pt-1">
+                          <button
+                            onClick={() => { resetToAuto(); setShowThemeMenu(false); showToast('Kembali ke Auto (ikut device)', 'success'); }}
+                            className="w-full text-left px-3.5 py-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/20 flex items-center gap-2 transition"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Reset ke Auto
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
 
               {/* NOTIFICATION */}
               <div className="relative">
