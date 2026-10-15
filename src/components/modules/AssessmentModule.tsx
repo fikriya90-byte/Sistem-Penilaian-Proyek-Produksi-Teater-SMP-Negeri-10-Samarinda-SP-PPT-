@@ -1,973 +1,895 @@
-import React, { useState } from 'react';
-import {
-  Award, BookOpen, Calendar, CheckCircle, ChevronDown, ChevronRight,
-  ClipboardList, HelpCircle, Radio, Sparkles, Users, Megaphone,
-  Wallet, Calculator, Star, MessageSquare, Timer, Camera, Music,
-  Palette, Scissors, Package, ShieldCheck, Lock, KeyRound, Eye,
-  FileText, Briefcase, Layers, TrendingUp, Bell, Info, AlertTriangle,
-  ArrowRight, UserCheck, Target, Play,
-  CheckSquare,
-} from 'lucide-react';
-import { APP_CONFIG } from '../../core/constants';
+import React, { useState, useEffect } from 'react';
+import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
+import { PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES, getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS } from '../../core/constants';
+import { AssessmentRecord, ProductionStage, UserProfile } from '../../core/types';
+import { fetchUsersByClass, fetchAllUsers, recordAuditLog, saveAssessment, subscribeAssessments, subscribeAttendanceSessions, subscribeAllAttendanceRecords } from '../../services/firestoreService';
+import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { db } from '../../core/firebase';
+import { useToast } from '../common/Toast';
+import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
-interface GuideSection {
-  id: string;
-  title: string;
-  icon: any;
-  color: string;
-  content: React.ReactNode;
-}
+type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
-// =====================================================
-// PANDUAN PER PERAN
-// =====================================================
-const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; desc: string; steps: string[] }> = {
-  'Guru Pengampu': {
-    title: 'Guru Pengampu / Pembina',
-    icon: ShieldCheck,
-    color: 'from-amber-700 to-orange-800',
-    desc: 'Pengawas tertinggi, pembimbing artistik, penilai 50%',
-    steps: [
-      'Buka Dashboard untuk melihat ringkasan seluruh aktivitas kelas',
-      'Kelola Kelas → buat kelas baru, bagikan kode ke siswa, kelola akun',
-      'Lihat & Reset Password siswa jika mereka lupa: Kelola Kelas → tab Siswa → tombol "Lihat"',
-      'Kelola Tahapan → atur deadline per tahapan produksi (Persiapan, Pelaksanaan, Pertunjukan, Pasca)',
-      'Tugas & Deadline → kirim template tugas ke siswa (bisa multi-template & multi-target)',
-      'Nilai & Penilaian → Beri nilai Pimpinan Produksi & Sutradara (sebagai atasan tertinggi, bobot 50%)',
-      'Moderasi → cek anomali penilaian dari ketua/rekan',
-      'Statistik Presensi → lihat rekap kehadiran per siswa & divisi',
-      'Backup & Restore → backup data Firestore ke JSON untuk arsip',
-      'Panduan ini bisa dibuka berkali-kali kapan pun dibutuhkan',
-    ],
-  },
-  'Pimpinan Produksi': {
-    title: 'Pimpinan Produksi (Pimpro)',
-    icon: Sparkles,
-    color: 'from-blue-800 to-indigo-900',
-    desc: 'Manajer proyek, penyusun Master Schedule & LPJ',
-    steps: [
-      'Dashboard → lihat status keseluruhan produksi & progress 6 divisi',
-      'Susun Master Production Schedule & validasi RAB bersama Bendahara',
-      'Tugas & Deadline → kirim tugas ke divisi & peran terkait',
-      'Presensi → buat sesi absensi pleno (semua siswa) atau lintas divisi',
-      'Jadwal & Agenda → tambah jadwal rapat, gladi, dan pementasan',
-      'Struktur Kerabat → ubah nama kerabat kerja (opsi Guru & Pimpro)',
-      'Broadcast → kirim pengumuman siaran ke semua siswa',
-      'Nilai & Penilaian → Beri nilai Sekretaris, Bendahara, dan SEMUA Koordinator Divisi (sebagai atasan mereka)',
-      'Saat Show Time: pimpin Taklimat 10 menit sebelum pintu dibuka',
-      'Kendalikan waktu: 10 menit persiapan + 30 menit tampil + 5 menit bongkar',
-      'Setelah selesai: susun LPJ & serahkan ke Guru',
-    ],
-  },
-  'Sekretaris': {
-    title: 'Sekretaris Administrasi',
-    icon: FileText,
-    color: 'from-blue-700 to-blue-900',
-    desc: 'Presensi harian, arsip dokumen, notulen rapat',
-    steps: [
-      'Dashboard → lihat sesi presensi aktif & agenda hari ini',
-      'Presensi → buat sesi absensi untuk rapat pleno / lintas divisi',
-      'Isi Buku Log Produksi (catat kehadiran tiap sesi latihan & hasil rapat)',
-      'Jadwal & Agenda → tambah jadwal internal untuk rapat koordinasi',
-      'Dokumen & Arsip → unggah draf naskah, notulen, proposal ke arsip web',
-      'Broadcast → kirim pengumuman resmi ke tim',
-      'Nilai & Penilaian → Beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
-      'Saat Show Time: bertugas di Front of House (FOH) — arahkan antrean, validasi tiket, bagikan buku acara',
-      'Catat statistik riil jumlah penonton',
-      'Setelah selesai: susun & distribusikan sertifikat/surat apresiasi, arsipkan semua dokumen',
-    ],
-  },
-  'Bendahara': {
-    title: 'Bendahara Keuangan & Logistik',
-    icon: Wallet,
-    color: 'from-emerald-700 to-green-900',
-    desc: 'RAB, kas produksi, buku kas, nota, LPJ keuangan',
-    steps: [
-      'Dashboard → lihat saldo, pemasukan, pengeluaran, capaian kas',
-      'Kas & Buku Kas → aktifkan fitur kas (kesepakatan kelas) dengan nominal & periode',
-      'Centang pembayaran siswa per periode. Saldo terakumulasi otomatis',
-      'Buku Kas → catat pemasukan (kas siswa, sumbangan) & pengeluaran (beli properti, konsumsi)',
-      'Export Excel → 4 sheet: Ringkasan, Pemasukan, Pengeluaran, Rekap Periode',
-      'RAB Digital → susun RAB per divisi/peran/umum dengan estimasi biaya',
-      'Export RAB ke Word (.doc) untuk ditandatangani Pimpro',
-      'Unggah RAB Final yang sudah ditandatangani ke menu RAB',
-      'Kirim Reminder santun ke siswa yang belum bayar',
-      'Nilai & Penilaian → Beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
-      'Saat Show Time: siapkan Tas Logistik Darurat (P3K, peniti, selotip, air minum)',
-      'Setelah selesai: susun tabel Perbandingan Anggaran (estimasi vs realisasi) & LPJ Keuangan',
-    ],
-  },
-  'Sutradara': {
-    title: 'Sutradara',
-    icon: Star,
-    color: 'from-rose-700 to-pink-900',
-    desc: 'Visi artistik, casting, penilai utama aktor',
-    steps: [
-      'Dashboard → lihat 6 kriteria akting pemain & progres latihan',
-      'Studio & Naskah → 3x3 blocking grid untuk blocking panggung',
-      'Simpan posisi aktor di 9 zona panggung (UL, UC, UR, CL, C, CR, DL, DC, DR)',
-      'Editor Cue Sheet untuk instruksi cue musik & lampu',
-      'Presensi → buat sesi latihan untuk Pemain + Tata Musik (peserta terkunci)',
-      'Nilai & Penilaian → Beri nilai Asisten Sutradara, Pemain, dan Koordinator Artistik (Busana, Rias, Panggung, Musik)',
-      'Saat Show Time: pimpin gladi bersih & pastikan durasi tepat 30 menit',
-      'Beri motivasi akhir & input nilai keaktoran saat pementasan',
-      'Setelah selesai: tulis analisis perkembangan keaktoran individual via web',
-    ],
-  },
-  'Asisten Sutradara': {
-    title: 'Asisten Sutradara (Astrada)',
-    icon: Play,
-    color: 'from-purple-700 to-indigo-900',
-    desc: 'Prompt book, cue sheet, catatan latihan',
-    steps: [
-      'Dashboard → lihat status pemain & cue berikutnya',
-      'Studio → Prompt Book untuk kelola cue sheet audio & lighting',
-      'Susun Call Sheet latihan per adegan',
-      'Kelola setor hafalan dialog pemain via video/audio',
-      'Latih Shadow Player (pemain cadangan)',
-      'Presensi → buat absensi latihan Pemain + Musik',
-      'Nilai & Penilaian → Beri nilai Pemain (bawahan), Sutradara (feedback ke atasan), & Koor Artistik (rekan kerja)',
-      'Saat Show Time: panggil pemain ke wing, pandu pemanasan vokal',
-      'Kontrol urutan adegan sesuai 30 menit',
-      'Siap gantikan Sutradara jika berhalangan',
-      'Setelah selesai: konsolidasi catatan perkembangan pemain ke arsip',
-    ],
-  },
-  'Koordinator Perlengkapan': {
-    title: 'Koordinator Perlengkapan',
-    icon: Package,
-    color: 'from-blue-700 to-blue-900',
-    desc: 'Properti, bahan daur ulang, inventaris',
-    steps: [
-      'Dashboard → lihat 6 divisi & progress perlengkapan',
-      'Properti → daftar properti per adegan (maks prioritas daur ulang)',
-      'Update status properti: BELUM / PROSES / SELESAI / RUSAK',
-      'Presensi → buat sesi absensi internal divisi Perlengkapan (peserta terkunci ke anggota)',
-      'Jadwal Divisi → tambah jadwal internal divisi',
-      'Nilai & Penilaian → Beri nilai Anggota Perlengkapan (bawahan) & Pimpinan Produksi (feedback atasan)',
-      'Saat Show Time: bagi zona prop table di wing, eksekusi transisi properti cepat',
-      'Setelah selesai: kembalikan inventaris sekolah & update status barang di web',
-    ],
-  },
-  'Koordinator Publikasi': {
-    title: 'Koordinator Publikasi & Dokumentasi',
-    icon: Camera,
-    color: 'from-emerald-700 to-green-900',
-    desc: 'Poster, konten, BTS, aftermovie',
-    steps: [
-      'Dashboard → kelola timeline publikasi & jadwal konten',
-      'Jadwal Konten → susun kalender konten (H-30, H-14, H-7, H-1, Hari-H)',
-      'Dokumen & Arsip → unggah foto & video Behind the Scene',
-      'Presensi internal divisi untuk koordinasi',
-      'Nilai & Penilaian → Beri nilai Anggota Publikasi (bawahan) & Pimpinan Produksi (feedback atasan)',
-      'Saat Show Time: pasang kamera statis di angle terbaik',
-      'Ambil foto candid penonton & rekam pementasan 30 menit utuh',
-      'Setelah selesai: sunting aftermovie & arsipkan semua media ke Drive',
-    ],
-  },
-  'Koordinator Tata Panggung': {
-    title: 'Koordinator Tata Panggung',
-    icon: Layers,
-    color: 'from-purple-700 to-purple-900',
-    desc: 'Desain panggung, set, cross-operator',
-    steps: [
-      'Dashboard → lihat progress divisi & tugas terkait',
-      'Properti → kelola properti panggung (set, backdrop)',
-      'Presensi internal divisi Tata Panggung',
-      'Nilai & Penilaian → Beri nilai Anggota Panggung (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: eksekusi pasang set 10 menit, bongkar 5 menit',
-      'Jaga sterilitas area samping & pindahkan dekorasi tanpa suara',
-      'Setelah selesai: bongkar set & kembalikan panggung ke kondisi semula',
-    ],
-  },
-  'Koordinator Tata Rias': {
-    title: 'Koordinator Tata Rias',
-    icon: Palette,
-    color: 'from-pink-700 to-rose-900',
-    desc: 'Face chart, rias karakter/fantasi, higienitas',
-    steps: [
-      'Dashboard → kelola face chart & jadwal urutan merias',
-      'Face Chart → buat desain rias per pemain (Korektif / Karakter / Fantasi)',
-      'Unggah moodboard & face chart ke web',
-      'Presensi internal divisi Tata Rias',
-      'Nilai & Penilaian → Beri nilai Anggota Rias (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: eksekusi tata rias sesuai timeline',
-      'Standby touch-up cepat di antara adegan',
-      'Setelah selesai: dampingi pembersihan rias & sterilkan alat',
-    ],
-  },
-  'Koordinator Tata Busana': {
-    title: 'Koordinator Tata Busana',
-    icon: Scissors,
-    color: 'from-indigo-700 to-indigo-900',
-    desc: 'Desain kostum, fitting, quick change',
-    steps: [
-      'Dashboard → kelola desain & status kostum per peran',
-      'Kostum → tambah kostum untuk karakter & pemain',
-      'Track progress: DESAIN → POTONG → JAHIT → FITTING → SELESAI',
-      'Simpan moodboard, ukuran pemain, meter kain yang digunakan',
-      'Presensi internal divisi Tata Busana',
-      'Nilai & Penilaian → Beri nilai Anggota Busana (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: bagi area rak gantung, dampingi quick change pemain',
-      'Setelah selesai: cuci, bersihkan, & kembalikan aset kostum',
-    ],
-  },
-  'Koordinator Tata Musik': {
-    title: 'Koordinator Tata Musik & Suara',
-    icon: Music,
-    color: 'from-cyan-700 to-blue-900',
-    desc: 'Cue sheet audio, sound check, instrumen',
-    steps: [
-      'Dashboard → kelola sound cue sheet',
-      'Cue Sheet → tambah cue audio: Overture, Penutup, Pergantian Babak, dll',
-      'Simpan URL audio, volume, durasi per cue',
-      'Presensi internal divisi Tata Musik',
-      'Nilai & Penilaian → Beri nilai Anggota Musik (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: bagi channel mixer, check sound 10 menit',
-      'Mainkan musik iringan presisi mengikuti alur adegan 30 menit',
-      'Setelah selesai: rapikan & kembalikan instrumen ke penyimpanan',
-    ],
-  },
-  'Anggota Perlengkapan': {
-    title: 'Anggota Divisi Perlengkapan',
-    icon: Package,
-    color: 'from-blue-600 to-blue-800',
-    desc: 'Produksi properti, bahan daur ulang',
-    steps: [
-      'Dashboard → lihat tugas dari koordinator & progress Anda',
-      'Tugas & Deadline → centang tugas yang sudah dikerjakan',
-      'Upload bukti pekerjaan (link Google Drive)',
-      'Properti → tambah/update properti yang Anda kerjakan',
-      'Jadwal Divisi Saya → lihat agenda internal divisi',
-      'Presensi → isi kehadiran Anda di setiap sesi',
-      'Kas Saya → cek tagihan kas yang harus dibayar',
-      'Nilai & Penilaian → Beri nilai Koordinator Perlengkapan (feedback atasan) & sesama Anggota (rekan)',
-      'Nilai Saya → lihat rapor pribadi',
-    ],
-  },
-  'Anggota Publikasi': {
-    title: 'Anggota Divisi Publikasi & Dokumentasi',
-    icon: Camera,
-    color: 'from-emerald-600 to-emerald-800',
-    desc: 'Foto, video, BTS, media sosial',
-    steps: [
-      'Dashboard → lihat tugas dokumentasi yang ditugaskan',
-      'Tugas & Deadline → centang tugas & upload link media ke Drive',
-      'Dokumen & Arsip → unggah foto/video ke arsip digital',
-      'Jadwal Konten → lihat kalender publikasi',
-      'Presensi → isi kehadiran di setiap sesi',
-      'Kas Saya → cek tagihan kas',
-      'Nilai & Penilaian → Beri nilai Koordinator Publikasi (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Panggung': {
-    title: 'Anggota Divisi Tata Panggung',
-    icon: Layers,
-    color: 'from-purple-600 to-purple-800',
-    desc: 'Konstruksi set, spotting, dekorasi',
-    steps: [
-      'Dashboard → lihat tugas konstruksi set',
-      'Tugas & Deadline → centang tugas & upload bukti',
-      'Properti → update status pekerjaan konstruksi',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → Beri nilai Koor Panggung (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Rias': {
-    title: 'Anggota Divisi Tata Rias',
-    icon: Palette,
-    color: 'from-pink-600 to-rose-800',
-    desc: 'Aplikasi rias, higienitas alat',
-    steps: [
-      'Dashboard → lihat tugas rias yang ditugaskan',
-      'Tugas & Deadline → centang tugas',
-      'Face Chart → lihat desain rias dari koordinator',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → Beri nilai Koor Rias (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Busana': {
-    title: 'Anggota Divisi Tata Busana',
-    icon: Scissors,
-    color: 'from-indigo-600 to-indigo-800',
-    desc: 'Jahit, modifikasi, fitting',
-    steps: [
-      'Dashboard → lihat tugas busana',
-      'Tugas & Deadline → centang tugas',
-      'Kostum → update status kostum yang Anda kerjakan',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → Beri nilai Koor Busana (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Musik': {
-    title: 'Anggota Divisi Tata Musik & Suara',
-    icon: Music,
-    color: 'from-cyan-600 to-cyan-800',
-    desc: 'Musik, sound, instrumen',
-    steps: [
-      'Dashboard → lihat cue & tugas musik',
-      'Tugas & Deadline → centang tugas',
-      'Cue Sheet → lihat & update cue audio',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → Beri nilai Koor Musik (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Pemain': {
-    title: 'Pemain (Aktor / Aktris)',
-    icon: Star,
-    color: 'from-rose-600 to-pink-800',
-    desc: 'Akting, hafalan dialog, blocking, refleksi',
-    steps: [
-      'Dashboard → lihat progress latihan & nilai sementara',
-      'Naskah & Blocking → baca naskah digital & lihat blocking 3x3',
-      'Rekam suara latihan dialog dengan fitur Perekam Suara',
-      'Ikuti 10 langkah latihan dialog',
-      'Tugas & Deadline → centang tugas & submit hafalan via video',
-      'Jadwal Latihan → konfirmasi kehadiran latihan',
-      'Presensi → isi kehadiran di setiap sesi',
-      'Nilai & Penilaian → Beri nilai Sutradara & Astrada (pengarah langsung), serta sesama Pemain (rekan)',
-      'Nilai Saya → lihat rapor 6 kriteria akting',
-      'Refleksi Diri → isi refleksi setelah pementasan',
-    ],
-  },
+// ✅ UPDATE: Label yang humanis untuk UI & Modal
+const CATEGORY_LABEL: Record<AssessorCategory, string> = {
+  GURU: 'Guru Pengampu', ATASAN: 'Koordinator', REKAN: 'Rekan Kerja', BAWAHAN: 'Anggota Tim',
 };
 
-export const GuideModule: React.FC = () => {
-  const { user } = useAuth();
-  const [activeSection, setActiveSection] = useState<string>('my-role');
-  const [showAllRoles, setShowAllRoles] = useState(false);
+function buildISO(d: string, t: string): string {
+  if (!d) return '';
+  try { return new Date(`${d}T${t || '00:00'}:00`).toISOString(); } catch { return ''; }
+}
+function formatDateTime(iso: string | undefined): string {
+  if (!iso) return '-';
+  try { return new Date(iso).toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WITA'; } catch { return '-'; }
+}
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '0s';
+  const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  if (d > 0) return `${d}h ${h}j`;
+  if (h > 0) return `${h}j ${m}m`;
+  return `${m}m`;
+}
+function buildWhatsAppUrl(phone: string, text: string): string {
+  let c = (phone || '').replace(/\D/g, '');
+  if (c.startsWith('0')) c = '62' + c.slice(1);
+  return c ? `https://wa.me/${c}?text=${encodeURIComponent(text)}` : '#';
+}
 
-  const myRole = user?.role || 'Pemain';
-  const myGuide = ROLE_GUIDES[myRole];
+function isAssessmentOpen(sd: any, sid: ProductionStage) {
+  const cfg = sd?.[sid];
+  if (!cfg) return { open: false, reason: 'disabled' as const };
+  const raw = cfg.assessmentEnabled;
+  const isEnabled = raw === true || raw === 'true';
+  if (!isEnabled) return { open: false, reason: 'disabled' as const };
+  let sMs: number | undefined, eMs: number | undefined;
+  if (cfg.assessmentStartDate) { const iso = buildISO(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00'); if (iso) sMs = new Date(iso).getTime(); }
+  if (cfg.assessmentEndDate) { const iso = buildISO(cfg.assessmentEndDate, cfg.assessmentEndTime || '23:59'); if (iso) eMs = new Date(iso).getTime(); }
+  const now = Date.now();
+  if (sMs && !isNaN(sMs) && now < sMs) return { open: false, reason: 'not-started' as const, startMs: sMs, endMs: eMs };
+  if (eMs && !isNaN(eMs) && now > eMs) return { open: false, reason: 'ended' as const, startMs: sMs, endMs: eMs };
+  return { open: true, reason: 'open' as const, startMs: sMs, endMs: eMs };
+}
 
-  const SECTIONS: GuideSection[] = [
-    // ============================================
-    // 1. PANDUAN PERAN ANDA (dinamis berdasarkan login)
-    // ============================================
-    {
-      id: 'my-role',
-      title: `📌 Panduan untuk Peran Anda: ${myRole}`,
-      icon: myGuide?.icon || UserCheck,
-      color: myGuide?.color || 'from-amber-600 to-orange-800',
-      content: (
-        <div className="space-y-4">
-          {myGuide ? (
-            <>
-              <div className={`p-4 rounded-2xl bg-gradient-to-r ${myGuide.color} text-white`}>
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-2xl bg-white/20 backdrop-blur-sm shrink-0">
-                    <myGuide.icon className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-black">{myGuide.title}</h3>
-                    <p className="text-xs opacity-90 mt-0.5">{myGuide.desc}</p>
-                  </div>
-                </div>
-              </div>
+function computeTaskResponsibility(student: UserProfile, deadlines: any[], subs: any[], stage: ProductionStage) {
+  const myTasks = deadlines.filter(t => {
+    if (t.stage && t.stage !== stage) return false;
+    if (t.status === 'CANCELLED') return false;
+    const sc = t.targetScope;
+    if (sc === 'SEMUA') return true;
+    if (sc === 'PERAN') return t.targetRole === student.role;
+    if (sc === 'DIVISI') return t.targetDivision === student.divisionName;
+    if (sc === 'CUSTOM') {
+      const tr: string[] = t.targetRoles || [], td: string[] = t.targetDivisions || [], tu: string[] = t.targetUserIds || [];
+      if (tr.length > 0 && tr.includes(student.role)) return true;
+      if (td.length > 0 && student.divisionName && td.includes(student.divisionName)) return true;
+      if (tu.length === 0) return true;
+      return tu.includes(student.uid);
+    }
+    return false;
+  });
+  let awal = 0, tepat = 0, telatR = 0, telatB = 0, belum = 0, cLate = 0, cMiss = 0;
+  myTasks.forEach(task => {
+    const sub = subs.find(s => s.deadlineId === task.id && s.studentId === student.uid);
+    const isCrit = !!task.isCritical;
+    if (!sub || sub.status === 'BELUM') { belum++; if (isCrit) cMiss++; return; }
+    if (sub.status === 'SELESAI' && sub.submittedAt) {
+      const diff = Math.floor((new Date(sub.submittedAt).getTime() - new Date(task.dueDate).getTime()) / 86400000);
+      if (diff <= -1) awal++;
+      else if (diff === 0) tepat++;
+      else if (diff <= 2) { telatR++; if (isCrit && diff > 1) cLate++; }
+      else { telatB++; if (isCrit) cLate++; }
+    } else if (sub.status === 'TERLAMBAT') { telatB++; if (isCrit) cLate++; }
+  });
+  const total = myTasks.length;
+  if (total === 0) return { score: 4 as const, totalTasks: 0, pctOnTime: 100 };
+  const pct = Math.round(((awal + tepat) / total) * 100);
+  let score: 1|2|3|4 = 1;
+  if (pct >= 90 && cLate === 0 && cMiss === 0) score = 4;
+  else if (pct >= 75 && cLate <= 0) score = 3;
+  else if (pct >= 50 && cMiss === 0) score = 2;
+  if (cMiss > 0) score = 1;
+  return { score, totalTasks: total, pctOnTime: pct };
+}
 
-              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                <div className="flex items-center gap-2 mb-2">
-                  <Target className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                  <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                    Yang bisa Anda lakukan:
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {myGuide.steps.map((step, i) => (
-                    <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-amber-100 dark:border-amber-500/20">
-                      <span className="w-6 h-6 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-[11px] shrink-0">
-                        {i + 1}
-                      </span>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed pt-0.5">
-                        {step}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+function computeAttendance(student: UserProfile, sessions: any[], records: any[], stage: ProductionStage) {
+  const stageSess = sessions.filter(s => !s.stageId || s.stageId === stage);
+  const sIds = new Set(stageSess.map(s => s.id));
+  const myRecs = records.filter(r => r.studentId === student.uid && sIds.has(r.sessionId));
+  let h = 0, iz = 0, al = 0, fatal = false;
+  myRecs.forEach(r => {
+    if (r.status === 'Hadir') h++;
+    else if (r.status === 'Izin' || r.status === 'Sakit') iz++;
+    else if (r.status === 'Alpa') { al++; const s = stageSess.find(x => x.id === r.sessionId); if (s && (s.activityType === 'Gladi' || s.activityType === 'Pementasan')) fatal = true; }
+  });
+  const total = myRecs.length;
+  if (total === 0) return { score: 4 as const, totalSessions: 0, pct: 100 };
+  const pct = Math.round(((h + iz) / total) * 100);
+  let score: 1|2|3|4 = 1;
+  if (pct >= AUTO_SCORE_THRESHOLDS.attendance.excellent) score = 4;
+  else if (pct >= AUTO_SCORE_THRESHOLDS.attendance.good) score = 3;
+  else if (pct >= AUTO_SCORE_THRESHOLDS.attendance.fair) score = 2;
+  if (al >= 3 || fatal) score = Math.min(score, 2) as any;
+  return { score, totalSessions: total, pct };
+}
 
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                  Panduan ini dapat dibuka berkali-kali kapan pun Anda butuh. 
-                  Sidebar menu menampilkan fitur sesuai wewenang peran Anda.
-                </p>
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-slate-500 italic text-center py-4">
-              Panduan untuk peran "{myRole}" belum tersedia.
-            </p>
-          )}
-        </div>
-      ),
-    },
+interface Anomaly { record: AssessmentRecord; assessor?: UserProfile; target?: UserProfile; reason: string; severity: 'high'|'medium'|'low'; type: string; }
 
-    // ============================================
-    // 2. PENGANTAR SP-PPT
-    // ============================================
-    {
-      id: 'intro',
-      title: '🎭 Pengantar SP-PPT',
-      icon: BookOpen,
-      color: 'from-slate-700 to-slate-900',
-      content: (
-        <div className="space-y-3 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-          <p>
-            <strong>SP-PPT (Sistem Penilaian & Manajemen Proyek Produksi Teater)</strong> adalah platform
-            web resmi pembelajaran Seni Budaya (Seni Teater) Kelas IX di SMP Negeri 10 Samarinda.
-          </p>
-          <p>
-            Sistem ini mendokumentasikan, mengelola alur kerja, dan menilai proses produksi teater
-            secara holistik dari tahap <strong>Pra-Produksi → Pelaksanaan (3 bulan) → Show Time → Pasca-Produksi</strong>.
-          </p>
-          <div className="p-3 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-200 dark:border-amber-500/30">
-            <p className="text-amber-900 dark:text-amber-200 font-bold text-[11px]">
-              💡 Prinsip Utama:
-            </p>
-            <p className="text-amber-800 dark:text-amber-300 text-[11px] mt-1">
-              Penilaian tidak hanya melihat hari-H pertunjukan di panggung, tetapi menghargai setiap
-              tetes keringat proses latihan, koordinasi divisi, dan kedisiplinan kerja tim.
-            </p>
+function detectAnomalies(assessments: AssessmentRecord[], students: UserProfile[], stage: ProductionStage): Anomaly[] {
+  const out: Anomaly[] = [];
+  const stageRecs = assessments.filter(a => a.stage === stage);
+  const byStudent: Record<string, AssessmentRecord[]> = {};
+  stageRecs.forEach(a => { if (!byStudent[a.studentId]) byStudent[a.studentId] = []; byStudent[a.studentId].push(a); });
+  stageRecs.forEach(rec => {
+    const sc = Object.values(rec.scores || {}).filter(v => typeof v === 'number');
+    if (sc.length === 0) return;
+    const assessor = students.find(s => s.uid === rec.assessorId);
+    const target = students.find(s => s.uid === rec.studentId);
+    if (sc.every(v => v === 1)) { out.push({ record: rec, assessor, target, reason: `Semua ${sc.length} kriteria diberi nilai 1 (Kurang)`, severity: 'high', type: 'Nilai Sangat Rendah' }); return; }
+    if (sc.every(v => v === 4)) { out.push({ record: rec, assessor, target, reason: `Semua ${sc.length} kriteria diberi nilai 4 (Sangat Baik)`, severity: 'medium', type: 'Nilai Sangat Tinggi' }); return; }
+    if (sc.every(v => v === sc[0]) && sc[0] !== 1 && sc[0] !== 4) { out.push({ record: rec, assessor, target, reason: `Semua kriteria diberi nilai ${sc[0]}`, severity: 'low', type: 'Nilai Seragam' }); return; }
+    const same = (byStudent[rec.studentId] || []).filter(r => r.id !== rec.id);
+    if (same.length >= 2) {
+      const othersAvg = same.reduce((s, r) => s + r.totalScore, 0) / same.length;
+      const diff = Math.abs(rec.totalScore - othersAvg);
+      if (diff >= 25) out.push({ record: rec, assessor, target, reason: `Nilai (${rec.totalScore}) beda jauh dari rata-rata (${othersAvg.toFixed(1)}), selisih ${diff.toFixed(1)}`, severity: diff >= 35 ? 'high' : 'medium', type: 'Outlier vs Penilai Lain' });
+    }
+  });
+  return out.sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a.severity] - ({ high: 0, medium: 1, low: 2 })[b.severity]);
+}
+
+export const AssessmentModule: React.FC = () => {
+  const { user, activeClass, isAdminRole, isGuruPengampu, canAssessTarget } = useAuth();
+  const { showToast } = useToast();
+
+  const [students, setStudents] = useState<UserProfile[]>([]);
+  const [studentsLoading, setStudentsLoading] = useState(true);
+  const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
+  const [deadlines, setDeadlines] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [attRecords, setAttRecords] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null);
+  const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isGradingOpen, setIsGradingOpen] = useState(false);
+  const [manualScores, setManualScores] = useState<Record<string, number>>({});
+  const [comment, setComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [stageConfig, setStageConfig] = useState<any>(null);
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const [showAnomalies, setShowAnomalies] = useState(false);
+  const [selectedPeerIds, setSelectedPeerIds] = useState<string[]>([]);
+  const [, setTick] = useState(0);
+
+  useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
+
+  const canManageAll = isGuruPengampu || isAdminRole;
+  const canGradeStudent = (s: UserProfile) => canManageAll ? true : canAssessTarget(s);
+
+  useEffect(() => {
+    if (!activeClass) { setStudents([]); setStudentsLoading(false); return; }
+    setStudentsLoading(true);
+    (async () => {
+      try {
+        let list: UserProfile[] = [];
+        try { list = await fetchUsersByClass(activeClass.id); } catch {}
+        if (!list || list.length === 0) {
+          try {
+            const all = await fetchAllUsers();
+            const n = (activeClass.name || '').toLowerCase().trim();
+            list = all.filter(u => u.classId === activeClass.id || (u.className || '').toLowerCase().trim() === n);
+          } catch {}
+        }
+        setStudents(list.filter(s => !['Guru Pengampu','Guru Pembina','Admin','Super Admin'].includes(s.role)));
+      } catch { setStudents([]); } finally { setStudentsLoading(false); }
+    })();
+  }, [activeClass]);
+
+  useEffect(() => {
+    if (!activeClass) return;
+    const u1 = subscribeAssessments(activeClass.id, setAssessments);
+    const q2 = query(collection(db, 'deadlines'), where('classId', '==', activeClass.id));
+    const u2 = onSnapshot(q2, snap => setDeadlines(snap.docs.map(d => ({ ...d.data(), id: d.id }))));
+    const u3 = subscribeAttendanceSessions(activeClass.id, setSessions);
+    const u4 = subscribeAllAttendanceRecords(activeClass.id, setAttRecords);
+    let u5 = () => {};
+    (async () => {
+      const q = query(collection(db, 'deadlineSubmissions'), where('classId', '==', activeClass.id));
+      u5 = onSnapshot(q, snap => setSubmissions(snap.docs.map(d => ({ ...d.data(), id: d.id }))));
+    })();
+    return () => { u1(); u2(); u3(); u4(); u5(); };
+  }, [activeClass]);
+
+  useEffect(() => {
+    if (!activeClass) return;
+    const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) { const d = snap.data(); setStageConfig(d); if (d.currentStage) setSelectedStage(d.currentStage); }
+    });
+    return () => unsub();
+  }, [activeClass]);
+
+  const isStageEnabled = (sid: ProductionStage) => {
+    if (!stageConfig?.stageDeadlines) return true;
+    const c = stageConfig.stageDeadlines[sid];
+    if (!c) return true;
+    const raw = c.enabled;
+    if (raw === false || raw === 'false') return false;
+    return true;
+  };
+
+  const isDirectDisabled = () => {
+    const directCfg = stageConfig?.stageDeadlines?.[selectedStage];
+    if (!directCfg) return false;
+    const raw = directCfg.assessmentEnabled;
+    const enabled = raw === true || raw === 'true';
+    return !enabled;
+  };
+
+  const isStageLocked = !isStageEnabled(selectedStage);
+  const aStatus = isAssessmentOpen(stageConfig?.stageDeadlines, selectedStage);
+  const isAssessmentLocked = !aStatus.open;
+
+  const criteria = selectedStudent?.role === 'Pemeran' ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+  const manualCriteria = criteria.filter(c => c.source === 'MANUAL');
+
+  const autoScoresFor = (s: UserProfile, st: ProductionStage) => {
+    const t = computeTaskResponsibility(s, deadlines, submissions, st);
+    const a = computeAttendance(s, sessions, attRecords, st);
+    const auto: any = { tanggung_jawab: t.score, kehadiran: a.score };
+    if (s.role === 'Pemeran') auto.kedisiplinan = Math.floor((t.score + a.score) / 2);
+    return { auto, taskResult: t, attendResult: a };
+  };
+
+  const calcTotal = () => {
+    if (!selectedStudent) return 0;
+    const { auto } = autoScoresFor(selectedStudent, selectedStage);
+    let sum = 0, w = 0;
+    criteria.forEach(c => {
+      let sc = 3;
+      if (c.source === 'MANUAL') sc = manualScores[c.key] || 3;
+      else {
+        const k = c.source === 'AUTO_TASK' ? 'tanggung_jawab' : c.source === 'AUTO_ATTENDANCE' ? 'kehadiran' : c.source === 'AUTO_DISCIPLINE' ? 'kedisiplinan' : null;
+        if (k) sc = auto[k] || 3;
+      }
+      sum += (SCORE_SCALE[sc]?.score100 || 80) * c.weight;
+      w += c.weight;
+    });
+    return w > 0 ? Math.round((sum / w) * 10) / 10 : 80;
+  };
+
+  const getStudentTasks = (s: UserProfile) => {
+    return deadlines.filter(t => {
+      if (t.stage && t.stage !== selectedStage) return false;
+      if (t.status === 'CANCELLED') return false;
+      const sc = t.targetScope;
+      if (sc === 'SEMUA') return true;
+      if (sc === 'PERAN') return t.targetRole === s.role;
+      if (sc === 'DIVISI') return t.targetDivision === s.divisionName;
+      if (sc === 'CUSTOM') {
+        const tr: string[] = t.targetRoles || [], td: string[] = t.targetDivisions || [], tu: string[] = t.targetUserIds || [];
+        if (tr.length > 0 && tr.includes(s.role)) return true;
+        if (td.length > 0 && s.divisionName && td.includes(s.divisionName)) return true;
+        if (tu.length === 0) return true;
+        return tu.includes(s.uid);
+      }
+      return false;
+    }).map(t => {
+      const sub = submissions.find(x => x.deadlineId === t.id && x.studentId === s.uid);
+      const done = sub && (sub.status === 'SELESAI' || sub.status === 'TERLAMBAT');
+      return { task: t, sub, done, label: done ? 'Selesai' : 'Belum' };
+    });
+  };
+
+  const getPeerStatus = (s: UserProfile) => {
+    const matrix = getAssessmentMatrix(s.role);
+    const tr = new Set<string>();
+    ['REKAN', 'BAWAHAN', 'ATASAN'].forEach(c => { const r = matrix.find(x => x.category === c); if (r) r.roles.forEach(y => tr.add(y)); });
+    const targets = students.filter(x => x.uid !== s.uid && tr.has(x.role));
+    const filled = targets.filter(t => assessments.some(a => a.assessorId === s.uid && a.studentId === t.uid && a.stage === selectedStage)).length;
+    return { total: targets.length, filled, pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, isComplete: filled >= targets.length };
+  };
+
+  // ✅ UPDATE: Fungsi getAgg yang baru untuk mencatat rincian spesifik peran penilai
+  const getAgg = (sid: string, srole: string) => {
+    const recs = assessments.filter(a => a.studentId === sid && a.stage === selectedStage);
+    if (recs.length === 0) return null;
+    
+    const by: Record<string, number[]> = { GURU: [], ATASAN: [], REKAN: [], BAWAHAN: [] };
+    const roleBreakdown: Record<string, Record<string, number[]>> = { GURU: {}, ATASAN: {}, REKAN: {}, BAWAHAN: {} };
+
+    recs.forEach(r => { 
+      const c = (r as any).assessorCategory || 'REKAN'; 
+      const role = r.assessorRole || 'Tidak Diketahui';
+      
+      // Simpan nilai per kategori besar
+      if (!by[c]) by[c] = []; 
+      by[c].push(r.totalScore); 
+      
+      // Simpan nilai lebih spesifik per peran (role)
+      if (!roleBreakdown[c]) roleBreakdown[c] = {};
+      if (!roleBreakdown[c][role]) roleBreakdown[c][role] = [];
+      roleBreakdown[c][role].push(r.totalScore);
+    });
+    
+    const avg = (a: number[]) => a.length > 0 ? a.reduce((s, x) => s + x, 0) / a.length : null;
+    const g = avg(by.GURU), at = avg(by.ATASAN), rk = avg(by.REKAN), bw = avg(by.BAWAHAN);
+    const w = getAssessorWeights(srole);
+    
+    let sum = 0, wt = 0;
+    if (g !== null && w.GURU > 0) { sum += g * w.GURU; wt += w.GURU; }
+    if (at !== null && w.ATASAN > 0) { sum += at * w.ATASAN; wt += w.ATASAN; }
+    if (rk !== null && w.REKAN > 0) { sum += rk * w.REKAN; wt += w.REKAN; }
+    if (bw !== null && w.BAWAHAN > 0) { sum += bw * w.BAWAHAN; wt += w.BAWAHAN; }
+    
+    return { 
+      finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, 
+      guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs,
+      roleBreakdown 
+    };
+  };
+
+  const openGrading = (s: UserProfile) => {
+    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan oleh Guru.', 'error'); return; }
+    if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
+    if (isAssessmentLocked) {
+      if (aStatus.reason === 'not-started' && aStatus.startMs) showToast(`Dibuka dalam ${formatDuration(aStatus.startMs - Date.now())}.`, 'warning');
+      else if (aStatus.reason === 'ended') showToast(`Sudah ditutup.`, 'warning');
+      else if (aStatus.reason === 'disabled') showToast('Dinonaktifkan.', 'warning');
+      else showToast('Belum dibuka.', 'warning');
+      return;
+    }
+    if (!canGradeStudent(s)) { showToast('Tidak berwenang.', 'warning'); return; }
+    setSelectedStudent(s);
+    const ex = assessments.find(a => a.assessorId === user?.uid && a.studentId === s.uid && a.stage === selectedStage);
+    const init: Record<string, number> = {};
+    manualCriteria.forEach(c => { init[c.key] = (ex?.scores && ex.scores[c.key]) || 3; });
+    setManualScores(init);
+    setComment(ex?.comment || '');
+    setIsGradingOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!user || !selectedStudent || !activeClass) return;
+    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan. Tidak bisa menyimpan.', 'error'); return; }
+    if (isStageLocked || isAssessmentLocked) { showToast('Penilaian terkunci.', 'warning'); return; }
+    const low = Object.values(manualScores).some(v => v <= 2);
+    if (low && (!comment || comment.trim().length < 5)) { showToast('Komentar wajib bila ada nilai <= 2!', 'error'); return; }
+    setIsSubmitting(true);
+    try {
+      const { auto } = autoScoresFor(selectedStudent, selectedStage);
+      const total = calcTotal();
+      const matrix = getAssessmentMatrix(selectedStudent.role);
+      let cat: AssessorCategory = 'REKAN';
+      for (const r of matrix) if (r.roles.includes(user.role)) { cat = r.category; break; }
+      if (canManageAll) cat = 'GURU';
+      await saveAssessment({
+        classId: activeClass.id, productionId: 'prod',
+        studentId: selectedStudent.uid, studentName: selectedStudent.displayName,
+        studentRole: selectedStudent.role, studentDivision: selectedStudent.divisionName,
+        assessorId: user.uid, assessorName: user.displayName, assessorRole: user.role,
+        assessorCategory: cat, stage: selectedStage, scores: manualScores, autoScores: auto,
+        totalScore: total, comment: comment.trim(), isFinal: true,
+      } as any);
+      await recordAuditLog({ userId: user.uid, userName: user.displayName, role: user.role, action: 'ASSESS', targetType: 'Assessment', targetId: selectedStudent.uid, details: `Nilai ${total} untuk ${selectedStudent.displayName} (${selectedStage})` });
+      showToast(`Penilaian ${selectedStudent.displayName} disimpan!`, 'success');
+      setIsGradingOpen(false);
+    } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); } finally { setIsSubmitting(false); }
+  };
+
+  const handleReset = async () => {
+    if (!canManageAll || !activeClass || !user) return;
+    if (resetConfirmText.trim() !== activeClass.name) { showToast('Nama kelas tidak cocok.', 'error'); return; }
+    setIsResetting(true);
+    try {
+      const q = query(collection(db, 'assessments'), where('classId', '==', activeClass.id), where('stage', '==', selectedStage));
+      const snap = await getDocs(q);
+      if (snap.empty) { showToast('Tidak ada penilaian.', 'info'); setIsResetting(false); setResetConfirmOpen(false); setResetConfirmText(''); return; }
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => {
+        const hRef = doc(collection(db, 'assessmentHistory'));
+        batch.set(hRef, { ...d.data(), id: hRef.id, originalId: d.id, supersededAt: new Date().toISOString(), supersededBy: user.uid, reason: `RESET ${selectedStage}` });
+        batch.delete(d.ref);
+      });
+      await batch.commit();
+      await recordAuditLog({ userId: user.uid, userName: user.displayName, role: user.role, action: 'DELETE', targetType: 'AssessmentStageReset', targetId: activeClass.id, details: `RESET ${snap.size} penilaian ${selectedStage}` });
+      showToast(`${snap.size} penilaian direset!`, 'success');
+      setResetConfirmOpen(false); setResetConfirmText('');
+    } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); } finally { setIsResetting(false); }
+  };
+
+  const handleDeleteOne = async (r: AssessmentRecord) => {
+    if (!canManageAll || !user) return;
+    if (!confirm(`Hapus penilaian ${r.studentName} oleh ${r.assessorName}?`)) return;
+    try {
+      const hRef = doc(collection(db, 'assessmentHistory'));
+      await writeBatch(db).set(hRef, { ...r, id: hRef.id, originalId: r.id, supersededAt: new Date().toISOString(), supersededBy: user.uid, reason: `Dihapus oleh ${user.displayName}` }).commit();
+      await deleteDoc(doc(db, 'assessments', r.id));
+      showToast('Penilaian dihapus.', 'info');
+    } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); }
+  };
+
+  const handleWAPeer = (s: UserProfile) => {
+    if (!s.phone) { showToast(`${s.displayName} belum punya WA.`, 'warning'); return; }
+    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
+    const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT.\n\nTerima kasih.`;
+    window.open(buildWhatsAppUrl(s.phone, text), '_blank', 'noopener,noreferrer');
+    showToast(`Membuka WA ke ${s.displayName}...`, 'info');
+  };
+
+  const handleWAScore = (s: UserProfile) => {
+    if (!s.phone) { showToast(`${s.displayName} belum punya WA.`, 'warning'); return; }
+    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
+    const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nKami ingin membahas nilai Anda di tahap ${selectedStage}.\n\nJika ada pertanyaan, silakan hubungi saya.\n\nTerima kasih.`;
+    window.open(buildWhatsAppUrl(s.phone, text), '_blank', 'noopener,noreferrer');
+    showToast(`Membuka WA ke ${s.displayName}...`, 'info');
+  };
+
+  const handleRekap = () => {
+    const sheet1 = {
+      name: 'Rekap Nilai',
+      // ✅ UPDATE: Header Excel humanis
+      headers: ['Nama', 'Peran', 'Divisi', 'Peer', 'Guru', 'Koordinator', 'Rekan Kerja', 'Anggota Tim', 'Nilai Akhir'],
+      rows: filtered.map(s => {
+        const a = getAgg(s.uid, s.role); const p = getPeerStatus(s);
+        return [s.displayName, s.role, s.divisionName || '-', `${p.filled}/${p.total}`, a?.guru?.toFixed(1) ?? '-', a?.atasan?.toFixed(1) ?? '-', a?.rekan?.toFixed(1) ?? '-', a?.bawahan?.toFixed(1) ?? '-', a?.finalVal ?? '-'];
+      }),
+    };
+    const sheet2 = {
+      name: 'Komentar',
+      headers: ['Siswa', 'Penilai', 'Kategori', 'Nilai', 'Komentar'],
+      rows: filtered.flatMap(s => assessments.filter(a => a.studentId === s.uid && a.stage === selectedStage).map(a => [s.displayName, a.assessorName, CATEGORY_LABEL[((a as any).assessorCategory as AssessorCategory) || 'REKAN'], a.totalScore, a.comment || '-'])),
+    };
+    exportMultiSheetXLSX(`Rekap_${activeClass?.name || 'Kelas'}_${selectedStage}_${new Date().toISOString().slice(0,10)}.xls`, [sheet1, sheet2]);
+    showToast('Rekap diunduh!', 'success');
+  };
+
+  const filtered = students.filter(s => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (s.displayName || '').toLowerCase().includes(q) || (s.role || '').toLowerCase().includes(q) || (s.divisionName || '').toLowerCase().includes(q);
+  });
+
+  const stageCount = (sid: ProductionStage) => assessments.filter(a => a.stage === sid).length;
+  const anomalies = canManageAll ? detectAnomalies(assessments, students, selectedStage) : [];
+  const pendingPeers = canManageAll ? students.filter(s => { const p = getPeerStatus(s); return p.total > 0 && !p.isComplete; }) : [];
+
+  if (!activeClass) {
+    return <div className="p-8 rounded-3xl bg-amber-50 border-2 border-amber-300 text-center max-w-2xl mx-auto my-8"><AlertCircle className="w-16 h-16 mx-auto text-amber-600 mb-4" /><h3 className="text-base font-extrabold text-amber-900">Anda Belum Masuk ke Kelas</h3></div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="p-3 rounded-2xl bg-amber-500/10 text-amber-600"><Award className="w-7 h-7" /></span>
+            <div>
+              <h2 className="text-xl font-black text-slate-900">Penilaian 360</h2>
+              <p className="text-xs text-slate-500">Auto-score + Manual 360</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={handleRekap} className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Rekap</button>
+            <button onClick={() => window.location.reload()} className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"><RefreshCw className="w-3.5 h-3.5" /></button>
           </div>
         </div>
-      ),
-    },
 
-    // ============================================
-    // 3. SEMUA PERAN — untuk lihat semua
-    // ============================================
-    {
-      id: 'all-roles',
-      title: '👥 Daftar Semua Peran & Wewenang',
-      icon: Users,
-      color: 'from-purple-700 to-indigo-900',
-      content: (
-        <div className="space-y-3">
-          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Sistem membedakan hak akses secara ketat berdasarkan hierarki kepanitiaan produksi.
-            Klik peran untuk melihat detail.
-          </p>
-          <button
-            onClick={() => setShowAllRoles(!showAllRoles)}
-            className="w-full p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 text-purple-800 dark:text-purple-300 font-bold text-xs flex items-center justify-between"
-          >
-            <span>{showAllRoles ? '▲ Sembunyikan Detail Semua Peran' : '▼ Tampilkan Detail Semua Peran'}</span>
-            <ChevronDown className={`w-4 h-4 transition-transform ${showAllRoles ? 'rotate-180' : ''}`} />
-          </button>
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-slate-700">Tahapan:</span>
+            {stageConfig?.currentStage && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300">Aktif: {stageConfig.currentStage}</span>}
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+            {STAGES.map(s => {
+              const en = isStageEnabled(s.id);
+              const isA = selectedStage === s.id;
+              const cnt = stageCount(s.id);
+              const st = isAssessmentOpen(stageConfig?.stageDeadlines, s.id);
+              return (
+                <button key={s.id} onClick={() => setSelectedStage(s.id)} disabled={!en && !canManageAll}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-2 ${isA ? (en ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md' : 'bg-rose-500 text-white shadow-md') : en ? 'bg-white text-slate-600 border border-slate-200' : 'bg-slate-100 text-slate-400 border opacity-60 cursor-not-allowed'}`}>
+                  {!en && <Lock className="w-3 h-3" />}
+                  {en && !st.open && <Award className="w-3 h-3 opacity-70" />}
+                  {en && st.open && <Unlock className="w-3 h-3 opacity-70" />}
+                  <span>{s.id}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isA ? 'bg-white/20' : 'bg-slate-200'}`}>{cnt}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-          {showAllRoles && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto pr-1">
-              {Object.entries(ROLE_GUIDES).map(([roleKey, guide]) => {
-                const Icon = guide.icon;
-                const isMe = roleKey === myRole;
-                return (
-                  <div key={roleKey} className={`p-3 rounded-xl border-2 ${
-                    isMe ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
-                  }`}>
-                    <div className="flex items-start gap-2 mb-2">
-                      <div className={`p-2 rounded-lg bg-gradient-to-br ${guide.color} text-white shrink-0`}>
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="text-xs font-bold text-slate-900 dark:text-white">{guide.title}</p>
-                          {isMe && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">
-                              Anda
-                            </span>
-                          )}
+        {!isAssessmentLocked && aStatus.endMs && (
+          <div className="mt-3 p-3 rounded-xl bg-emerald-50 border-2 border-emerald-300 flex items-start gap-2">
+            <Timer className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-emerald-900"><p className="font-bold">Penilaian TERBUKA, sisa {formatDuration(aStatus.endMs - Date.now())}</p><p className="mt-0.5">Ditutup: {formatDateTime(new Date(aStatus.endMs).toISOString())}</p></div>
+          </div>
+        )}
+        {isAssessmentLocked && aStatus.reason === 'not-started' && aStatus.startMs && (
+          <div className="mt-3 p-3 rounded-xl bg-blue-50 border-2 border-blue-300 flex items-start gap-2">
+            <Clock className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-blue-900"><p className="font-bold">Belum dibuka, dalam {formatDuration(aStatus.startMs - Date.now())}</p><p className="mt-0.5">{formatDateTime(new Date(aStatus.startMs).toISOString())}</p></div>
+          </div>
+        )}
+        {isAssessmentLocked && aStatus.reason === 'ended' && (
+          <div className="mt-3 p-3 rounded-xl bg-rose-50 border-2 border-rose-300 flex items-start gap-2"><Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" /><div className="text-[11px] text-rose-900"><p className="font-bold">Penilaian sudah ditutup</p></div></div>
+        )}
+        {isAssessmentLocked && aStatus.reason === 'disabled' && (
+          <div className="mt-3 p-3 rounded-xl bg-slate-50 border-2 border-slate-300 flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" /><div className="text-[11px] text-slate-800"><p className="font-bold">Penilaian dinonaktifkan</p></div></div>
+        )}
+
+        <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
+          <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja.</p></div>
+        </div>
+      </div>
+
+      {canManageAll && pendingPeers.length > 0 && (() => {
+        const allSelected = pendingPeers.every(p => selectedPeerIds.includes(p.uid));
+        const toggleAll = () => { if (allSelected) setSelectedPeerIds([]); else setSelectedPeerIds(pendingPeers.map(p => p.uid)); };
+        const toggleOne = (uid: string) => { setSelectedPeerIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]); };
+        const selectedList = pendingPeers.filter(p => selectedPeerIds.includes(p.uid));
+        const selectedWithPhone = selectedList.filter(p => p.phone);
+
+        const sendToSelected = () => {
+          if (selectedList.length === 0) { showToast('Pilih minimal 1 siswa dulu.', 'warning'); return; }
+          if (selectedWithPhone.length === 0) { showToast('Siswa yang dipilih tidak punya nomor WA.', 'warning'); return; }
+          const noPhone = selectedList.length - selectedWithPhone.length;
+          if (!confirm(`Kirim WA ke ${selectedWithPhone.length} siswa terpilih?` + (noPhone > 0 ? `\n\n(${noPhone} siswa di-skip karena tidak punya nomor WA)` : '') + `\n\nBrowser akan buka tab satu per satu.`)) return;
+          selectedWithPhone.forEach((s, i) => {
+            setTimeout(() => {
+              const tn = user?.displayName || 'Guru';
+              const cn = activeClass?.name || 'IX';
+              const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
+              window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
+              if (i === selectedWithPhone.length - 1) {
+                setTimeout(() => showToast(`Selesai. ${selectedWithPhone.length} siswa dibuka di WA.`, 'success'), 500);
+              }
+            }, i * 1200);
+          });
+          showToast(`Membuka ${selectedWithPhone.length} chat WhatsApp...`, 'info');
+        };
+
+        return (
+          <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md">
+            <div className="flex items-start gap-3">
+              <span className="p-2.5 rounded-2xl bg-amber-500 text-white shrink-0"><AlertCircle className="w-5 h-5" /></span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h3 className="text-sm font-extrabold text-amber-900">{pendingPeers.length} Siswa Belum Isi Peer Assessment</h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                    {selectedPeerIds.length > 0 ? `${selectedPeerIds.length} DIPILIH` : `TAHAP ${selectedStage}`}
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed mb-3">
+                  Centang siswa yang mau dikirimi WA, lalu klik <strong>Kirim ke Terpilih</strong>. Atau klik ikon WhatsApp hijau di tiap baris untuk kirim 1 orang saja.
+                </p>
+
+                <div className="flex items-center gap-2 flex-wrap mb-3 p-2 rounded-xl bg-white border border-amber-200">
+                  <button onClick={toggleAll}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition ${allSelected ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-800 border border-amber-300'}`}>
+                    {allSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+                    {allSelected ? 'Batal Pilih Semua' : 'Pilih Semua'}
+                  </button>
+                  {selectedPeerIds.length > 0 && (
+                    <>
+                      <span className="text-[10px] font-bold text-amber-800">{selectedPeerIds.length} dipilih</span>
+                      <button onClick={() => setSelectedPeerIds([])} className="text-[10px] font-bold text-rose-600 hover:underline">Kosongkan</button>
+                    </>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 max-h-72 overflow-y-auto mb-3">
+                  {pendingPeers.map(s => {
+                    const ps = getPeerStatus(s);
+                    const isSelected = selectedPeerIds.includes(s.uid);
+                    const hasPhone = !!s.phone;
+                    return (
+                      <div key={s.uid} className={`flex items-center gap-2 p-2 rounded-xl border transition ${isSelected ? 'bg-amber-50 border-amber-400' : 'bg-white border-amber-200'}`}>
+                        <button onClick={() => toggleOne(s.uid)} className="p-0.5 shrink-0" title={isSelected ? 'Batal pilih' : 'Pilih'}>
+                          {isSelected ? <CheckSquare className="w-5 h-5 text-amber-600" /> : <Square className="w-5 h-5 text-slate-400" />}
+                        </button>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${ps.filled === 0 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>{s.displayName.charAt(0).toUpperCase()}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-bold text-slate-800 truncate">{s.displayName}</p>
+                          <p className="text-[9px] text-slate-500">
+                            {s.role} • <span className={ps.filled === 0 ? 'text-rose-600 font-bold' : 'text-amber-600 font-bold'}>{ps.filled}/{ps.total} peer</span>
+                            {!hasPhone && <span className="text-slate-400 italic"> • no WA</span>}
+                          </p>
                         </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{guide.desc}</p>
+                        {hasPhone ? (
+                          <button onClick={() => handleWAPeer(s)} className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shrink-0" title={`Kirim WA langsung ke ${s.displayName}`}>
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <span className="text-[9px] text-slate-400 italic px-1 shrink-0">no WA</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={sendToSelected} disabled={selectedPeerIds.length === 0 || selectedWithPhone.length === 0}
+                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1.5 shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition">
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    {selectedPeerIds.length === 0 ? 'Pilih Siswa Dulu' : `Kirim ke ${selectedWithPhone.length} Terpilih`}
+                  </button>
+                  {selectedList.length > 0 && selectedWithPhone.length < selectedList.length && (
+                    <span className="text-[10px] text-amber-700 italic">{selectedList.length - selectedWithPhone.length} siswa tanpa WA akan di-skip</span>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-amber-700 italic mt-2">Tip: nilai siswa terbuka otomatis setelah peer lengkap.</p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {canManageAll && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700"><ShieldAlert className="w-4 h-4 text-rose-600" /> Aksi Khusus Guru/Admin</div>
+          <button onClick={() => setResetConfirmOpen(true)} disabled={isStageLocked} className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm disabled:opacity-50"><RotateCcw className="w-4 h-4" /> Reset Nilai Tahap {selectedStage}</button>
+        </div>
+      )}
+
+      {canManageAll && anomalies.length > 0 && (
+        <div className="rounded-3xl border-2 border-rose-300 bg-gradient-to-br from-rose-50 to-orange-50 overflow-hidden shadow-sm">
+          <button onClick={() => setShowAnomalies(!showAnomalies)} className="w-full p-4 flex items-center justify-between gap-2 text-left hover:bg-rose-100/50 transition">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-rose-500 text-white shrink-0"><AlertTriangle className="w-5 h-5" /></span>
+              <div><h3 className="text-sm font-extrabold text-rose-900">{anomalies.length} Penilaian Perlu Klarifikasi</h3><p className="text-[11px] text-rose-700 mt-0.5">Deteksi nilai ekstrem atau outlier, hubungi penilai via WA</p></div>
+            </div>
+            <span className={`text-rose-600 transition-transform ${showAnomalies ? 'rotate-180' : ''}`}>v</span>
+          </button>
+          {showAnomalies && (
+            <div className="p-4 pt-0 space-y-2 border-t border-rose-200">
+              {anomalies.map((an, i) => {
+                const sev = an.severity === 'high' ? 'border-rose-400 bg-rose-50' : an.severity === 'medium' ? 'border-amber-400 bg-amber-50' : 'border-blue-400 bg-blue-50';
+                const sevB = an.severity === 'high' ? 'bg-rose-600 text-white' : an.severity === 'medium' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white';
+                return (
+                  <div key={i} className={`p-3 rounded-2xl border-2 ${sev}`}>
+                    <div className="flex items-start gap-3 flex-wrap">
+                      <div className="flex-1 min-w-[200px]">
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${sevB}`}>{an.severity.toUpperCase()}</span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-700 text-white">{an.type}</span>
+                        </div>
+                        <p className="text-xs font-bold text-slate-900">{an.assessor?.displayName || an.record.assessorName} → {an.target?.displayName || an.record.studentName}</p>
+                        <p className="text-[11px] text-slate-600 mt-1">{an.reason}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5">Total: <strong className="font-mono">{an.record.totalScore}</strong></p>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {an.assessor?.phone && <button onClick={() => handleWAScore(an.assessor!)} className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1"><MessageCircle className="w-3 h-3" /> WA Klarifikasi</button>}
+                        <button onClick={() => handleDeleteOne(an.record)} className="p-1.5 rounded-lg bg-rose-100 text-rose-600 hover:bg-rose-200"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </div>
-                    <ul className="text-[10px] text-slate-600 dark:text-slate-400 space-y-0.5 pl-4 list-disc">
-                      {guide.steps.slice(0, 3).map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                      {guide.steps.length > 3 && (
-                        <li className="text-slate-400 italic">...dan {guide.steps.length - 3} langkah lain</li>
-                      )}
-                    </ul>
                   </div>
                 );
               })}
             </div>
           )}
         </div>
-      ),
-    },
+      )}
 
-    // ============================================
-    // 4. CARA MENDAPATKAN AKUN
-    // ============================================
-    {
-      id: 'register',
-      title: '🔐 Cara Mendaftar Akun Baru',
-      icon: KeyRound,
-      color: 'from-blue-700 to-indigo-900',
-      content: (
-        <div className="space-y-3 text-xs leading-relaxed">
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              📋 Yang dibutuhkan:
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
-              <li>Kode Kelas (dapat dari Guru Pengampu)</li>
-              <li>Nama lengkap sesuai data sekolah</li>
-              <li>Email aktif (boleh Gmail/email sekolah)</li>
-              <li>Nomor WhatsApp aktif (WAJIB — untuk koordinasi produksi)</li>
-              <li>Password minimal 6 karakter</li>
-              <li>Peran/Jabatan dalam kepanitiaan</li>
-            </ul>
-          </div>
-
-          <div className="space-y-2">
-            <p className="font-bold text-slate-900 dark:text-slate-200">Langkah pendaftaran:</p>
-            {[
-              'Buka halaman login SP-PPT',
-              'Pilih tab "Siswa"',
-              'Klik "Daftar Siswa" di bawah tombol masuk',
-              'Isi kode kelas yang diberikan guru (contoh: IXF-RAC97BK4)',
-              'Isi nama lengkap, email, nomor WhatsApp',
-              'Buat password & konfirmasi ulang',
-              'Pilih peran Anda dari dropdown (Pengurus Inti, Pemeran, Koor, atau Anggota)',
-              'Klik "Daftarkan Akun Siswa"',
-              'Setelah berhasil, login kembali dengan email & password',
-              'Modal verifikasi akan muncul — klik "Ya, Saya Benar" untuk konfirmasi',
-            ].map((step, i) => (
-              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <span className="w-6 h-6 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center text-[11px] shrink-0">
-                  {i + 1}
-                </span>
-                <p className="text-slate-700 dark:text-slate-300 pt-0.5">{step}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed">
-              <strong>Perhatian:</strong> Nomor WhatsApp tidak boleh kosong — dipakai untuk koordinasi
-              mendadak (mis. perubahan jadwal gladi). Pastikan nomor Anda aktif.
-            </p>
-          </div>
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+          <input type="text" placeholder="Cari siswa atau peran..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800" />
         </div>
-      ),
-    },
-
-    // ============================================
-    // 5. VERIFIKASI LOGIN
-    // ============================================
-    {
-      id: 'verify-login',
-      title: '🛡️ Verifikasi Login & Keamanan',
-      icon: ShieldCheck,
-      color: 'from-emerald-700 to-green-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Setiap kali berhasil login, sistem akan menampilkan <strong>kartu verifikasi</strong>:
-            foto, nama, email, peran, dan kelas Anda.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-              <p className="font-bold text-emerald-800 dark:text-emerald-300 text-[11px] flex items-center gap-1.5">
-                <CheckCircle className="w-3.5 h-3.5" /> Jika ini Anda
-              </p>
-              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
-                Klik tombol hijau <strong>"Ya, Saya Benar"</strong> untuk lanjut ke dashboard.
-              </p>
-            </div>
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
-              <p className="font-bold text-rose-800 dark:text-rose-300 text-[11px] flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Jika bukan Anda
-              </p>
-              <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-1">
-                Klik <strong>"Bukan Saya"</strong> untuk langsung logout & mencegah penyalahgunaan akun.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              Fitur keamanan tambahan:
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
-              <li>Auto-logout jika profil tidak ditemukan</li>
-              <li>Konfirmasi logout (Ya/Tidak) untuk mencegah klik tak sengaja</li>
-              <li>Kredensial dicatat Guru agar bisa dibantu reset password</li>
-              <li>Audit log mencatat semua aktivitas login/logout</li>
-            </ul>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 6. SISTEM PENILAIAN
-    // ============================================
-    {
-      id: 'grading',
-      title: '⭐ Sistem Penilaian Multi-Penilai',
-      icon: Award,
-      color: 'from-amber-600 to-orange-800',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Setiap siswa dinilai secara proporsional dengan formula:
-          </p>
-          <div className="p-3.5 bg-slate-900 text-amber-300 rounded-xl font-mono text-xs text-center">
-            Nilai Akhir = (Guru × 50%) + (Ketua/Pimpro × 30%) + (Rekan × 20%)
-          </div>
-
-          <div>
-            <p className="font-bold text-slate-900 dark:text-slate-200 mb-2 text-[11px]">Skala Penilaian:</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-              {[
-                { label: 'Kurang', score: 40, color: 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30' },
-                { label: 'Cukup', score: 60, color: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' },
-                { label: 'Baik', score: 80, color: 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30' },
-                { label: 'Sangat Baik', score: 100, color: 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30' },
-              ].map(item => (
-                <div key={item.label} className={`p-2 rounded-lg border ${item.color}`}>
-                  <p className="font-bold text-xs text-slate-800 dark:text-slate-200">{item.label}</p>
-                  <p className="font-mono text-slate-500 dark:text-slate-400 text-[10px]">Skor: {item.score}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
-            <p className="font-bold text-purple-900 dark:text-purple-200 text-[11px] mb-1">
-              Predikat Akhir:
-            </p>
-            <ul className="text-[11px] text-purple-800 dark:text-purple-300 space-y-0.5">
-              <li><strong>90–100 = A</strong> (Mahir)</li>
-              <li><strong>80–89 = B</strong> (Kompeten)</li>
-              <li><strong>70–79 = C</strong> (Memenuhi Standar)</li>
-              <li><strong>60–69 = D</strong> (Perlu Perbaikan)</li>
-              <li><strong>&lt; 60 = E</strong> (Tidak Memenuhi)</li>
-            </ul>
-          </div>
-
-          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              <strong>Komentar Wajib:</strong> Jika penilai memberi nilai ≤ 2 (Kurang/Cukup),
-              sistem mewajibkan pengisian catatan pembinaan agar siswa tahu aspek perbaikan.
-            </p>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 7. FITUR KAS & RAB (khusus bendahara & viewer)
-    // ============================================
-    {
-      id: 'kas-rab',
-      title: '💰 Fitur Kas & RAB Digital',
-      icon: Wallet,
-      color: 'from-emerald-700 to-green-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            <strong>Kas</strong> dan <strong>RAB Digital</strong> dikelola oleh <strong>Bendahara</strong>.
-            Guru, Pimpro, Sekretaris, dan siswa hanya <strong>melihat</strong> hasilnya.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-              <h4 className="font-bold text-emerald-900 dark:text-emerald-200 text-[11px] flex items-center gap-1.5 mb-2">
-                <Wallet className="w-4 h-4" /> Kas & Buku Kas
-              </h4>
-              <ul className="text-[10px] text-emerald-800 dark:text-emerald-300 space-y-1 pl-4 list-disc">
-                <li>Aktifkan kas dengan nominal & periode (mingguan/2minggu/10hari/manual)</li>
-                <li>Centang per periode untuk siswa yang sudah bayar</li>
-                <li>Saldo terakumulasi otomatis</li>
-                <li>Kirim reminder santun ke siswa yang belum bayar</li>
-                <li>Catat pemasukan & pengeluaran manual</li>
-                <li>Export Excel 4 sheet (Ringkasan, Pemasukan, Pengeluaran, Periode)</li>
-              </ul>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-              <h4 className="font-bold text-amber-900 dark:text-amber-200 text-[11px] flex items-center gap-1.5 mb-2">
-                <Calculator className="w-4 h-4" /> RAB Digital
-              </h4>
-              <ul className="text-[10px] text-amber-800 dark:text-amber-300 space-y-1 pl-4 list-disc">
-                <li>Input item per Divisi, Peran, atau Umum</li>
-                <li>Estimasi biaya otomatis dihitung (Qty × Harga)</li>
-                <li>Export ke Word (.doc) untuk tanda tangan fisik</li>
-                <li>Unggah RAB Final yang sudah ditandatangani Pimpro & Bendahara</li>
-                <li>Tanda tangan digital di sistem</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 8. TUGAS & DEADLINE
-    // ============================================
-    {
-      id: 'tasks',
-      title: '📋 Tugas & Deadline',
-      icon: CheckSquare,
-      color: 'from-blue-700 to-indigo-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Guru dapat mengirim <strong>template tugas</strong> dari dokumen Job Desc resmi (Tim Produksi).
-            Siswa akan menerima notifikasi & mencentang tugas yang sudah dikerjakan.
-          </p>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1.5">
-              Cara Guru mengirim tugas:
-            </p>
-            <ol className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1 pl-4 list-decimal">
-              <li>Buka menu Tugas & Deadline</li>
-              <li>Klik "Kirim Tugas"</li>
-              <li>Pilih Tahap Produksi (Persiapan/Pelaksanaan/Pertunjukan/Pasca)</li>
-              <li><strong>Centang beberapa template</strong> sekaligus (multi-select)</li>
-              <li><strong>Centang beberapa target</strong> (beberapa peran + beberapa divisi sekaligus, atau "Semua Siswa")</li>
-              <li>Opsional: Override deadline</li>
-              <li>Review jumlah penerima → Kirim</li>
-            </ol>
-          </div>
-
-          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-            <p className="font-bold text-emerald-900 dark:text-emerald-200 text-[11px] mb-1.5">
-              Cara Siswa mencentang tugas:
-            </p>
-            <ol className="text-[11px] text-emerald-800 dark:text-emerald-300 space-y-1 pl-4 list-decimal">
-              <li>Buka menu Tugas & Deadline</li>
-              <li>Lihat daftar tugas dengan badge prioritas & countdown</li>
-              <li>Klik kotak ceklis jika tugas sudah dikerjakan</li>
-              <li>Unggah bukti (link Google Drive) untuk tugas yang butuh bukti</li>
-              <li>Guru/koordinator bisa membatalkan centang jika bukti tidak valid</li>
-            </ol>
-          </div>
-
-          <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
-            <p className="font-bold text-purple-900 dark:text-purple-200 text-[11px] mb-1">
-              🎁 Fitur Pengingat Otomatis:
-            </p>
-            <ul className="text-[11px] text-purple-800 dark:text-purple-300 space-y-0.5 pl-4 list-disc">
-              <li>Setiap login/refresh, siswa melihat modal pengingat</li>
-              <li>Berisi: tugas belum dikerjakan, tugas selesai, agenda 7 hari, tagihan kas</li>
-              <li>Bisa di-dismiss per item agar tetap fokus</li>
-              <li>Banner kuning tetap terlihat jika modal ditutup</li>
-            </ul>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 9. FAQ
-    // ============================================
-    {
-      id: 'faq',
-      title: '❓ FAQ & Troubleshooting',
-      icon: HelpCircle,
-      color: 'from-slate-700 to-slate-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          {[
-            {
-              q: 'Lupa password, bagaimana?',
-              a: 'Hubungi Guru Pengampu atau Admin. Guru bisa buka Kelola Kelas → tab Siswa → klik tombol "Lihat" pada nama Anda untuk melihat kredensial. Jika perlu reset, Admin bisa kirim link reset ke email Anda.',
-            },
-            {
-              q: 'Saat login muncul "Profil tidak ditemukan"?',
-              a: 'Akun Anda mungkin terdaftar di Firebase Auth tapi profil Firestore hilang. Silakan daftar ulang dengan kode kelas, atau hubungi Guru untuk didaftarkan manual.',
-            },
-            {
-              q: 'Saat login muncul "Role tidak cocok dengan tab"?',
-              a: 'Anda login di tab yang salah. Contoh: akun siswa tapi login di tab Guru. Ikuti tombol "Ganti ke Tab [X]" yang muncul.',
-            },
-            {
-              q: 'Notifikasi tidak muncul di bell?',
-              a: 'Cek: (1) koneksi internet, (2) izin notifikasi browser, (3) refresh halaman. Notifikasi real-time dari Firestore biasanya muncul dalam 1-2 detik.',
-            },
-            {
-              q: 'Tidak bisa melihat menu Kas / RAB?',
-              a: 'Menu Kas & RAB hanya untuk Bendahara (edit) dan Admin/Guru (view RAB). Siswa hanya melihat "Kas Saya" (tagihan pribadi).',
-            },
-            {
-              q: 'Tugas yang saya kirim ke target mana saja?',
-              a: 'Di langkah 3 wizard, sistem menghitung berapa siswa yang match dengan target Anda. Konfirmasi ulang di langkah 4 sebelum kirim.',
-            },
-            {
-              q: 'Kelas lama muncul kembali setelah dihapus?',
-              a: 'Sudah diperbaiki. Jika masih terjadi, buka DevTools → Console → ketik: localStorage.clear() lalu refresh.',
-            },
-            {
-              q: 'Bagaimana cara ganti nama kerabat kerja (nama produksi)?',
-              a: 'Guru Pengampu & Pimpinan Produksi bisa ubah di menu Struktur Kerabat → klik ikon pensil di samping nama kerabat.',
-            },
-          ].map((item, i) => (
-            <div key={i} className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-              <p className="font-bold text-slate-900 dark:text-white text-xs flex items-start gap-2">
-                <span className="text-amber-500 shrink-0">Q:</span>
-                <span>{item.q}</span>
-              </p>
-              <p className="text-slate-600 dark:text-slate-400 text-[11px] mt-1.5 flex items-start gap-2 leading-relaxed">
-                <span className="text-emerald-500 font-bold shrink-0">A:</span>
-                <span>{item.a}</span>
-              </p>
-            </div>
-          ))}
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 10. TENTANG APLIKASI
-    // ============================================
-    {
-      id: 'about',
-      title: 'ℹ️ Tentang SP-PPT',
-      icon: Info,
-      color: 'from-slate-700 to-slate-900',
-      content: (
-        <div className="space-y-3 text-xs leading-relaxed">
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border border-amber-200 dark:border-amber-500/30">
-            <p className="font-black text-slate-900 dark:text-white text-sm">{APP_CONFIG.appName}</p>
-            <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-1">{APP_CONFIG.tagline}</p>
-            <div className="mt-3 space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
-              <p><strong>Sekolah:</strong> {APP_CONFIG.schoolName}</p>
-              <p><strong>Tahun Ajaran:</strong> {APP_CONFIG.academicYear}</p>
-              <p><strong>Mata Pelajaran:</strong> Seni Budaya (Seni Teater)</p>
-              <p><strong>Kelas:</strong> IX (Sembilan)</p>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
-              <strong>© 2026 {APP_CONFIG.schoolName}.</strong> Hak cipta dilindungi undang-undang.
-              Platform dikembangkan untuk pembelajaran Seni Teater secara terintegrasi.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-              <strong>Tips:</strong> Panduan ini bisa dibuka kapan pun dari menu Panduan & FAQ di sidebar.
-              Setiap peran memiliki akses yang berbeda sesuai tugas & tanggung jawabnya.
-            </p>
-          </div>
-        </div>
-      ),
-    },
-  ];
-
-  const toggleSection = (id: string) => {
-    setActiveSection(activeSection === id ? '' : id);
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl border border-amber-500/20">
-        <div className="flex items-center gap-3">
-          <span className="p-3 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            <HelpCircle className="w-7 h-7" />
-          </span>
-          <div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
-              Panduan Resmi
-            </span>
-            <h2 className="text-xl font-black text-white mt-1">Panduan Operasional SP-PPT</h2>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Pedoman lengkap untuk setiap peran — dapat dibuka berkali-kali
-            </p>
-          </div>
-        </div>
-
-        {/* Your role badge */}
-        {user && (
-          <div className="mt-4 p-3 rounded-2xl bg-white/10 border border-white/20 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-500 text-slate-950">
-              <UserCheck className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
-                Login sebagai
-              </p>
-              <p className="text-sm font-black text-white truncate">
-                {user.displayName} — {myRole}
-                {user.divisionName && <span className="text-amber-200 font-normal"> • {user.divisionName}</span>}
-              </p>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Accordion Sections */}
-      <div className="space-y-3">
-        {SECTIONS.map(sec => {
-          const isOpen = activeSection === sec.id;
-          const Icon = sec.icon;
-
-          return (
-            <div
-              key={sec.id}
-              className={`rounded-3xl bg-white dark:bg-slate-900 border-2 shadow-sm overflow-hidden transition ${
-                isOpen
-                  ? 'border-amber-300 dark:border-amber-500/50 shadow-md'
-                  : 'border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => toggleSection(sec.id)}
-                className="w-full p-5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition"
-              >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={`p-2.5 rounded-xl bg-gradient-to-br ${sec.color} text-white shrink-0`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
-                    {sec.title}
-                  </h3>
-                </div>
-
-                <ChevronDown
-                  className={`w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0 ml-2 ${
-                    isOpen ? 'rotate-180 text-amber-600 dark:text-amber-400' : ''
-                  }`}
-                />
-              </button>
-
-              {isOpen && (
-                <div className="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-700 animate-in fade-in">
-                  {sec.content}
-                </div>
+      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+              <tr>
+                <th className="py-3.5 px-4">Nama</th>
+                <th className="py-3.5 px-4">Peran</th>
+                <th className="py-3.5 px-4 text-center">Peer</th>
+                <th className="py-3.5 px-4 text-center">Guru</th>
+                {/* ✅ UPDATE: Label Header Tabel Humanis */}
+                <th className="py-3.5 px-4 text-center">Koordinator</th>
+                <th className="py-3.5 px-4 text-center">Rekan Kerja</th>
+                <th className="py-3.5 px-4 text-center">Anggota Tim</th>
+                <th className="py-3.5 px-4 text-center">Nilai</th>
+                <th className="py-3.5 px-4 text-right">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {studentsLoading ? (
+                <tr><td colSpan={9} className="py-8 text-center text-xs text-slate-400"><RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin" /> Memuat...</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={9} className="py-8 text-center"><AlertCircle className="w-8 h-8 mx-auto text-amber-400 mb-2" /><p className="text-xs font-bold text-slate-700">{students.length === 0 ? 'Data siswa tidak ter-load.' : 'Tidak ada yang cocok.'}</p></td></tr>
+              ) : (
+                filtered.map(s => {
+                  const ag = getAgg(s.uid, s.role);
+                  const cg = canGradeStudent(s) && !isStageLocked && !isAssessmentLocked;
+                  const ps = getPeerStatus(s);
+                  return (
+                    <tr key={s.uid} className="hover:bg-slate-50">
+                      <td className="py-3.5 px-4"><p className="font-bold text-slate-900">{s.displayName}</p>{s.phone && <p className="text-[9px] text-slate-400 font-mono">{s.phone}</p>}</td>
+                      <td className="py-3.5 px-4 text-[11px] text-slate-600">{s.role}</td>
+                      <td className="py-3.5 px-4 text-center">
+                        {ps.total === 0 ? <span className="text-[10px] text-slate-400 italic">-</span> : ps.isComplete ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-300 inline-flex items-center gap-1"><CheckSquare className="w-3 h-3" />{ps.filled}/{ps.total}</span>
+                        ) : (
+                          <button onClick={() => handleWAPeer(s)} className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center gap-1 ${ps.filled === 0 ? 'bg-rose-100 text-rose-700 border-rose-300' : 'bg-amber-100 text-amber-700 border-amber-300'} hover:brightness-95`} title={`WA follow-up ke ${s.displayName}`}>
+                            <AlertTriangle className="w-3 h-3" />{ps.filled}/{ps.total}{s.phone && <MessageCircle className="w-3 h-3" />}
+                          </button>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.guru != null ? ag.guru.toFixed(1) : '-'}</td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.atasan != null ? ag.atasan.toFixed(1) : '-'}</td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.rekan != null ? ag.rekan.toFixed(1) : '-'}</td>
+                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.bawahan != null ? ag.bawahan.toFixed(1) : '-'}</td>
+                      <td className="py-3.5 px-4 text-center">{ag ? <span className="text-sm font-black text-slate-900 font-mono">{ag.finalVal}</span> : <span className="text-xs text-slate-400">-</span>}</td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {cg ? <button onClick={() => openGrading(s)} className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1"><Edit3 className="w-3 h-3" /> {ag ? 'Edit' : 'Nilai'}</button> : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : 'Lihat'}</span>}
+                          {canManageAll && s.phone && <button onClick={() => handleWAScore(s)} className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100" title="WA tanya nilai"><Send className="w-3.5 h-3.5" /></button>}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Footer note */}
-      <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3">
-        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Panduan ini dapat dibuka berkali-kali.</strong> Jika ada pertanyaan atau fitur yang belum
-          dipahami, hubungi Guru Pengampu atau Pimpinan Produksi kelas Anda.
+            </tbody>
+          </table>
         </div>
       </div>
+
+      {isGradingOpen && selectedStudent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="p-6 bg-slate-900 text-white shrink-0">
+              <div className="flex items-center justify-between">
+                <div><span className="text-xs font-bold text-amber-400 uppercase">Penilaian 360 • {selectedStage}</span><h3 className="text-lg font-black mt-0.5">{selectedStudent.displayName}</h3><p className="text-xs text-slate-400">{selectedStudent.role}{selectedStudent.divisionName ? ` • ${selectedStudent.divisionName}` : ''}</p></div>
+                <div className="text-right"><p className="text-[10px] text-slate-400">Perkiraan</p><p className="text-3xl font-black text-amber-400 font-mono">{calcTotal()}</p></div>
+              </div>
+            </div>
+            <div className="p-6 space-y-5 overflow-y-auto flex-1">
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200">
+                <div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-amber-600" /><h4 className="text-xs font-black text-amber-900 uppercase">Tugas Siswa ({selectedStage})</h4></div></div>
+                {(() => {
+                  const tl = getStudentTasks(selectedStudent);
+                  if (tl.length === 0) return <div className="p-4 rounded-xl bg-white/70 border border-amber-200 text-center"><p className="text-xs text-amber-800 italic">Tidak ada tugas untuk peran <strong>{selectedStudent.role}</strong> di tahap ini.</p></div>;
+                  return (
+                    <div className="space-y-2 max-h-72 overflow-y-auto">
+                      {tl.map((item, idx) => (
+                        <div key={item.task.id || idx} className="p-3 rounded-xl bg-white border border-amber-200">
+                          <div className="flex items-start gap-2">
+                            <div className={`mt-0.5 shrink-0 ${item.done ? 'text-emerald-600' : 'text-rose-500'}`}>{item.done ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                                {item.task.isCritical && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300">KRITIS</span>}
+                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${item.done ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-600 border-slate-300'}`}>{item.label}</span>
+                              </div>
+                              <p className="text-xs font-bold text-slate-900 leading-snug">{item.task.title}</p>
+                              <p className="text-[10px] text-slate-500 mt-0.5">Deadline: {new Date(item.task.dueDate).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                              {(item.sub?.proofUrl || item.sub?.proofNote) && (
+                                <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+                                  {item.sub.proofNote && <div className="p-2 rounded-lg bg-slate-50 text-[10px] italic">"{item.sub.proofNote}"</div>}
+                                  {item.sub.proofUrl && <a href={item.sub.proofUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:underline"><ExternalLink className="w-2.5 h-2.5" /> Lihat Bukti</a>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {(() => {
+                const { auto, taskResult, attendResult } = autoScoresFor(selectedStudent, selectedStage);
+                return (
+                  <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
+                    <div className="flex items-center gap-2 mb-3"><Bot className="w-4 h-4 text-blue-600" /><h4 className="text-xs font-black text-blue-900">SKOR OTOMATIS</h4></div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                      <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Tanggung Jawab</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.tanggung_jawab}</p><p className="text-[9px] text-blue-600">{taskResult.pctOnTime}% tepat waktu</p></div>
+                      <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kehadiran</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kehadiran}</p><p className="text-[9px] text-blue-600">{attendResult.pct}% hadir</p></div>
+                      {selectedStudent.role === 'Pemeran' && <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kedisiplinan</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kedisiplinan}</p></div>}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ✅ UPDATE: Rincian spesifik nilai berdasarkan peran pihak lain di dalam Modal */}
+              {(() => {
+                const ag = getAgg(selectedStudent.uid, selectedStudent.role);
+                // Hanya tampilkan jika sudah ada yang menilai selain guru sendiri saat ini
+                if (!ag || ag.count === 0) return null;
+                
+                return (
+                  <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                    <h4 className="text-xs font-black text-slate-900 mb-3">RINCIAN NILAI DARI PIHAK LAIN</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(['ATASAN', 'REKAN', 'BAWAHAN', 'GURU'] as AssessorCategory[]).map(cat => {
+                        const breakdown = ag.roleBreakdown[cat];
+                        const roles = Object.keys(breakdown);
+                        if (roles.length === 0) return null;
+                        
+                        // Map key ke object agar mudah dibaca
+                        const avgCatKey = cat === 'ATASAN' ? 'atasan' : cat === 'BAWAHAN' ? 'bawahan' : cat === 'REKAN' ? 'rekan' : 'guru';
+                        const avgCat = ag[avgCatKey] as number;
+                        
+                        return (
+                          <div key={cat} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-[10px] font-bold text-slate-700 uppercase">{CATEGORY_LABEL[cat]}</span>
+                              <span className="text-xs font-black text-slate-900">{avgCat.toFixed(1)}</span>
+                            </div>
+                            <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                              {roles.map(role => {
+                                const scores = breakdown[role];
+                                const avgRole = scores.reduce((a, b) => a + b, 0) / scores.length;
+                                return (
+                                  <div key={role} className="flex justify-between items-center text-[10.5px]">
+                                    <span className="text-slate-600 font-medium">{role} <span className="text-slate-400">({scores.length} orang)</span></span>
+                                    <span className="font-bold text-slate-800">{avgRole.toFixed(1)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div>
+                <h4 className="text-xs font-black text-slate-900 mb-3">PENILAIAN MANUAL</h4>
+                <div className="space-y-3">
+                  {manualCriteria.map(crit => {
+                    const cur = manualScores[crit.key] || 3;
+                    const si = SCORE_SCALE[cur];
+                    return (
+                      <div key={crit.key} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2">
+                        <div className="flex items-center justify-between"><div><span className="text-xs font-bold text-slate-900">{crit.label}</span><span className="text-[10px] text-slate-400 ml-2">Bobot: {crit.weight}%</span><p className="text-[11px] text-slate-500 mt-0.5">{crit.desc}</p></div><span className={`text-xs font-bold px-2 py-1 rounded-lg border ${si.badgeColor}`}>{cur} • {si.label}</span></div>
+                        <input type="range" min="1" max="4" step="1" value={cur} onChange={(e) => setManualScores(prev => ({ ...prev, [crit.key]: parseInt(e.target.value) }))} className="w-full accent-amber-500" />
+                        <div className="flex justify-between text-[10px] font-semibold text-slate-400"><span>1 Kurang</span><span>2 Cukup</span><span>3 Baik</span><span>4 Sangat Baik</span></div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Komentar{Object.values(manualScores).some(v => v <= 2) && <span className="text-rose-500 ml-1">(Wajib karena ada nilai &lt;= 2)</span>}</label>
+                <textarea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Catatan konstruktif..." className="w-full p-3 rounded-xl border border-slate-200 bg-white text-xs font-medium" />
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 border-t flex justify-between shrink-0">
+              <button onClick={() => setIsGradingOpen(false)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600">Batal</button>
+              <button onClick={handleSave} disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs disabled:opacity-50">{isSubmitting ? 'Menyimpan...' : 'Simpan'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resetConfirmOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 bg-slate-950/85 backdrop-blur-md">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
+            <div className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 className="text-base font-extrabold text-rose-900">Reset Penilaian {selectedStage}</h3></div>
+            <p className="text-xs text-rose-800 leading-relaxed">Ini akan menghapus semua penilaian di tahap <strong>{selectedStage}</strong>. Tindakan tidak bisa dibatalkan.</p>
+            <input type="text" value={resetConfirmText} onChange={(e) => setResetConfirmText(e.target.value)} placeholder={`Ketik "${activeClass?.name}" untuk konfirmasi`} autoFocus className={`w-full px-3.5 py-2.5 rounded-xl border-2 font-semibold text-sm ${resetConfirmText.trim() === activeClass?.name ? 'border-emerald-500' : 'border-rose-200'}`} />
+            <div className="flex gap-2">
+              <button onClick={() => { setResetConfirmOpen(false); setResetConfirmText(''); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-600">Batal</button>
+              <button onClick={handleReset} disabled={isResetting || resetConfirmText.trim() !== activeClass?.name} className="flex-1 py-2.5 rounded-xl bg-rose-500 text-white font-bold text-xs disabled:opacity-40">{isResetting ? 'Mereset...' : 'Reset'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-export default GuideModule;
