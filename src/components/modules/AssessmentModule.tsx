@@ -969,3 +969,5 @@ export const GuideModule: React.FC = () => {
     </div>
   );
 };
+
+export default GuideModule;
