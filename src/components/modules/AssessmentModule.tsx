@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square } from 'lucide-react';
+import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square, X } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
   PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES,
   getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS,
-  // ✅ FIX: Import helper baru dari constants
+  // ✅ FIX: Helper baru dari constants
   normalizeUserRole, isPemeranRole, getAssessorCategoryFor, getCriteriaForRole,
 } from '../../core/constants';
 import { AssessmentRecord, ProductionStage, UserProfile } from '../../core/types';
@@ -168,20 +168,18 @@ export const AssessmentModule: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [selectedPeerIds, setSelectedPeerIds] = useState<string[]>([]);
+  const [showCommentsFor, setShowCommentsFor] = useState<UserProfile | null>(null);
   const [, setTick] = useState(0);
 
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
 
   const canManageAll = isGuruPengampu || isAdminRole;
 
-  // ✅ FIX: canGradeStudent sekarang pakai helper terpusat
-  // - canAssessTarget (dari authContext) sudah pakai matrix sisi target
-  // - Fallback: langsung cek matrix target dengan normalisasi role
+  // ✅ FIX: canGradeStudent pakai helper terpusat (matrix sisi target + normalisasi role)
   const canGradeStudent = (s: UserProfile) => {
     if (canManageAll) return true;
     if (!user || s.uid === user.uid) return false;
     if (canAssessTarget(s)) return true;
-    // Fallback: cek langsung matrix dari SISI TARGET (dengan normalisasi role)
     const targetRole = normalizeUserRole(s.role);
     const matrix = getAssessmentMatrix(targetRole);
     return matrix.some(r => r.roles.includes(user.role));
@@ -251,8 +249,7 @@ export const AssessmentModule: React.FC = () => {
   const aStatus = isAssessmentOpen(stageConfig?.stageDeadlines, selectedStage);
   const isAssessmentLocked = !aStatus.open;
 
-  // ✅ FIX: pakai helper isPemeranRole yang menangani legacy 'Pemain'
-  const criteria = isPemeranRole(selectedStudent?.role) ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+  const criteria = getCriteriaForRole(selectedStudent?.role);
   const manualCriteria = criteria.filter(c => c.source === 'MANUAL');
 
   const autoScoresFor = (s: UserProfile, st: ProductionStage) => {
@@ -312,7 +309,6 @@ export const AssessmentModule: React.FC = () => {
     return { total: targets.length, filled, pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, isComplete: filled >= targets.length };
   };
 
-  // Agregasi nilai per kategori
   const getAgg = (sid: string, srole: string) => {
     const recs = assessments.filter(a => a.studentId === sid && a.stage === selectedStage);
     if (recs.length === 0) return null;
@@ -363,7 +359,7 @@ export const AssessmentModule: React.FC = () => {
     setSelectedStudent(s);
     const ex = assessments.find(a => a.assessorId === user?.uid && a.studentId === s.uid && a.stage === selectedStage);
     const init: Record<string, number> = {};
-    const crit = isPemeranRole(s.role) ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+    const crit = getCriteriaForRole(s.role);
     crit.filter(c => c.source === 'MANUAL').forEach(c => {
       init[c.key] = (ex?.scores && ex.scores[c.key]) || 3;
     });
@@ -383,10 +379,7 @@ export const AssessmentModule: React.FC = () => {
       const { auto } = autoScoresFor(selectedStudent, selectedStage);
       const total = calcTotal();
 
-      // ✅ FIX: tentukan kategori penilai dengan helper terpusat
-      // - Guru/Admin → GURU
-      // - Selain itu → lookup matrix sisi TARGET (dengan normalisasi role)
-      // - Kalau tidak ada di matrix → TOLAK (jangan asal fallback ke 'REKAN')
+      // ✅ FIX: kategori penilai via helper terpusat
       let cat: AssessorCategory;
       if (canManageAll) {
         cat = 'GURU';
@@ -508,7 +501,7 @@ export const AssessmentModule: React.FC = () => {
       headers: ['Siswa', 'Penilai', 'Kategori', 'Nilai', 'Komentar'],
       rows: filtered.flatMap(s => assessments.filter(a => a.studentId === s.uid && a.stage === selectedStage).map(a => [s.displayName, a.assessorName, CATEGORY_LABEL[((a as any).assessorCategory as AssessorCategory) || 'REKAN'], a.totalScore, a.comment || '-'])),
     };
-    exportMultiSheetXLSX(`Rekap_${activeClass?.name || 'Kelas'}_${selectedStage}_${new Date().toISOString().slice(0,10)}.xls`, [sheet1, sheet2]);
+    exportMultiSheetXLSX(`Rekap_${activeClass?.name || 'Kelas'}_${selectedStage}_${new Date().toISOString().slice(0,10)}.xlsx`, [sheet1, sheet2]);
     showToast('Rekap diunduh!', 'success');
   };
 
@@ -589,7 +582,7 @@ export const AssessmentModule: React.FC = () => {
 
         <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
           <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja.</p></div>
+          <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja. Klik icon 💬 di sebelah nama untuk lihat komentar.</p></div>
         </div>
       </div>
 
@@ -726,6 +719,11 @@ export const AssessmentModule: React.FC = () => {
                         <p className="text-xs font-bold text-slate-900">{an.assessor?.displayName || an.record.assessorName} → {an.target?.displayName || an.record.studentName}</p>
                         <p className="text-[11px] text-slate-600 mt-1">{an.reason}</p>
                         <p className="text-[10px] text-slate-500 mt-0.5">Total: <strong className="font-mono">{an.record.totalScore}</strong></p>
+                        {an.record.comment && (
+                          <p className="text-[11px] text-slate-700 italic mt-2 p-2 rounded-lg bg-white/70 border border-slate-200">
+                            "{an.record.comment}"
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {an.assessor?.phone && <button onClick={() => handleWAAnomaly(an)} className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1"><MessageCircle className="w-3 h-3" /> WA Klarifikasi</button>}
@@ -773,9 +771,29 @@ export const AssessmentModule: React.FC = () => {
                   const ag = getAgg(s.uid, s.role);
                   const cg = canGradeStudent(s) && !isStageLocked && !isAssessmentLocked;
                   const ps = getPeerStatus(s);
+                  const commentCount = assessments.filter(a =>
+                    a.studentId === s.uid &&
+                    a.stage === selectedStage &&
+                    a.comment && a.comment.trim()
+                  ).length;
                   return (
                     <tr key={s.uid} className="hover:bg-slate-50">
-                      <td className="py-3.5 px-4"><p className="font-bold text-slate-900">{s.displayName}</p>{s.phone && <p className="text-[9px] text-slate-400 font-mono">{s.phone}</p>}</td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-bold text-slate-900">{s.displayName}</p>
+                          {commentCount > 0 && (
+                            <button
+                              onClick={() => setShowCommentsFor(s)}
+                              className="p-1 rounded-md bg-blue-100 hover:bg-blue-200 text-blue-700 border border-blue-300 transition inline-flex items-center gap-0.5"
+                              title={`Lihat ${commentCount} komentar penilai`}
+                            >
+                              <MessageCircle className="w-3 h-3" />
+                              <span className="text-[9px] font-black">{commentCount}</span>
+                            </button>
+                          )}
+                        </div>
+                        {s.phone && <p className="text-[9px] text-slate-400 font-mono">{s.phone}</p>}
+                      </td>
                       <td className="py-3.5 px-4 text-[11px] text-slate-600">{s.role}</td>
                       <td className="py-3.5 px-4 text-center">
                         {ps.total === 0 ? <span className="text-[10px] text-slate-400 italic">-</span> : ps.isComplete ? (
@@ -901,6 +919,48 @@ export const AssessmentModule: React.FC = () => {
                         );
                       })}
                     </div>
+
+                    {/* Komentar pihak lain di dalam modal */}
+                    {(() => {
+                      const others = assessments.filter(a =>
+                        a.studentId === selectedStudent.uid &&
+                        a.stage === selectedStage &&
+                        a.comment && a.comment.trim() &&
+                        a.assessorId !== user?.uid
+                      );
+                      if (others.length === 0) return null;
+                      return (
+                        <div className="mt-4 pt-4 border-t border-slate-200">
+                          <p className="text-[10px] font-black text-slate-600 uppercase mb-2">
+                            💬 Komentar dari penilai lain ({others.length})
+                          </p>
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {others.map((o, i) => {
+                              const ocat = ((o as any).assessorCategory as AssessorCategory) || 'REKAN';
+                              const catColor =
+                                ocat === 'GURU' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                                ocat === 'ATASAN' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                                ocat === 'REKAN' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                'bg-purple-100 text-purple-800 border-purple-300';
+                              return (
+                                <div key={o.id || i} className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+                                  <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${catColor}`}>
+                                      {CATEGORY_LABEL[ocat]}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-slate-700">{o.assessorName}</span>
+                                    <span className="text-[9px] font-bold text-slate-500 ml-auto font-mono">
+                                      Nilai: {o.totalScore}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-700 italic">"{o.comment}"</p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })()}
@@ -930,6 +990,120 @@ export const AssessmentModule: React.FC = () => {
             <div className="p-4 bg-slate-50 border-t flex justify-between shrink-0">
               <button onClick={() => setIsGradingOpen(false)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600">Batal</button>
               <button onClick={handleSave} disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs disabled:opacity-50">{isSubmitting ? 'Menyimpan...' : 'Simpan'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ MODAL KOMENTAR — fitur baru untuk lihat komentar dari semua penilai */}
+      {showCommentsFor && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-purple-700 to-indigo-800 text-white shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="p-2.5 rounded-xl bg-white/20 backdrop-blur-sm">
+                    <MessageCircle className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-90">
+                      Komentar Penilaian • {selectedStage}
+                    </p>
+                    <h3 className="text-base font-black mt-0.5">{showCommentsFor.displayName}</h3>
+                    <p className="text-[11px] opacity-90">
+                      {showCommentsFor.role}
+                      {showCommentsFor.divisionName ? ` • ${showCommentsFor.divisionName}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={() => setShowCommentsFor(null)}
+                  className="p-1.5 rounded-lg hover:bg-white/20">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-3">
+              {(() => {
+                const comments = assessments
+                  .filter(a =>
+                    a.studentId === showCommentsFor.uid &&
+                    a.stage === selectedStage &&
+                    a.comment && a.comment.trim()
+                  )
+                  .sort((a, b) =>
+                    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+                  );
+
+                if (comments.length === 0) {
+                  return (
+                    <div className="p-8 text-center">
+                      <MessageCircle className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+                      <p className="text-sm font-bold text-slate-600">Belum ada komentar</p>
+                      <p className="text-xs text-slate-400 mt-1">
+                        Penilai belum mengisi komentar untuk tahap {selectedStage}.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <>
+                    <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
+                      <p className="text-[11px] text-purple-900 dark:text-purple-200 leading-relaxed">
+                        <strong>{comments.length} komentar</strong> dari berbagai penilai untuk tahap <strong>{selectedStage}</strong>.
+                      </p>
+                    </div>
+
+                    {comments.map((c, idx) => {
+                      const cat = ((c as any).assessorCategory as AssessorCategory) || 'REKAN';
+                      const catColor =
+                        cat === 'GURU' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                        cat === 'ATASAN' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                        cat === 'REKAN' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                        'bg-purple-100 text-purple-800 border-purple-300';
+                      return (
+                        <div key={c.id || idx}
+                          className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                          <div className="flex items-center gap-2 flex-wrap mb-2">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${catColor}`}>
+                              {CATEGORY_LABEL[cat]}
+                            </span>
+                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                              {c.assessorName}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              ({c.assessorRole})
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono ml-auto">
+                              Nilai: {c.totalScore}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic">
+                            "{c.comment}"
+                          </p>
+                          <p className="text-[10px] text-slate-400 mt-2">
+                            {new Date(c.createdAt || 0).toLocaleString('id-ID', {
+                              day: 'numeric', month: 'long', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit',
+                            })}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end shrink-0">
+              <button onClick={() => setShowCommentsFor(null)}
+                className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs">
+                Tutup
+              </button>
             </div>
           </div>
         </div>
