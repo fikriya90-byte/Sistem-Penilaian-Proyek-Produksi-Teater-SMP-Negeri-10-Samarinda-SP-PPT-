@@ -44,6 +44,18 @@ export const DIVISIONS: { id: DivisionType; color: string; badgeColor: string; d
 ];
 
 // =====================================================
+// NORMALISASI ROLE — SATU SUMBER KEBENARAN
+// =====================================================
+// Ini dipakai oleh: firestoreService, authContext, AssessmentModule, dll.
+// Tujuan: semua tempat melihat role KANONIK yang sama, tidak ada drift.
+export function normalizeUserRole(role: string | undefined | null): UserRole {
+  if (!role) return 'Pemeran';
+  if (role === 'Guru Pembina') return 'Guru Pengampu';
+  if (role === 'Pemain') return 'Pemeran';
+  return role as UserRole;
+}
+
+// =====================================================
 // KRITERIA PEMERAN (6 poin, 5 manual + 1 otomatis)
 // =====================================================
 export const PEMERAN_CRITERIA = [
@@ -67,7 +79,7 @@ export const GENERAL_CRITERIA = [
 ];
 
 // =====================================================
-// BOBOT KELOMPOK PENILAI PER PERAN (Section 3.2)
+// BOBOT KELOMPOK PENILAI PER PERAN
 // =====================================================
 export interface AssessorWeightConfig {
   GURU: number;
@@ -98,7 +110,7 @@ export const ASSESSOR_WEIGHTS: Record<string, AssessorWeightConfig> = {
 };
 
 // =====================================================
-// MATRIKS PENILAI 360° — Siapa menilai siapa
+// MATRIKS PENILAI 360°
 // =====================================================
 export interface AssessorRelationship {
   category: AssessorCategory;
@@ -191,18 +203,8 @@ export const ASSESSMENT_MATRIX: Record<string, AssessorRelationship[]> = {
 // AMBANG SKOR OTOMATIS
 // =====================================================
 export const AUTO_SCORE_THRESHOLDS = {
-  task: {
-    excellent: 90, // ≥90% → 4
-    good: 75,       // 75-89% → 3
-    fair: 50,       // 50-74% → 2
-    // <50% → 1
-  },
-  attendance: {
-    excellent: 95, // ≥95% → 4
-    good: 85,       // 85-94% → 3
-    fair: 70,       // 70-84% → 2
-    // <70% → 1
-  },
+  task: { excellent: 90, good: 75, fair: 50 },
+  attendance: { excellent: 95, good: 85, fair: 70 },
 };
 
 export const SCORE_SCALE: Record<number, { label: string; score100: number; badgeColor: string }> = {
@@ -258,14 +260,59 @@ export const ROLE_TO_DIVISION: Record<string, { id: string; name: DivisionType }
 };
 
 export function getDivisionFromRole(role: string): { id: string; name: DivisionType } {
-  return ROLE_TO_DIVISION[role] || { id: '', name: 'Pemeran' };
+  const normalized = normalizeUserRole(role);
+  return ROLE_TO_DIVISION[normalized] || { id: '', name: 'Pemeran' };
 }
 
+// =====================================================
+// GETTER YANG SELALU MENORMALISASI ROLE
+// =====================================================
 export function getAssessorWeights(targetRole: string): AssessorWeightConfig {
-  return ASSESSOR_WEIGHTS[targetRole] || { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 };
+  const normalized = normalizeUserRole(targetRole);
+  return ASSESSOR_WEIGHTS[normalized] || { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 };
 }
 
 export function getAssessmentMatrix(targetRole: string): AssessorRelationship[] {
-  return ASSESSMENT_MATRIX[targetRole] || [];
+  const normalized = normalizeUserRole(targetRole);
+  return ASSESSMENT_MATRIX[normalized] || [];
 }
+
+/**
+ * Tentukan kategori seorang penilai (asesor) terhadap target tertentu.
+ * Return null kalau asesor memang tidak berhak menilai.
+ */
+export function getAssessorCategoryFor(
+  targetRole: string,
+  assessorRole: string
+): AssessorCategory | null {
+  const matrix = getAssessmentMatrix(targetRole);
+  for (const rel of matrix) {
+    if (rel.roles.includes(assessorRole)) return rel.category;
+  }
+  return null;
+}
+
+/**
+ * Cek apakah asesor berhak menilai target.
+ * Ini SATU-SATUNYA sumber kebenaran — semua modul harus pakai ini.
+ */
+export function canRoleAssessTarget(targetRole: string, assessorRole: string): boolean {
+  return getAssessorCategoryFor(targetRole, assessorRole) !== null;
+}
+
+/**
+ * Cek apakah target adalah aktor/pemeran (role legacy 'Pemain' ditangani).
+ */
+export function isPemeranRole(role: string | undefined | null): boolean {
+  const normalized = normalizeUserRole(role);
+  return normalized === 'Pemeran';
+}
+
+/**
+ * Ambil kriteria penilaian yang sesuai untuk target.
+ */
+export function getCriteriaForRole(role: string | undefined | null) {
+  return isPemeranRole(role) ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+}
+
 export const ACTOR_CRITERIA = PEMERAN_CRITERIA;
