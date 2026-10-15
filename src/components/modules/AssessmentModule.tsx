@@ -285,16 +285,29 @@ export const AssessmentModule: React.FC = () => {
     });
   };
 
+  // ✅ UPDATE: getPeerStatus mengambil list nama target yang belum dinilai
   const getPeerStatus = (s: UserProfile) => {
     const matrix = getAssessmentMatrix(s.role);
     const tr = new Set<string>();
     ['REKAN', 'BAWAHAN', 'ATASAN'].forEach(c => { const r = matrix.find(x => x.category === c); if (r) r.roles.forEach(y => tr.add(y)); });
+    
     const targets = students.filter(x => x.uid !== s.uid && tr.has(x.role));
-    const filled = targets.filter(t => assessments.some(a => a.assessorId === s.uid && a.studentId === t.uid && a.stage === selectedStage)).length;
-    return { total: targets.length, filled, pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, isComplete: filled >= targets.length };
+    
+    const assessedIds = new Set(assessments.filter(a => a.assessorId === s.uid && a.stage === selectedStage).map(a => a.studentId));
+    const pendingTargets = targets.filter(t => !assessedIds.has(t.uid));
+    const pendingNames = pendingTargets.map(t => t.displayName);
+    
+    const filled = targets.length - pendingTargets.length;
+    
+    return { 
+      total: targets.length, 
+      filled, 
+      pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, 
+      isComplete: filled >= targets.length,
+      pendingNames
+    };
   };
 
-  // ✅ UPDATE: Fungsi getAgg yang baru untuk mencatat rincian spesifik peran penilai
   const getAgg = (sid: string, srole: string) => {
     const recs = assessments.filter(a => a.studentId === sid && a.stage === selectedStage);
     if (recs.length === 0) return null;
@@ -306,590 +319,34 @@ export const AssessmentModule: React.FC = () => {
       const c = (r as any).assessorCategory || 'REKAN'; 
       const role = r.assessorRole || 'Tidak Diketahui';
       
-      // Simpan nilai per kategori besar
       if (!by[c]) by[c] = []; 
       by[c].push(r.totalScore); 
       
-      // Simpan nilai lebih spesifik per peran (role)
-      if (!roleBreakdown[c]) roleBreakdown[c] = {};
-      if (!roleBreakdown[c][role]) roleBreakdown[c][role] = [];
-      roleBreakdown[c][role].push(r.totalScore);
-    });
+      if (!roleBreakUntuk menambahkan daftar nama siswa yang belum dinilai ke dalam pesan WhatsApp, Anda perlu memperbarui fungsi `getPeerStatus` untuk melacak siapa saja yang belum dinilai, lalu menggunakan data tersebut di dalam `handleWAPeer` dan `sendToSelected`.
+
+Berikut adalah 3 bagian kode yang perlu Anda ubah:
+
+**1. Perbarui `getPeerStatus`**
+Ganti fungsi `getPeerStatus` yang ada dengan kode ini agar bisa mengekstrak nama-nama target yang belum dinilai:
+
+```typescript
+  const getPeerStatus = (s: UserProfile) => {
+    const matrix = getAssessmentMatrix(s.role);
+    const tr = new Set<string>();
+    ['REKAN', 'BAWAHAN', 'ATASAN'].forEach(c => { const r = matrix.find(x => x.category === c); if (r) r.roles.forEach(y => tr.add(y)); });
+    const targets = students.filter(x => x.uid !== s.uid && tr.has(x.role));
     
-    const avg = (a: number[]) => a.length > 0 ? a.reduce((s, x) => s + x, 0) / a.length : null;
-    const g = avg(by.GURU), at = avg(by.ATASAN), rk = avg(by.REKAN), bw = avg(by.BAWAHAN);
-    const w = getAssessorWeights(srole);
-    
-    let sum = 0, wt = 0;
-    if (g !== null && w.GURU > 0) { sum += g * w.GURU; wt += w.GURU; }
-    if (at !== null && w.ATASAN > 0) { sum += at * w.ATASAN; wt += w.ATASAN; }
-    if (rk !== null && w.REKAN > 0) { sum += rk * w.REKAN; wt += w.REKAN; }
-    if (bw !== null && w.BAWAHAN > 0) { sum += bw * w.BAWAHAN; wt += w.BAWAHAN; }
-    
+    // Pisahkan yang sudah dan belum dinilai
+    const filled = targets.filter(t => assessments.some(a => a.assessorId === s.uid && a.studentId === t.uid && a.stage === selectedStage)).length;
+    const pendingNames = targets
+      .filter(t => !assessments.some(a => a.assessorId === s.uid && a.studentId === t.uid && a.stage === selectedStage))
+      .map(t => t.displayName);
+
     return { 
-      finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, 
-      guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs,
-      roleBreakdown 
+      total: targets.length, 
+      filled, 
+      pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, 
+      isComplete: filled >= targets.length,
+      pendingNames // Tambahan properti baru
     };
   };
-
-  const openGrading = (s: UserProfile) => {
-    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan oleh Guru.', 'error'); return; }
-    if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
-    if (isAssessmentLocked) {
-      if (aStatus.reason === 'not-started' && aStatus.startMs) showToast(`Dibuka dalam ${formatDuration(aStatus.startMs - Date.now())}.`, 'warning');
-      else if (aStatus.reason === 'ended') showToast(`Sudah ditutup.`, 'warning');
-      else if (aStatus.reason === 'disabled') showToast('Dinonaktifkan.', 'warning');
-      else showToast('Belum dibuka.', 'warning');
-      return;
-    }
-    if (!canGradeStudent(s)) { showToast('Tidak berwenang.', 'warning'); return; }
-    setSelectedStudent(s);
-    const ex = assessments.find(a => a.assessorId === user?.uid && a.studentId === s.uid && a.stage === selectedStage);
-    const init: Record<string, number> = {};
-    manualCriteria.forEach(c => { init[c.key] = (ex?.scores && ex.scores[c.key]) || 3; });
-    setManualScores(init);
-    setComment(ex?.comment || '');
-    setIsGradingOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (!user || !selectedStudent || !activeClass) return;
-    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan. Tidak bisa menyimpan.', 'error'); return; }
-    if (isStageLocked || isAssessmentLocked) { showToast('Penilaian terkunci.', 'warning'); return; }
-    const low = Object.values(manualScores).some(v => v <= 2);
-    if (low && (!comment || comment.trim().length < 5)) { showToast('Komentar wajib bila ada nilai <= 2!', 'error'); return; }
-    setIsSubmitting(true);
-    try {
-      const { auto } = autoScoresFor(selectedStudent, selectedStage);
-      const total = calcTotal();
-      const matrix = getAssessmentMatrix(selectedStudent.role);
-      let cat: AssessorCategory = 'REKAN';
-      for (const r of matrix) if (r.roles.includes(user.role)) { cat = r.category; break; }
-      if (canManageAll) cat = 'GURU';
-      await saveAssessment({
-        classId: activeClass.id, productionId: 'prod',
-        studentId: selectedStudent.uid, studentName: selectedStudent.displayName,
-        studentRole: selectedStudent.role, studentDivision: selectedStudent.divisionName,
-        assessorId: user.uid, assessorName: user.displayName, assessorRole: user.role,
-        assessorCategory: cat, stage: selectedStage, scores: manualScores, autoScores: auto,
-        totalScore: total, comment: comment.trim(), isFinal: true,
-      } as any);
-      await recordAuditLog({ userId: user.uid, userName: user.displayName, role: user.role, action: 'ASSESS', targetType: 'Assessment', targetId: selectedStudent.uid, details: `Nilai ${total} untuk ${selectedStudent.displayName} (${selectedStage})` });
-      showToast(`Penilaian ${selectedStudent.displayName} disimpan!`, 'success');
-      setIsGradingOpen(false);
-    } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); } finally { setIsSubmitting(false); }
-  };
-
-  const handleReset = async () => {
-    if (!canManageAll || !activeClass || !user) return;
-    if (resetConfirmText.trim() !== activeClass.name) { showToast('Nama kelas tidak cocok.', 'error'); return; }
-    setIsResetting(true);
-    try {
-      const q = query(collection(db, 'assessments'), where('classId', '==', activeClass.id), where('stage', '==', selectedStage));
-      const snap = await getDocs(q);
-      if (snap.empty) { showToast('Tidak ada penilaian.', 'info'); setIsResetting(false); setResetConfirmOpen(false); setResetConfirmText(''); return; }
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => {
-        const hRef = doc(collection(db, 'assessmentHistory'));
-        batch.set(hRef, { ...d.data(), id: hRef.id, originalId: d.id, supersededAt: new Date().toISOString(), supersededBy: user.uid, reason: `RESET ${selectedStage}` });
-        batch.delete(d.ref);
-      });
-      await batch.commit();
-      await recordAuditLog({ userId: user.uid, userName: user.displayName, role: user.role, action: 'DELETE', targetType: 'AssessmentStageReset', targetId: activeClass.id, details: `RESET ${snap.size} penilaian ${selectedStage}` });
-      showToast(`${snap.size} penilaian direset!`, 'success');
-      setResetConfirmOpen(false); setResetConfirmText('');
-    } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); } finally { setIsResetting(false); }
-  };
-
-  const handleDeleteOne = async (r: AssessmentRecord) => {
-    if (!canManageAll || !user) return;
-    if (!confirm(`Hapus penilaian ${r.studentName} oleh ${r.assessorName}?`)) return;
-    try {
-      const hRef = doc(collection(db, 'assessmentHistory'));
-      await writeBatch(db).set(hRef, { ...r, id: hRef.id, originalId: r.id, supersededAt: new Date().toISOString(), supersededBy: user.uid, reason: `Dihapus oleh ${user.displayName}` }).commit();
-      await deleteDoc(doc(db, 'assessments', r.id));
-      showToast('Penilaian dihapus.', 'info');
-    } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); }
-  };
-
-  const handleWAPeer = (s: UserProfile) => {
-    if (!s.phone) { showToast(`${s.displayName} belum punya WA.`, 'warning'); return; }
-    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
-    const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT.\n\nTerima kasih.`;
-    window.open(buildWhatsAppUrl(s.phone, text), '_blank', 'noopener,noreferrer');
-    showToast(`Membuka WA ke ${s.displayName}...`, 'info');
-  };
-
-  const handleWAScore = (s: UserProfile) => {
-    if (!s.phone) { showToast(`${s.displayName} belum punya WA.`, 'warning'); return; }
-    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
-    const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nKami ingin membahas nilai Anda di tahap ${selectedStage}.\n\nJika ada pertanyaan, silakan hubungi saya.\n\nTerima kasih.`;
-    window.open(buildWhatsAppUrl(s.phone, text), '_blank', 'noopener,noreferrer');
-    showToast(`Membuka WA ke ${s.displayName}...`, 'info');
-  };
-
-  const handleRekap = () => {
-    const sheet1 = {
-      name: 'Rekap Nilai',
-      // ✅ UPDATE: Header Excel humanis
-      headers: ['Nama', 'Peran', 'Divisi', 'Peer', 'Guru', 'Koordinator', 'Rekan Kerja', 'Anggota Tim', 'Nilai Akhir'],
-      rows: filtered.map(s => {
-        const a = getAgg(s.uid, s.role); const p = getPeerStatus(s);
-        return [s.displayName, s.role, s.divisionName || '-', `${p.filled}/${p.total}`, a?.guru?.toFixed(1) ?? '-', a?.atasan?.toFixed(1) ?? '-', a?.rekan?.toFixed(1) ?? '-', a?.bawahan?.toFixed(1) ?? '-', a?.finalVal ?? '-'];
-      }),
-    };
-    const sheet2 = {
-      name: 'Komentar',
-      headers: ['Siswa', 'Penilai', 'Kategori', 'Nilai', 'Komentar'],
-      rows: filtered.flatMap(s => assessments.filter(a => a.studentId === s.uid && a.stage === selectedStage).map(a => [s.displayName, a.assessorName, CATEGORY_LABEL[((a as any).assessorCategory as AssessorCategory) || 'REKAN'], a.totalScore, a.comment || '-'])),
-    };
-    exportMultiSheetXLSX(`Rekap_${activeClass?.name || 'Kelas'}_${selectedStage}_${new Date().toISOString().slice(0,10)}.xls`, [sheet1, sheet2]);
-    showToast('Rekap diunduh!', 'success');
-  };
-
-  const filtered = students.filter(s => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (s.displayName || '').toLowerCase().includes(q) || (s.role || '').toLowerCase().includes(q) || (s.divisionName || '').toLowerCase().includes(q);
-  });
-
-  const stageCount = (sid: ProductionStage) => assessments.filter(a => a.stage === sid).length;
-  const anomalies = canManageAll ? detectAnomalies(assessments, students, selectedStage) : [];
-  const pendingPeers = canManageAll ? students.filter(s => { const p = getPeerStatus(s); return p.total > 0 && !p.isComplete; }) : [];
-
-  if (!activeClass) {
-    return <div className="p-8 rounded-3xl bg-amber-50 border-2 border-amber-300 text-center max-w-2xl mx-auto my-8"><AlertCircle className="w-16 h-16 mx-auto text-amber-600 mb-4" /><h3 className="text-base font-extrabold text-amber-900">Anda Belum Masuk ke Kelas</h3></div>;
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="p-3 rounded-2xl bg-amber-500/10 text-amber-600"><Award className="w-7 h-7" /></span>
-            <div>
-              <h2 className="text-xl font-black text-slate-900">Penilaian 360</h2>
-              <p className="text-xs text-slate-500">Auto-score + Manual 360</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={handleRekap} className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5"><Download className="w-3.5 h-3.5" /> Rekap</button>
-            <button onClick={() => window.location.reload()} className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"><RefreshCw className="w-3.5 h-3.5" /></button>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-bold text-slate-700">Tahapan:</span>
-            {stageConfig?.currentStage && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-300">Aktif: {stageConfig.currentStage}</span>}
-          </div>
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-            {STAGES.map(s => {
-              const en = isStageEnabled(s.id);
-              const isA = selectedStage === s.id;
-              const cnt = stageCount(s.id);
-              const st = isAssessmentOpen(stageConfig?.stageDeadlines, s.id);
-              return (
-                <button key={s.id} onClick={() => setSelectedStage(s.id)} disabled={!en && !canManageAll}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-2 ${isA ? (en ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md' : 'bg-rose-500 text-white shadow-md') : en ? 'bg-white text-slate-600 border border-slate-200' : 'bg-slate-100 text-slate-400 border opacity-60 cursor-not-allowed'}`}>
-                  {!en && <Lock className="w-3 h-3" />}
-                  {en && !st.open && <Award className="w-3 h-3 opacity-70" />}
-                  {en && st.open && <Unlock className="w-3 h-3 opacity-70" />}
-                  <span>{s.id}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isA ? 'bg-white/20' : 'bg-slate-200'}`}>{cnt}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {!isAssessmentLocked && aStatus.endMs && (
-          <div className="mt-3 p-3 rounded-xl bg-emerald-50 border-2 border-emerald-300 flex items-start gap-2">
-            <Timer className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-emerald-900"><p className="font-bold">Penilaian TERBUKA, sisa {formatDuration(aStatus.endMs - Date.now())}</p><p className="mt-0.5">Ditutup: {formatDateTime(new Date(aStatus.endMs).toISOString())}</p></div>
-          </div>
-        )}
-        {isAssessmentLocked && aStatus.reason === 'not-started' && aStatus.startMs && (
-          <div className="mt-3 p-3 rounded-xl bg-blue-50 border-2 border-blue-300 flex items-start gap-2">
-            <Clock className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-blue-900"><p className="font-bold">Belum dibuka, dalam {formatDuration(aStatus.startMs - Date.now())}</p><p className="mt-0.5">{formatDateTime(new Date(aStatus.startMs).toISOString())}</p></div>
-          </div>
-        )}
-        {isAssessmentLocked && aStatus.reason === 'ended' && (
-          <div className="mt-3 p-3 rounded-xl bg-rose-50 border-2 border-rose-300 flex items-start gap-2"><Lock className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" /><div className="text-[11px] text-rose-900"><p className="font-bold">Penilaian sudah ditutup</p></div></div>
-        )}
-        {isAssessmentLocked && aStatus.reason === 'disabled' && (
-          <div className="mt-3 p-3 rounded-xl bg-slate-50 border-2 border-slate-300 flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" /><div className="text-[11px] text-slate-800"><p className="font-bold">Penilaian dinonaktifkan</p></div></div>
-        )}
-
-        <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
-          <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja.</p></div>
-        </div>
-      </div>
-
-      {canManageAll && pendingPeers.length > 0 && (() => {
-        const allSelected = pendingPeers.every(p => selectedPeerIds.includes(p.uid));
-        const toggleAll = () => { if (allSelected) setSelectedPeerIds([]); else setSelectedPeerIds(pendingPeers.map(p => p.uid)); };
-        const toggleOne = (uid: string) => { setSelectedPeerIds(prev => prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]); };
-        const selectedList = pendingPeers.filter(p => selectedPeerIds.includes(p.uid));
-        const selectedWithPhone = selectedList.filter(p => p.phone);
-
-        const sendToSelected = () => {
-          if (selectedList.length === 0) { showToast('Pilih minimal 1 siswa dulu.', 'warning'); return; }
-          if (selectedWithPhone.length === 0) { showToast('Siswa yang dipilih tidak punya nomor WA.', 'warning'); return; }
-          const noPhone = selectedList.length - selectedWithPhone.length;
-          if (!confirm(`Kirim WA ke ${selectedWithPhone.length} siswa terpilih?` + (noPhone > 0 ? `\n\n(${noPhone} siswa di-skip karena tidak punya nomor WA)` : '') + `\n\nBrowser akan buka tab satu per satu.`)) return;
-          selectedWithPhone.forEach((s, i) => {
-            setTimeout(() => {
-              const tn = user?.displayName || 'Guru';
-              const cn = activeClass?.name || 'IX';
-              const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
-              window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
-              if (i === selectedWithPhone.length - 1) {
-                setTimeout(() => showToast(`Selesai. ${selectedWithPhone.length} siswa dibuka di WA.`, 'success'), 500);
-              }
-            }, i * 1200);
-          });
-          showToast(`Membuka ${selectedWithPhone.length} chat WhatsApp...`, 'info');
-        };
-
-        return (
-          <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-300 shadow-md">
-            <div className="flex items-start gap-3">
-              <span className="p-2.5 rounded-2xl bg-amber-500 text-white shrink-0"><AlertCircle className="w-5 h-5" /></span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <h3 className="text-sm font-extrabold text-amber-900">{pendingPeers.length} Siswa Belum Isi Peer Assessment</h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
-                    {selectedPeerIds.length > 0 ? `${selectedPeerIds.length} DIPILIH` : `TAHAP ${selectedStage}`}
-                  </span>
-                </div>
-                <p className="text-[11px] text-amber-800 leading-relaxed mb-3">
-                  Centang siswa yang mau dikirimi WA, lalu klik <strong>Kirim ke Terpilih</strong>. Atau klik ikon WhatsApp hijau di tiap baris untuk kirim 1 orang saja.
-                </p>
-
-                <div className="flex items-center gap-2 flex-wrap mb-3 p-2 rounded-xl bg-white border border-amber-200">
-                  <button onClick={toggleAll}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition ${allSelected ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-800 border border-amber-300'}`}>
-                    {allSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-                    {allSelected ? 'Batal Pilih Semua' : 'Pilih Semua'}
-                  </button>
-                  {selectedPeerIds.length > 0 && (
-                    <>
-                      <span className="text-[10px] font-bold text-amber-800">{selectedPeerIds.length} dipilih</span>
-                      <button onClick={() => setSelectedPeerIds([])} className="text-[10px] font-bold text-rose-600 hover:underline">Kosongkan</button>
-                    </>
-                  )}
-                </div>
-
-                <div className="space-y-1.5 max-h-72 overflow-y-auto mb-3">
-                  {pendingPeers.map(s => {
-                    const ps = getPeerStatus(s);
-                    const isSelected = selectedPeerIds.includes(s.uid);
-                    const hasPhone = !!s.phone;
-                    return (
-                      <div key={s.uid} className={`flex items-center gap-2 p-2 rounded-xl border transition ${isSelected ? 'bg-amber-50 border-amber-400' : 'bg-white border-amber-200'}`}>
-                        <button onClick={() => toggleOne(s.uid)} className="p-0.5 shrink-0" title={isSelected ? 'Batal pilih' : 'Pilih'}>
-                          {isSelected ? <CheckSquare className="w-5 h-5 text-amber-600" /> : <Square className="w-5 h-5 text-slate-400" />}
-                        </button>
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${ps.filled === 0 ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'}`}>{s.displayName.charAt(0).toUpperCase()}</div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[11px] font-bold text-slate-800 truncate">{s.displayName}</p>
-                          <p className="text-[9px] text-slate-500">
-                            {s.role} • <span className={ps.filled === 0 ? 'text-rose-600 font-bold' : 'text-amber-600 font-bold'}>{ps.filled}/{ps.total} peer</span>
-                            {!hasPhone && <span className="text-slate-400 italic"> • no WA</span>}
-                          </p>
-                        </div>
-                        {hasPhone ? (
-                          <button onClick={() => handleWAPeer(s)} className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shrink-0" title={`Kirim WA langsung ke ${s.displayName}`}>
-                            <MessageCircle className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <span className="text-[9px] text-slate-400 italic px-1 shrink-0">no WA</span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button onClick={sendToSelected} disabled={selectedPeerIds.length === 0 || selectedWithPhone.length === 0}
-                    className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1.5 shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition">
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    {selectedPeerIds.length === 0 ? 'Pilih Siswa Dulu' : `Kirim ke ${selectedWithPhone.length} Terpilih`}
-                  </button>
-                  {selectedList.length > 0 && selectedWithPhone.length < selectedList.length && (
-                    <span className="text-[10px] text-amber-700 italic">{selectedList.length - selectedWithPhone.length} siswa tanpa WA akan di-skip</span>
-                  )}
-                </div>
-
-                <p className="text-[10px] text-amber-700 italic mt-2">Tip: nilai siswa terbuka otomatis setelah peer lengkap.</p>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {canManageAll && (
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs font-bold text-slate-700"><ShieldAlert className="w-4 h-4 text-rose-600" /> Aksi Khusus Guru/Admin</div>
-          <button onClick={() => setResetConfirmOpen(true)} disabled={isStageLocked} className="px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-2 shadow-sm disabled:opacity-50"><RotateCcw className="w-4 h-4" /> Reset Nilai Tahap {selectedStage}</button>
-        </div>
-      )}
-
-      {canManageAll && anomalies.length > 0 && (
-        <div className="rounded-3xl border-2 border-rose-300 bg-gradient-to-br from-rose-50 to-orange-50 overflow-hidden shadow-sm">
-          <button onClick={() => setShowAnomalies(!showAnomalies)} className="w-full p-4 flex items-center justify-between gap-2 text-left hover:bg-rose-100/50 transition">
-            <div className="flex items-center gap-3">
-              <span className="p-2.5 rounded-xl bg-rose-500 text-white shrink-0"><AlertTriangle className="w-5 h-5" /></span>
-              <div><h3 className="text-sm font-extrabold text-rose-900">{anomalies.length} Penilaian Perlu Klarifikasi</h3><p className="text-[11px] text-rose-700 mt-0.5">Deteksi nilai ekstrem atau outlier, hubungi penilai via WA</p></div>
-            </div>
-            <span className={`text-rose-600 transition-transform ${showAnomalies ? 'rotate-180' : ''}`}>v</span>
-          </button>
-          {showAnomalies && (
-            <div className="p-4 pt-0 space-y-2 border-t border-rose-200">
-              {anomalies.map((an, i) => {
-                const sev = an.severity === 'high' ? 'border-rose-400 bg-rose-50' : an.severity === 'medium' ? 'border-amber-400 bg-amber-50' : 'border-blue-400 bg-blue-50';
-                const sevB = an.severity === 'high' ? 'bg-rose-600 text-white' : an.severity === 'medium' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white';
-                return (
-                  <div key={i} className={`p-3 rounded-2xl border-2 ${sev}`}>
-                    <div className="flex items-start gap-3 flex-wrap">
-                      <div className="flex-1 min-w-[200px]">
-                        <div className="flex items-center gap-1.5 flex-wrap mb-1">
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${sevB}`}>{an.severity.toUpperCase()}</span>
-                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-700 text-white">{an.type}</span>
-                        </div>
-                        <p className="text-xs font-bold text-slate-900">{an.assessor?.displayName || an.record.assessorName} → {an.target?.displayName || an.record.studentName}</p>
-                        <p className="text-[11px] text-slate-600 mt-1">{an.reason}</p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">Total: <strong className="font-mono">{an.record.totalScore}</strong></p>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {an.assessor?.phone && <button onClick={() => handleWAScore(an.assessor!)} className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1"><MessageCircle className="w-3 h-3" /> WA Klarifikasi</button>}
-                        <button onClick={() => handleDeleteOne(an.record)} className="p-1.5 rounded-lg bg-rose-100 text-rose-600 hover:bg-rose-200"><Trash2 className="w-3.5 h-3.5" /></button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input type="text" placeholder="Cari siswa atau peran..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800" />
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-              <tr>
-                <th className="py-3.5 px-4">Nama</th>
-                <th className="py-3.5 px-4">Peran</th>
-                <th className="py-3.5 px-4 text-center">Peer</th>
-                <th className="py-3.5 px-4 text-center">Guru</th>
-                {/* ✅ UPDATE: Label Header Tabel Humanis */}
-                <th className="py-3.5 px-4 text-center">Koordinator</th>
-                <th className="py-3.5 px-4 text-center">Rekan Kerja</th>
-                <th className="py-3.5 px-4 text-center">Anggota Tim</th>
-                <th className="py-3.5 px-4 text-center">Nilai</th>
-                <th className="py-3.5 px-4 text-right">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {studentsLoading ? (
-                <tr><td colSpan={9} className="py-8 text-center text-xs text-slate-400"><RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin" /> Memuat...</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="py-8 text-center"><AlertCircle className="w-8 h-8 mx-auto text-amber-400 mb-2" /><p className="text-xs font-bold text-slate-700">{students.length === 0 ? 'Data siswa tidak ter-load.' : 'Tidak ada yang cocok.'}</p></td></tr>
-              ) : (
-                filtered.map(s => {
-                  const ag = getAgg(s.uid, s.role);
-                  const cg = canGradeStudent(s) && !isStageLocked && !isAssessmentLocked;
-                  const ps = getPeerStatus(s);
-                  return (
-                    <tr key={s.uid} className="hover:bg-slate-50">
-                      <td className="py-3.5 px-4"><p className="font-bold text-slate-900">{s.displayName}</p>{s.phone && <p className="text-[9px] text-slate-400 font-mono">{s.phone}</p>}</td>
-                      <td className="py-3.5 px-4 text-[11px] text-slate-600">{s.role}</td>
-                      <td className="py-3.5 px-4 text-center">
-                        {ps.total === 0 ? <span className="text-[10px] text-slate-400 italic">-</span> : ps.isComplete ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-300 inline-flex items-center gap-1"><CheckSquare className="w-3 h-3" />{ps.filled}/{ps.total}</span>
-                        ) : (
-                          <button onClick={() => handleWAPeer(s)} className={`text-[10px] font-bold px-2 py-0.5 rounded-md border inline-flex items-center gap-1 ${ps.filled === 0 ? 'bg-rose-100 text-rose-700 border-rose-300' : 'bg-amber-100 text-amber-700 border-amber-300'} hover:brightness-95`} title={`WA follow-up ke ${s.displayName}`}>
-                            <AlertTriangle className="w-3 h-3" />{ps.filled}/{ps.total}{s.phone && <MessageCircle className="w-3 h-3" />}
-                          </button>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.guru != null ? ag.guru.toFixed(1) : '-'}</td>
-                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.atasan != null ? ag.atasan.toFixed(1) : '-'}</td>
-                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.rekan != null ? ag.rekan.toFixed(1) : '-'}</td>
-                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.bawahan != null ? ag.bawahan.toFixed(1) : '-'}</td>
-                      <td className="py-3.5 px-4 text-center">{ag ? <span className="text-sm font-black text-slate-900 font-mono">{ag.finalVal}</span> : <span className="text-xs text-slate-400">-</span>}</td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {cg ? <button onClick={() => openGrading(s)} className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1"><Edit3 className="w-3 h-3" /> {ag ? 'Edit' : 'Nilai'}</button> : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : 'Lihat'}</span>}
-                          {canManageAll && s.phone && <button onClick={() => handleWAScore(s)} className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100" title="WA tanya nilai"><Send className="w-3.5 h-3.5" /></button>}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {isGradingOpen && selectedStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="p-6 bg-slate-900 text-white shrink-0">
-              <div className="flex items-center justify-between">
-                <div><span className="text-xs font-bold text-amber-400 uppercase">Penilaian 360 • {selectedStage}</span><h3 className="text-lg font-black mt-0.5">{selectedStudent.displayName}</h3><p className="text-xs text-slate-400">{selectedStudent.role}{selectedStudent.divisionName ? ` • ${selectedStudent.divisionName}` : ''}</p></div>
-                <div className="text-right"><p className="text-[10px] text-slate-400">Perkiraan</p><p className="text-3xl font-black text-amber-400 font-mono">{calcTotal()}</p></div>
-              </div>
-            </div>
-            <div className="p-6 space-y-5 overflow-y-auto flex-1">
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border-2 border-amber-200">
-                <div className="flex items-center justify-between mb-3"><div className="flex items-center gap-2"><ListChecks className="w-5 h-5 text-amber-600" /><h4 className="text-xs font-black text-amber-900 uppercase">Tugas Siswa ({selectedStage})</h4></div></div>
-                {(() => {
-                  const tl = getStudentTasks(selectedStudent);
-                  if (tl.length === 0) return <div className="p-4 rounded-xl bg-white/70 border border-amber-200 text-center"><p className="text-xs text-amber-800 italic">Tidak ada tugas untuk peran <strong>{selectedStudent.role}</strong> di tahap ini.</p></div>;
-                  return (
-                    <div className="space-y-2 max-h-72 overflow-y-auto">
-                      {tl.map((item, idx) => (
-                        <div key={item.task.id || idx} className="p-3 rounded-xl bg-white border border-amber-200">
-                          <div className="flex items-start gap-2">
-                            <div className={`mt-0.5 shrink-0 ${item.done ? 'text-emerald-600' : 'text-rose-500'}`}>{item.done ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}</div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                                {item.task.isCritical && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300">KRITIS</span>}
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${item.done ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-600 border-slate-300'}`}>{item.label}</span>
-                              </div>
-                              <p className="text-xs font-bold text-slate-900 leading-snug">{item.task.title}</p>
-                              <p className="text-[10px] text-slate-500 mt-0.5">Deadline: {new Date(item.task.dueDate).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                              {(item.sub?.proofUrl || item.sub?.proofNote) && (
-                                <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
-                                  {item.sub.proofNote && <div className="p-2 rounded-lg bg-slate-50 text-[10px] italic">"{item.sub.proofNote}"</div>}
-                                  {item.sub.proofUrl && <a href={item.sub.proofUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:underline"><ExternalLink className="w-2.5 h-2.5" /> Lihat Bukti</a>}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {(() => {
-                const { auto, taskResult, attendResult } = autoScoresFor(selectedStudent, selectedStage);
-                return (
-                  <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200">
-                    <div className="flex items-center gap-2 mb-3"><Bot className="w-4 h-4 text-blue-600" /><h4 className="text-xs font-black text-blue-900">SKOR OTOMATIS</h4></div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                      <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Tanggung Jawab</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.tanggung_jawab}</p><p className="text-[9px] text-blue-600">{taskResult.pctOnTime}% tepat waktu</p></div>
-                      <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kehadiran</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kehadiran}</p><p className="text-[9px] text-blue-600">{attendResult.pct}% hadir</p></div>
-                      {selectedStudent.role === 'Pemeran' && <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kedisiplinan</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kedisiplinan}</p></div>}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* ✅ UPDATE: Rincian spesifik nilai berdasarkan peran pihak lain di dalam Modal */}
-              {(() => {
-                const ag = getAgg(selectedStudent.uid, selectedStudent.role);
-                // Hanya tampilkan jika sudah ada yang menilai selain guru sendiri saat ini
-                if (!ag || ag.count === 0) return null;
-                
-                return (
-                  <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
-                    <h4 className="text-xs font-black text-slate-900 mb-3">RINCIAN NILAI DARI PIHAK LAIN</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {(['ATASAN', 'REKAN', 'BAWAHAN', 'GURU'] as AssessorCategory[]).map(cat => {
-                        const breakdown = ag.roleBreakdown[cat];
-                        const roles = Object.keys(breakdown);
-                        if (roles.length === 0) return null;
-                        
-                        // Map key ke object agar mudah dibaca
-                        const avgCatKey = cat === 'ATASAN' ? 'atasan' : cat === 'BAWAHAN' ? 'bawahan' : cat === 'REKAN' ? 'rekan' : 'guru';
-                        const avgCat = ag[avgCatKey] as number;
-                        
-                        return (
-                          <div key={cat} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="text-[10px] font-bold text-slate-700 uppercase">{CATEGORY_LABEL[cat]}</span>
-                              <span className="text-xs font-black text-slate-900">{avgCat.toFixed(1)}</span>
-                            </div>
-                            <div className="space-y-1.5 pt-2 border-t border-slate-200">
-                              {roles.map(role => {
-                                const scores = breakdown[role];
-                                const avgRole = scores.reduce((a, b) => a + b, 0) / scores.length;
-                                return (
-                                  <div key={role} className="flex justify-between items-center text-[10.5px]">
-                                    <span className="text-slate-600 font-medium">{role} <span className="text-slate-400">({scores.length} orang)</span></span>
-                                    <span className="font-bold text-slate-800">{avgRole.toFixed(1)}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div>
-                <h4 className="text-xs font-black text-slate-900 mb-3">PENILAIAN MANUAL</h4>
-                <div className="space-y-3">
-                  {manualCriteria.map(crit => {
-                    const cur = manualScores[crit.key] || 3;
-                    const si = SCORE_SCALE[cur];
-                    return (
-                      <div key={crit.key} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/50 space-y-2">
-                        <div className="flex items-center justify-between"><div><span className="text-xs font-bold text-slate-900">{crit.label}</span><span className="text-[10px] text-slate-400 ml-2">Bobot: {crit.weight}%</span><p className="text-[11px] text-slate-500 mt-0.5">{crit.desc}</p></div><span className={`text-xs font-bold px-2 py-1 rounded-lg border ${si.badgeColor}`}>{cur} • {si.label}</span></div>
-                        <input type="range" min="1" max="4" step="1" value={cur} onChange={(e) => setManualScores(prev => ({ ...prev, [crit.key]: parseInt(e.target.value) }))} className="w-full accent-amber-500" />
-                        <div className="flex justify-between text-[10px] font-semibold text-slate-400"><span>1 Kurang</span><span>2 Cukup</span><span>3 Baik</span><span>4 Sangat Baik</span></div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Komentar{Object.values(manualScores).some(v => v <= 2) && <span className="text-rose-500 ml-1">(Wajib karena ada nilai &lt;= 2)</span>}</label>
-                <textarea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Catatan konstruktif..." className="w-full p-3 rounded-xl border border-slate-200 bg-white text-xs font-medium" />
-              </div>
-            </div>
-            <div className="p-4 bg-slate-50 border-t flex justify-between shrink-0">
-              <button onClick={() => setIsGradingOpen(false)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600">Batal</button>
-              <button onClick={handleSave} disabled={isSubmitting} className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs disabled:opacity-50">{isSubmitting ? 'Menyimpan...' : 'Simpan'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {resetConfirmOpen && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 bg-slate-950/85 backdrop-blur-md">
-          <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
-            <div className="flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 className="text-base font-extrabold text-rose-900">Reset Penilaian {selectedStage}</h3></div>
-            <p className="text-xs text-rose-800 leading-relaxed">Ini akan menghapus semua penilaian di tahap <strong>{selectedStage}</strong>. Tindakan tidak bisa dibatalkan.</p>
-            <input type="text" value={resetConfirmText} onChange={(e) => setResetConfirmText(e.target.value)} placeholder={`Ketik "${activeClass?.name}" untuk konfirmasi`} autoFocus className={`w-full px-3.5 py-2.5 rounded-xl border-2 font-semibold text-sm ${resetConfirmText.trim() === activeClass?.name ? 'border-emerald-500' : 'border-rose-200'}`} />
-            <div className="flex gap-2">
-              <button onClick={() => { setResetConfirmOpen(false); setResetConfirmText(''); }} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-600">Batal</button>
-              <button onClick={handleReset} disabled={isResetting || resetConfirmText.trim() !== activeClass?.name} className="flex-1 py-2.5 rounded-xl bg-rose-500 text-white font-bold text-xs disabled:opacity-40">{isResetting ? 'Mereset...' : 'Reset'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
