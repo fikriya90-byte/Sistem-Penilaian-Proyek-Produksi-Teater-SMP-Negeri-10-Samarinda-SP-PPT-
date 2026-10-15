@@ -55,15 +55,9 @@ const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
   'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
 };
 
-/**
- * enrichUser — SELALU:
- * 1. Normalisasi role (Pemain → Pemeran, Guru Pembina → Guru Pengampu)
- * 2. Auto-fill divisionId & divisionName kalau kosong
- */
 function enrichUser(u: UserProfile): UserProfile {
   const normalizedRole = normalizeUserRole(u.role);
   const mapped = ROLE_DIV_MAP[normalizedRole];
-
   return {
     ...u,
     role: normalizedRole,
@@ -73,7 +67,7 @@ function enrichUser(u: UserProfile): UserProfile {
 }
 
 // ==========================================
-// FETCH USERS — SUPER ROBUST
+// FETCH USERS
 // ==========================================
 export async function fetchUsersByClass(classId: string): Promise<UserProfile[]> {
   const path = 'users';
@@ -82,103 +76,59 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
   let className: string | null = null;
   try {
     const classSnap = await getDoc(doc(db, 'classes', classId));
-    if (classSnap.exists()) {
-      className = classSnap.data().name || null;
-    }
-  } catch (err) {
-    console.warn('fetchUsersByClass: gagal ambil nama kelas:', err);
-  }
+    if (classSnap.exists()) className = classSnap.data().name || null;
+  } catch (err) { console.warn('fetchUsersByClass: gagal ambil nama kelas:', err); }
 
   try {
     const allSnap = await getDocs(collection(db, path));
     allSnap.docs.forEach(d => {
       const u = { ...d.data(), uid: d.id } as UserProfile;
       const matchId = u.classId === classId;
-      const matchName = className && (
-        (u.className || '').toLowerCase().trim() === className.toLowerCase().trim()
-      );
+      const matchName = className && ((u.className || '').toLowerCase().trim() === className.toLowerCase().trim());
       if (matchId || matchName) {
-        found[d.id] = enrichUser({
-          ...u,
-          classId: u.classId || classId,
-          className: u.className || className || '',
-        });
+        found[d.id] = enrichUser({ ...u, classId: u.classId || classId, className: u.className || className || '' });
       }
     });
-  } catch (err) {
-    console.error('fetchUsersByClass PRIMARY gagal:', err);
-  }
+  } catch (err) { console.error('fetchUsersByClass PRIMARY gagal:', err); }
 
   if (Object.keys(found).length === 0) {
     try {
       const q = query(collection(db, path), where('classId', '==', classId));
       const snap = await getDocs(q);
-      snap.docs.forEach(d => {
-        const u = { ...d.data(), uid: d.id } as UserProfile;
-        found[d.id] = enrichUser(u);
-      });
-    } catch (err) {
-      console.warn('fetchUsersByClass FALLBACK 1 gagal:', err);
-    }
+      snap.docs.forEach(d => { found[d.id] = enrichUser({ ...d.data(), uid: d.id } as UserProfile); });
+    } catch (err) { console.warn('fetchUsersByClass FALLBACK 1 gagal:', err); }
   }
 
   if (Object.keys(found).length === 0 && className) {
     try {
       const q = query(collection(db, path), where('className', '==', className));
       const snap = await getDocs(q);
-      snap.docs.forEach(d => {
-        const u = { ...d.data(), uid: d.id } as UserProfile;
-        found[d.id] = enrichUser(u);
-      });
-    } catch (err) {
-      console.warn('fetchUsersByClass FALLBACK 2 gagal:', err);
-    }
+      snap.docs.forEach(d => { found[d.id] = enrichUser({ ...d.data(), uid: d.id } as UserProfile); });
+    } catch (err) { console.warn('fetchUsersByClass FALLBACK 2 gagal:', err); }
   }
 
-  return Object.values(found).sort((a, b) =>
-    (a.displayName || '').localeCompare(b.displayName || '')
-  );
+  return Object.values(found).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
 }
 
-// ==========================================
-// REPAIR — Perbaiki classId/className user
-// ==========================================
-export async function repairUsersForClass(
-  classId: string,
-  className: string
-): Promise<{ fixed: number; total: number }> {
-  let fixed = 0;
-  let total = 0;
+export async function repairUsersForClass(classId: string, className: string): Promise<{ fixed: number; total: number }> {
+  let fixed = 0, total = 0;
   try {
     const allSnap = await getDocs(collection(db, 'users'));
     const batch = writeBatch(db);
-
     allSnap.docs.forEach(d => {
       const u = d.data();
       total++;
-
       const matchName = (u.className || '').toLowerCase().trim() === className.toLowerCase().trim();
       const matchId = u.classId === classId;
-
       if (matchName || matchId) {
         if (u.classId !== classId || u.className !== className) {
-          batch.update(d.ref, {
-            classId: classId,
-            className: className,
-            updatedAt: new Date().toISOString(),
-          });
+          batch.update(d.ref, { classId, className, updatedAt: new Date().toISOString() });
           fixed++;
         }
       }
     });
-
-    if (fixed > 0) {
-      await batch.commit();
-    }
-  } catch (err) {
-    console.error('repairUsersForClass error:', err);
-    throw err;
-  }
+    if (fixed > 0) await batch.commit();
+  } catch (err) { console.error('repairUsersForClass error:', err); throw err; }
   return { fixed, total };
 }
 
@@ -187,9 +137,7 @@ export async function fetchAllUsers(): Promise<UserProfile[]> {
   try {
     const snap = await getDocs(collection(db, path));
     return snap.docs.map(d => enrichUser({ ...d.data(), uid: d.id } as UserProfile));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.LIST, path); }
 }
 
 export async function fetchUserProfile(uid: string): Promise<UserProfile | null> {
@@ -198,33 +146,23 @@ export async function fetchUserProfile(uid: string): Promise<UserProfile | null>
     const snap = await getDoc(doc(db, 'users', uid));
     if (!snap.exists()) return null;
     return enrichUser({ ...snap.data(), uid: snap.id } as UserProfile);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.GET, path); }
 }
 
 export async function updateUserProfile(uid: string, data: Partial<UserProfile>): Promise<void> {
   const path = `users/${uid}`;
   try {
-    await updateDoc(doc(db, 'users', uid), {
-      ...data,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+    await updateDoc(doc(db, 'users', uid), { ...data, updatedAt: new Date().toISOString() });
+  } catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
 export async function fetchClasses(): Promise<ClassRoom[]> {
   const path = 'classes';
   try {
     const snap = await getDocs(collection(db, path));
-    return snap.docs
-      .map(d => ({ ...d.data(), id: d.id } as ClassRoom))
+    return snap.docs.map(d => ({ ...d.data(), id: d.id } as ClassRoom))
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.LIST, path); }
 }
 
 // ==========================================
@@ -237,25 +175,18 @@ export async function fetchProductionByClass(classId: string): Promise<Productio
     const snap = await getDocs(q);
     if (snap.empty) return null;
     return { ...snap.docs[0].data(), id: snap.docs[0].id } as ProductionProject;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.GET, path); }
 }
 
 export async function updateProductionStage(prodId: string, stage: any): Promise<void> {
   const path = `productions/${prodId}`;
   try {
-    await updateDoc(doc(db, 'productions', prodId), {
-      currentStage: stage,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+    await updateDoc(doc(db, 'productions', prodId), { currentStage: stage, updatedAt: new Date().toISOString() });
+  } catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
 // ==========================================
-// TASKS
+// TASKS (legacy — keep untuk backward compat)
 // ==========================================
 export function subscribeTasksByClass(
   classId: string,
@@ -264,62 +195,74 @@ export function subscribeTasksByClass(
 ) {
   const path = 'tasks';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(
-    q,
-    snap => {
-      const tasks = snap.docs.map(d => ({ ...d.data(), id: d.id } as TaskItem));
-      const now = new Date().getTime();
-      const updated = tasks.map(t => {
-        if (t.status !== 'APPROVED' && new Date(t.dueDate).getTime() < now) {
-          return { ...t, status: 'OVERDUE' as const };
-        }
-        return t;
-      });
-      onUpdate(updated);
-    },
-    error => {
-      if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, path);
-    }
-  );
+  return onSnapshot(q, snap => {
+    const tasks = snap.docs.map(d => ({ ...d.data(), id: d.id } as TaskItem));
+    const now = new Date().getTime();
+    const updated = tasks.map(t => {
+      if (t.status !== 'APPROVED' && new Date(t.dueDate).getTime() < now) return { ...t, status: 'OVERDUE' as const };
+      return t;
+    });
+    onUpdate(updated);
+  }, error => {
+    if (onError) onError(error);
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
 }
 
 export async function createTask(task: Omit<TaskItem, 'id'>): Promise<string> {
   const path = 'tasks';
   try {
     const newRef = doc(collection(db, path));
-    const fullTask: TaskItem = {
-      ...task,
-      id: newRef.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await setDoc(newRef, fullTask);
+    await setDoc(newRef, { ...task, id: newRef.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     return newRef.id;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
 export async function updateTask(taskId: string, data: Partial<TaskItem>): Promise<void> {
   const path = `tasks/${taskId}`;
-  try {
-    await updateDoc(doc(db, 'tasks', taskId), {
-      ...data,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  try { await updateDoc(doc(db, 'tasks', taskId), { ...data, updatedAt: new Date().toISOString() }); }
+  catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
 export async function deleteTask(taskId: string): Promise<void> {
   const path = `tasks/${taskId}`;
-  try {
-    await deleteDoc(doc(db, 'tasks', taskId));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+  try { await deleteDoc(doc(db, 'tasks', taskId)); }
+  catch (error) { handleFirestoreError(error, OperationType.DELETE, path); }
+}
+
+// ==========================================
+// ✅ NEW: DEADLINES SUBSCRIPTIONS
+// Dipakai oleh DashboardModule & DashboardReminder
+// ==========================================
+export function subscribeDeadlinesByClass(
+  classId: string,
+  onUpdate: (deadlines: any[]) => void,
+  onError?: (err: any) => void
+) {
+  const path = 'deadlines';
+  const q = query(collection(db, path), where('classId', '==', classId));
+  return onSnapshot(q, snap => {
+    const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    onUpdate(list);
+  }, error => {
+    if (onError) onError(error);
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
+}
+
+export function subscribeDeadlineSubmissionsByClass(
+  classId: string,
+  onUpdate: (subs: any[]) => void,
+  onError?: (err: any) => void
+) {
+  const path = 'deadlineSubmissions';
+  const q = query(collection(db, path), where('classId', '==', classId));
+  return onSnapshot(q, snap => {
+    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+  }, error => {
+    if (onError) onError(error);
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
 }
 
 // ==========================================
@@ -332,17 +275,12 @@ export function subscribeAssessments(
 ) {
   const path = 'assessments';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(
-    q,
-    snap => {
-      const records = snap.docs.map(d => ({ ...d.data(), id: d.id } as AssessmentRecord));
-      onUpdate(records);
-    },
-    error => {
-      if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, path);
-    }
-  );
+  return onSnapshot(q, snap => {
+    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AssessmentRecord)));
+  }, error => {
+    if (onError) onError(error);
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
 }
 
 export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): Promise<string> {
@@ -351,46 +289,26 @@ export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): 
     const customId = `${assessment.assessorId}_${assessment.studentId}_${assessment.stage}`;
     const targetRef = doc(db, path, customId);
     const existing = await getDoc(targetRef);
-
     if (existing.exists()) {
       const oldData = existing.data();
       const histRef = doc(collection(db, 'assessmentHistory'));
-      await setDoc(histRef, {
-        ...oldData,
-        id: histRef.id,
-        originalId: customId,
-        supersededAt: new Date().toISOString(),
-        supersededBy: assessment.assessorId,
-      });
+      await setDoc(histRef, { ...oldData, id: histRef.id, originalId: customId, supersededAt: new Date().toISOString(), supersededBy: assessment.assessorId });
     }
-
     const version = existing.exists() ? ((existing.data()?.version || 1) + 1) : 1;
-
     const fullRecord: AssessmentRecord = {
-      ...assessment,
-      id: customId,
-      version,
+      ...assessment, id: customId, version,
       updatedAt: new Date().toISOString(),
       createdAt: existing.exists() ? existing.data()?.createdAt : new Date().toISOString(),
     };
-
     await setDoc(targetRef, fullRecord);
     return customId;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
-export function subscribeAssessmentHistory(
-  classId: string,
-  onUpdate: (records: any[]) => void
-) {
+export function subscribeAssessmentHistory(classId: string, onUpdate: (records: any[]) => void) {
   const path = 'assessmentHistory';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(q, snap => {
-    const records = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-    onUpdate(records);
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id }))));
 }
 
 // ==========================================
@@ -403,80 +321,47 @@ export function subscribeAttendanceSessions(
 ) {
   const path = 'attendanceSessions';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(
-    q,
-    snap => {
-      const sessions = snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceSession));
-      onUpdate(sessions);
-    },
-    error => {
-      if (onError) onError(error);
-      handleFirestoreError(error, OperationType.LIST, path);
-    }
-  );
+  return onSnapshot(q, snap => {
+    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceSession)));
+  }, error => {
+    if (onError) onError(error);
+    handleFirestoreError(error, OperationType.LIST, path);
+  });
 }
 
-export async function createAttendanceSession(
-  session: Omit<AttendanceSession, 'id'>
-): Promise<string> {
+export async function createAttendanceSession(session: Omit<AttendanceSession, 'id'>): Promise<string> {
   const path = 'attendanceSessions';
   try {
     const newRef = doc(collection(db, path));
-    const fullSession: AttendanceSession = {
-      ...session,
-      id: newRef.id,
-      createdAt: new Date().toISOString(),
-    };
-    await setDoc(newRef, fullSession);
+    await setDoc(newRef, { ...session, id: newRef.id, createdAt: new Date().toISOString() });
     return newRef.id;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
 export async function closeAttendanceSession(sessionId: string): Promise<void> {
   const path = `attendanceSessions/${sessionId}`;
-  try {
-    await updateDoc(doc(db, 'attendanceSessions', sessionId), { isOpen: false });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  try { await updateDoc(doc(db, 'attendanceSessions', sessionId), { isOpen: false }); }
+  catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
-export function subscribeAttendanceRecords(
-  sessionId: string,
-  onUpdate: (records: AttendanceRecord[]) => void
-) {
+export function subscribeAttendanceRecords(sessionId: string, onUpdate: (records: AttendanceRecord[]) => void) {
   const path = 'attendanceRecords';
   const q = query(collection(db, path), where('sessionId', '==', sessionId));
-  return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord)));
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))));
 }
 
-export function subscribeAllAttendanceRecords(
-  classId: string,
-  onUpdate: (records: AttendanceRecord[]) => void
-) {
+export function subscribeAllAttendanceRecords(classId: string, onUpdate: (records: AttendanceRecord[]) => void) {
   const path = 'attendanceRecords';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord)));
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))));
 }
 
 export async function submitAttendanceRecord(record: Omit<AttendanceRecord, 'id'>): Promise<void> {
   const path = 'attendanceRecords';
   try {
     const recId = `${record.sessionId}_${record.studentId}`;
-    await setDoc(doc(db, path, recId), {
-      ...record,
-      id: recId,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+    await setDoc(doc(db, path, recId), { ...record, id: recId, timestamp: new Date().toISOString() });
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
 // ==========================================
@@ -485,9 +370,7 @@ export async function submitAttendanceRecord(record: Omit<AttendanceRecord, 'id'
 export function subscribeSchedules(classId: string, onUpdate: (schedules: ScheduleEvent[]) => void) {
   const path = 'schedules';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ScheduleEvent)));
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ScheduleEvent))));
 }
 
 export async function createSchedule(event: Omit<ScheduleEvent, 'id'>): Promise<string> {
@@ -496,32 +379,22 @@ export async function createSchedule(event: Omit<ScheduleEvent, 'id'>): Promise<
     const newRef = doc(collection(db, path));
     await setDoc(newRef, { ...event, id: newRef.id, createdAt: new Date().toISOString() });
     return newRef.id;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
 export async function deleteSchedule(id: string): Promise<void> {
   const path = `schedules/${id}`;
-  try {
-    await deleteDoc(doc(db, 'schedules', id));
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
-  }
+  try { await deleteDoc(doc(db, 'schedules', id)); }
+  catch (error) { handleFirestoreError(error, OperationType.DELETE, path); }
 }
 
 // ==========================================
 // DOCUMENTS
 // ==========================================
-export function subscribeDocuments(
-  classId: string,
-  onUpdate: (docs: ProductionDocument[]) => void
-) {
+export function subscribeDocuments(classId: string, onUpdate: (docs: ProductionDocument[]) => void) {
   const path = 'documents';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ProductionDocument)));
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ProductionDocument))));
 }
 
 export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>): Promise<string> {
@@ -530,18 +403,35 @@ export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>
     const newRef = doc(collection(db, path));
     await setDoc(newRef, { ...docData, id: newRef.id, createdAt: new Date().toISOString() });
     return newRef.id;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
+}
+
+// ==========================================
+// ✅ NEW: DRIVE SUBMISSIONS (bukti upload dari DriveUploadWidget)
+// ==========================================
+export function subscribeDriveSubmissions(
+  classId: string,
+  onUpdate: (subs: any[]) => void,
+  onError?: (err: any) => void
+) {
+  const path = 'driveSubmissions';
+  const q = query(collection(db, path), where('classId', '==', classId));
+  return onSnapshot(q, snap => {
+    const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    list.sort((a: any, b: any) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    onUpdate(list);
+  }, error => {
+    if (onError) onError(error);
+    console.warn('subscribeDriveSubmissions error:', error);
+  });
 }
 
 // ==========================================
 // NOTIFICATIONS
 // ==========================================
-export function subscribeNotifications(
-  userId: string,
-  onUpdate: (notifs: SystemNotification[]) => void
-) {
+export function subscribeNotifications(userId: string, onUpdate: (notifs: SystemNotification[]) => void) {
   const path = 'notifications';
   const q = query(collection(db, path), where('userId', '==', userId));
   return onSnapshot(q, snap => {
@@ -553,33 +443,20 @@ export function subscribeNotifications(
 
 export async function markNotificationAsRead(notifId: string): Promise<void> {
   const path = `notifications/${notifId}`;
-  try {
-    await updateDoc(doc(db, 'notifications', notifId), { read: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+  try { await updateDoc(doc(db, 'notifications', notifId), { read: true }); }
+  catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
 export async function markAllNotificationsAsRead(userId: string): Promise<number> {
   try {
-    const q = query(
-      collection(db, 'notifications'),
-      where('userId', '==', userId),
-      where('read', '==', false)
-    );
+    const q = query(collection(db, 'notifications'), where('userId', '==', userId), where('read', '==', false));
     const snap = await getDocs(q);
     if (snap.empty) return 0;
-
     const batch = writeBatch(db);
-    snap.docs.forEach(d => {
-      batch.update(d.ref, { read: true });
-    });
+    snap.docs.forEach(d => batch.update(d.ref, { read: true }));
     await batch.commit();
     return snap.size;
-  } catch (error) {
-    console.warn('markAllNotificationsAsRead error:', error);
-    return 0;
-  }
+  } catch (error) { console.warn('markAllNotificationsAsRead error:', error); return 0; }
 }
 
 export async function createNotification(notif: Omit<SystemNotification, 'id'>): Promise<void> {
@@ -587,56 +464,30 @@ export async function createNotification(notif: Omit<SystemNotification, 'id'>):
   try {
     const newRef = doc(collection(db, path));
     await setDoc(newRef, { ...notif, id: newRef.id });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
-export async function notifyTeachers(
-  classId: string,
-  notif: {
-    title: string;
-    message: string;
-    category: SystemNotification['category'];
-    link?: string;
-    senderName?: string;
-  }
-): Promise<void> {
+export async function notifyTeachers(classId: string, notif: { title: string; message: string; category: SystemNotification['category']; link?: string; senderName?: string }): Promise<void> {
   try {
     const q = query(collection(db, 'users'), where('classId', '==', classId));
     const snap = await getDocs(q);
-
     const guruList = snap.docs.filter(d => {
       const role = d.data().role;
-      return role === 'Guru Pengampu' || role === 'Guru Pembina' ||
-             role === 'Admin' || role === 'Super Admin';
+      return role === 'Guru Pengampu' || role === 'Guru Pembina' || role === 'Admin' || role === 'Super Admin';
     });
 
     if (guruList.length === 0) {
       const allSnap = await getDocs(collection(db, 'users'));
       const fallback = allSnap.docs.filter(d => {
         const role = d.data().role;
-        return role === 'Guru Pengampu' || role === 'Guru Pembina' ||
-               role === 'Admin' || role === 'Super Admin';
+        return role === 'Guru Pengampu' || role === 'Guru Pembina' || role === 'Admin' || role === 'Super Admin';
       });
-
       if (fallback.length === 0) return;
-
       const batch = writeBatch(db);
       const now = new Date().toISOString();
       fallback.forEach(d => {
         const notifRef = doc(collection(db, 'notifications'));
-        batch.set(notifRef, {
-          id: notifRef.id,
-          userId: d.id,
-          classId,
-          title: notif.title,
-          message: notif.message,
-          category: notif.category,
-          read: false,
-          link: notif.link || '',
-          createdAt: now,
-        });
+        batch.set(notifRef, { id: notifRef.id, userId: d.id, classId, title: notif.title, message: notif.message, category: notif.category, read: false, link: notif.link || '', createdAt: now });
       });
       await batch.commit();
       return;
@@ -644,74 +495,34 @@ export async function notifyTeachers(
 
     const batch = writeBatch(db);
     const now = new Date().toISOString();
-
     guruList.forEach(d => {
       const notifRef = doc(collection(db, 'notifications'));
-      batch.set(notifRef, {
-        id: notifRef.id,
-        userId: d.id,
-        classId,
-        title: notif.title,
-        message: notif.message,
-        category: notif.category,
-        read: false,
-        link: notif.link || '',
-        createdAt: now,
-      });
+      batch.set(notifRef, { id: notifRef.id, userId: d.id, classId, title: notif.title, message: notif.message, category: notif.category, read: false, link: notif.link || '', createdAt: now });
     });
-
     await batch.commit();
-  } catch (err) {
-    console.warn('Non-fatal notifyTeachers error:', err);
-  }
+  } catch (err) { console.warn('Non-fatal notifyTeachers error:', err); }
 }
 
-export async function notifyUsers(
-  userIds: string[],
-  notif: {
-    title: string;
-    message: string;
-    category: SystemNotification['category'];
-    link?: string;
-    classId?: string;
-  }
-): Promise<void> {
+export async function notifyUsers(userIds: string[], notif: { title: string; message: string; category: SystemNotification['category']; link?: string; classId?: string }): Promise<void> {
   if (userIds.length === 0) return;
   try {
     const batch = writeBatch(db);
     const now = new Date().toISOString();
     userIds.forEach(uid => {
       const notifRef = doc(collection(db, 'notifications'));
-      batch.set(notifRef, {
-        id: notifRef.id,
-        userId: uid,
-        classId: notif.classId || '',
-        title: notif.title,
-        message: notif.message,
-        category: notif.category,
-        read: false,
-        link: notif.link || '',
-        createdAt: now,
-      });
+      batch.set(notifRef, { id: notifRef.id, userId: uid, classId: notif.classId || '', title: notif.title, message: notif.message, category: notif.category, read: false, link: notif.link || '', createdAt: now });
     });
     await batch.commit();
-  } catch (err) {
-    console.warn('notifyUsers error:', err);
-  }
+  } catch (err) { console.warn('notifyUsers error:', err); }
 }
 
 // ==========================================
 // BROADCASTS
 // ==========================================
-export function subscribeBroadcasts(
-  classId: string,
-  onUpdate: (broadcasts: BroadcastMessage[]) => void
-) {
+export function subscribeBroadcasts(classId: string, onUpdate: (broadcasts: BroadcastMessage[]) => void) {
   const path = 'broadcasts';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as BroadcastMessage)));
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as BroadcastMessage))));
 }
 
 export async function sendBroadcast(msg: Omit<BroadcastMessage, 'id'>): Promise<void> {
@@ -719,101 +530,56 @@ export async function sendBroadcast(msg: Omit<BroadcastMessage, 'id'>): Promise<
   try {
     const newRef = doc(collection(db, path));
     await setDoc(newRef, { ...msg, id: newRef.id, createdAt: new Date().toISOString() });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
 // ==========================================
 // COMPLAINTS
 // ==========================================
-export function subscribeComplaints(
-  classId: string,
-  onUpdate: (complaints: StudentComplaint[]) => void
-) {
+export function subscribeComplaints(classId: string, onUpdate: (complaints: StudentComplaint[]) => void) {
   const path = 'complaints';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as StudentComplaint)));
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as StudentComplaint))));
 }
 
 export async function submitComplaint(data: Omit<StudentComplaint, 'id'>): Promise<string> {
   const path = 'complaints';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, {
-      ...data,
-      id: newRef.id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    await setDoc(newRef, { ...data, id: newRef.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     return newRef.id;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.CREATE, path);
-  }
+  } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
-export async function replyComplaint(
-  id: string,
-  response: string,
-  status: 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED',
-  respondedBy: string
-): Promise<void> {
+export async function replyComplaint(id: string, response: string, status: 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED', respondedBy: string): Promise<void> {
   const path = `complaints/${id}`;
   try {
-    await updateDoc(doc(db, 'complaints', id), {
-      teacherResponse: response,
-      status,
-      respondedBy,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
-  }
+    await updateDoc(doc(db, 'complaints', id), { teacherResponse: response, status, respondedBy, updatedAt: new Date().toISOString() });
+  } catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
 // ==========================================
 // PROMPT BOOK
 // ==========================================
-export function subscribePromptBooks(
-  classId: string,
-  onUpdate: (books: PromptBookScene[]) => void
-) {
+export function subscribePromptBooks(classId: string, onUpdate: (books: PromptBookScene[]) => void) {
   const path = 'promptBooks';
   const q = query(collection(db, path), where('classId', '==', classId));
-  return onSnapshot(q, snap => {
-    onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as PromptBookScene)));
-  });
+  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as PromptBookScene))));
 }
 
 export async function savePromptBookScene(sceneData: PromptBookScene): Promise<void> {
   const path = `promptBooks/${sceneData.id}`;
-  try {
-    await setDoc(doc(db, 'promptBooks', sceneData.id), {
-      ...sceneData,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
-  }
+  try { await setDoc(doc(db, 'promptBooks', sceneData.id), { ...sceneData, updatedAt: new Date().toISOString() }); }
+  catch (error) { handleFirestoreError(error, OperationType.WRITE, path); }
 }
 
 // ==========================================
 // AUDIT LOG
 // ==========================================
-export async function recordAuditLog(
-  log: Omit<AuditLogItem, 'id' | 'timestamp'> & { timestamp?: string }
-): Promise<void> {
+export async function recordAuditLog(log: Omit<AuditLogItem, 'id' | 'timestamp'> & { timestamp?: string }): Promise<void> {
   const path = 'auditLogs';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, {
-      ...log,
-      id: newRef.id,
-      timestamp: log.timestamp || new Date().toISOString(),
-    });
-  } catch (error) {
-    console.warn('Non-fatal audit log write error:', error);
-  }
+    await setDoc(newRef, { ...log, id: newRef.id, timestamp: log.timestamp || new Date().toISOString() });
+  } catch (error) { console.warn('Non-fatal audit log write error:', error); }
 }
