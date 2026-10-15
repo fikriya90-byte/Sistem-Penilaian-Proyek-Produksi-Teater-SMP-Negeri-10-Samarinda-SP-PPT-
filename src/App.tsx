@@ -166,9 +166,9 @@ const MainLayout: React.FC = () => {
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
   // =====================================================
-  // ✅ FIX: AUTO-ENTER CLASS UNTUK SISWA
+  // AUTO-ENTER CLASS UNTUK SISWA
   // - Guru/Admin: harus pilih kelas dulu
-  // - Siswa: langsung masuk ke in-class view jika sudah punya kelas
+  // - Siswa: langsung masuk in-class view jika sudah punya kelas
   // =====================================================
   useEffect(() => {
     if (!user) return;
@@ -181,11 +181,9 @@ const MainLayout: React.FC = () => {
     } catch { /* ignore */ }
 
     if (isGuruOrAdmin) {
-      // Guru/Admin: biarkan pilih kelas dulu dari welcome page
       if (activeClass && savedView === 'in-class') { setView('in-class'); viewInitRef.current = true; }
       else if (activeClass && savedView === 'welcome') { setView('welcome'); viewInitRef.current = true; }
     } else {
-      // ✅ Siswa LANGSUNG masuk ke in-class view kalau sudah punya kelas
       if (activeClass) {
         setView('in-class');
       } else {
@@ -196,51 +194,57 @@ const MainLayout: React.FC = () => {
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
 
   // =====================================================
+  // ✅ NEW (FIX #3): AUTO-RUN REMINDER CHECKER
+  // Jalankan reminder H-3/H-1/OVERDUE otomatis saat user buka app
+  // Delay 3 detik supaya tidak berat saat pertama load
+  // =====================================================
+  useEffect(() => {
+    if (!user || !activeClass) return;
+    const timer = setTimeout(() => {
+      import('./utils/reminder').then(({ runAllReminders }) => {
+        runAllReminders(activeClass.id).catch(err =>
+          console.warn('Reminder check error (non-fatal):', err)
+        );
+      }).catch(err => {
+        console.warn('Reminder import error (non-fatal):', err);
+      });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [user?.uid, activeClass?.id]);
+
+  // =====================================================
   // HANDLER NAVIGASI TERPUSAT
-  // Dipakai oleh Navbar, NotificationPage, MyGradeModule, dll.
-  // Otomatis switch view kalau perlu + set module
   // =====================================================
   const handleNavigate = useCallback((target: string) => {
     const st = stateRef.current;
-
-    // Modul yang butuh masuk kelas dulu
     const needsClass = IN_CLASS_MODULES.includes(target);
     const isWelcomeOnly = WELCOME_MODULES.includes(target);
 
     if (needsClass && !st.activeClass) {
-      // Tidak ada kelas aktif — fallback ke welcome
       setView('welcome');
       setCurrentModule(target);
       return;
     }
 
     if (needsClass && st.activeClass) {
-      // Auto switch ke in-class view
       setView('in-class');
       setCurrentModule(target);
       return;
     }
 
     if (isWelcomeOnly) {
-      // Selalu boleh diakses dari welcome
       setCurrentModule(target);
       return;
     }
 
-    // Default: set module tanpa ubah view
     setCurrentModule(target);
   }, []);
 
-  // =====================================================
-  // LISTENER GLOBAL untuk 'spppt-navigate'
-  // Menangkap event dari NotificationPage, MyGradeModule, dll.
-  // =====================================================
+  // Listener global untuk 'spppt-navigate'
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (detail?.module) {
-        handleNavigate(detail.module);
-      }
+      if (detail?.module) handleNavigate(detail.module);
     };
     window.addEventListener('spppt-navigate', handler);
     return () => window.removeEventListener('spppt-navigate', handler);
