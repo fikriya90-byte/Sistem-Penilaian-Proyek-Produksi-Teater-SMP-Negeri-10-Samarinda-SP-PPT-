@@ -140,7 +140,7 @@ function detectAnomalies(assessments: AssessmentRecord[], students: UserProfile[
 }
 
 export const AssessmentModule: React.FC = () => {
-  const { user, activeClass, isAdminRole, isGuruPengampu } = useAuth();
+  const { user, activeClass, isAdminRole, isGuruPengampu, canAssessTarget } = useAuth();
   const { showToast } = useToast();
 
   const [students, setStudents] = useState<UserProfile[]>([]);
@@ -168,11 +168,11 @@ export const AssessmentModule: React.FC = () => {
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
 
   const canManageAll = isGuruPengampu || isAdminRole;
-  // Wewenang menilai dihitung dari matriks penilai yang sama dengan saat menyimpan nilai (handleSave),
-  // sehingga tombol Nilai selalu muncul untuk penilai yang tercantum di matriks peran target.
+  // Wewenang menilai: aturan lama (canAssessTarget) tetap berlaku, ditambah matriks penilai yang sama dengan handleSave.
   const canGradeStudent = (s: UserProfile) => {
     if (canManageAll) return true;
     if (!user || s.uid === user.uid) return false;
+    if (canAssessTarget(s)) return true;
     return getAssessmentMatrix(s.role).some(r => r.roles.includes(user.role));
   };
 
