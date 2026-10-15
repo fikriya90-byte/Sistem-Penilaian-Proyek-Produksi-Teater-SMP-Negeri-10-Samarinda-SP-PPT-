@@ -413,10 +413,30 @@ export const AssessmentModule: React.FC = () => {
     } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); }
   };
 
+  const getMissingPeers = (s: UserProfile) => {
+    const matrix = getAssessmentMatrix(s.role);
+    const tr = new Set<string>();
+    ['REKAN', 'BAWAHAN', 'ATASAN'].forEach(c => { const r = matrix.find(x => x.category === c); if (r) r.roles.forEach(y => tr.add(y)); });
+    return students.filter(x => x.uid !== s.uid && tr.has(x.role) && !assessments.some(a => a.assessorId === s.uid && a.studentId === x.uid && a.stage === selectedStage));
+  };
+
+  const buildPeerText = (s: UserProfile) => {
+    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
+    const missing = getMissingPeers(s);
+    const list = missing.length > 0 ? missing.map((m, i) => `${i + 1}. ${m.displayName} (${m.role})`).join('\n') : '-';
+    return `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja untuk tahap ${selectedStage}. Yang belum Anda nilai:\n${list}\n\nMohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
+  };
+
+  const buildAnomalyText = (an: Anomaly) => {
+    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
+    const assessorName = an.assessor?.displayName || an.record.assessorName;
+    const targetName = an.target?.displayName || an.record.studentName;
+    return `Halo ${assessorName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nMohon konfirmasi penilaian Anda untuk ${targetName} di tahap ${selectedStage} (total ${an.record.totalScore}).\nCatatan sistem: ${an.reason}.\n\nJika nilai tersebut sudah sesuai, silakan abaikan pesan ini. Jika ingin mengubah, mohon perbarui di web SP-PPT.\n\nTerima kasih.`;
+  };
+
   const handleWAPeer = (s: UserProfile) => {
     if (!s.phone) { showToast(`${s.displayName} belum punya WA.`, 'warning'); return; }
-    const tn = user?.displayName || 'Guru', cn = activeClass?.name || 'IX';
-    const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT.\n\nTerima kasih.`;
+    const text = buildPeerText(s);
     window.open(buildWhatsAppUrl(s.phone, text), '_blank', 'noopener,noreferrer');
     showToast(`Membuka WA ke ${s.displayName}...`, 'info');
   };
@@ -427,6 +447,13 @@ export const AssessmentModule: React.FC = () => {
     const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nKami ingin membahas nilai Anda di tahap ${selectedStage}.\n\nJika ada pertanyaan, silakan hubungi saya.\n\nTerima kasih.`;
     window.open(buildWhatsAppUrl(s.phone, text), '_blank', 'noopener,noreferrer');
     showToast(`Membuka WA ke ${s.displayName}...`, 'info');
+  };
+
+  const handleWAAnomaly = (an: Anomaly) => {
+    const ph = an.assessor?.phone;
+    if (!ph) { showToast(`${an.assessor?.displayName || an.record.assessorName} belum punya WA.`, 'warning'); return; }
+    window.open(buildWhatsAppUrl(ph, buildAnomalyText(an)), '_blank', 'noopener,noreferrer');
+    showToast(`Membuka WA ke ${an.assessor?.displayName || an.record.assessorName}...`, 'info');
   };
 
   const handleRekap = () => {
@@ -543,9 +570,7 @@ export const AssessmentModule: React.FC = () => {
           if (!confirm(`Kirim WA ke ${selectedWithPhone.length} siswa terpilih?` + (noPhone > 0 ? `\n\n(${noPhone} siswa di-skip karena tidak punya nomor WA)` : '') + `\n\nBrowser akan buka tab satu per satu.`)) return;
           selectedWithPhone.forEach((s, i) => {
             setTimeout(() => {
-              const tn = user?.displayName || 'Guru';
-              const cn = activeClass?.name || 'IX';
-              const text = `Halo ${s.displayName},\n\nSaya ${tn}, guru pengampu ${cn}.\n\nAnda belum mengisi penilaian rekan kerja. Mohon segera isi di web SP-PPT menu Penilaian.\n\nTerima kasih.`;
+              const text = buildPeerText(s);
               window.open(buildWhatsAppUrl(s.phone || '', text), '_blank', 'noopener,noreferrer');
               if (i === selectedWithPhone.length - 1) {
                 setTimeout(() => showToast(`Selesai. ${selectedWithPhone.length} siswa dibuka di WA.`, 'success'), 500);
@@ -666,7 +691,7 @@ export const AssessmentModule: React.FC = () => {
                         <p className="text-[10px] text-slate-500 mt-0.5">Total: <strong className="font-mono">{an.record.totalScore}</strong></p>
                       </div>
                       <div className="flex items-center gap-1.5 shrink-0">
-                        {an.assessor?.phone && <button onClick={() => handleWAScore(an.assessor!)} className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1"><MessageCircle className="w-3 h-3" /> WA Klarifikasi</button>}
+                        {an.assessor?.phone && <button onClick={() => handleWAAnomaly(an)} className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1"><MessageCircle className="w-3 h-3" /> WA Klarifikasi</button>}
                         <button onClick={() => handleDeleteOne(an.record)} className="p-1.5 rounded-lg bg-rose-100 text-rose-600 hover:bg-rose-200"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </div>
