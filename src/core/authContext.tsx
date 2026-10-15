@@ -13,7 +13,12 @@ import {
   fetchClasses, fetchUserProfile, recordAuditLog, notifyTeachers,
 } from '../services/firestoreService';
 import { doc, setDoc, updateDoc, increment } from 'firebase/firestore';
-import { TEACHER_INVITE_CODE, getDivisionFromRole } from './constants';
+import {
+  TEACHER_INVITE_CODE,
+  getDivisionFromRole,
+  normalizeUserRole,
+  getAssessmentMatrix,
+} from './constants';
 
 interface AuthContextType {
   user: UserProfile | null;
@@ -62,12 +67,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const normalizeRole = (role: string): UserRole => {
-  if (role === 'Guru Pembina') return 'Guru Pengampu';
-  if (role === 'Pemain') return 'Pemeran';
-  return role as UserRole;
-};
-
 const ACTIVE_CLASS_KEY = (uid: string) => `spppt-active-class-${uid}`;
 
 // 🔧 Helper: pastikan profile punya divisionId & divisionName
@@ -83,7 +82,6 @@ async function autoFillDivision(profile: UserProfile): Promise<UserProfile> {
         divisionName: profile.divisionName || division.name,
       };
 
-      // Persist ke Firestore biar permanen (non-fatal kalau gagal)
       try {
         await updateDoc(doc(db, 'users', profile.uid), {
           divisionId: fixed.divisionId,
@@ -133,9 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!isMounted) { clearTimeout(safetyTimer); return; }
 
           if (profile) {
-            profile.role = normalizeRole(profile.role);
-
-            // 🔧 AUTO-FIX division
+            // Note: fetchUserProfile SUDAH normalize role via enrichUser
             const fixedProfile = await autoFillDivision(profile);
 
             if (!isMounted) { clearTimeout(safetyTimer); return; }
@@ -238,9 +234,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      profile.role = normalizeRole(profile.role);
-
-      // 🔧 AUTO-FIX division saat login
+      // fetchUserProfile sudah normalize role, tapi kita tetap panggil autoFillDivision
       profile = await autoFillDivision(profile);
 
       setUser(profile);
@@ -465,66 +459,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
+  /**
+   * ✅ FIX: canAssessTarget sekarang SINGLE SOURCE OF TRUTH
+   * Menggunakan ASSESSMENT_MATRIX via getAssessmentMatrix().
+   *
+   * Aturan:
+   * 1. Tidak boleh menilai diri sendiri
+   * 2. Guru Pengampu & Admin bisa menilai siapa saja
+   * 3. Selain itu: cek matrix dari SISI TARGET (bukan dari sisi asesor)
+   */
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
     if (target.uid === user.uid) return false;
 
-    const myRole = user.role;
-    const targetRole = target.role;
+    // Guru & Admin boleh menilai siapa saja
+    if (isGuruPengampu || isAdminRole) return true;
 
-    if (isGuruPengampu) return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
-    if (isAdminRole) return targetRole === 'Pimpinan Produksi' || targetRole === 'Sutradara';
+    // Cek matrix dari SISI TARGET
+    const targetRole = normalizeUserRole(target.role);
+    const matrix = getAssessmentMatrix(targetRole);
 
-    if (myRole === 'Pimpinan Produksi') {
-      return (
-        targetRole === 'Sutradara' || targetRole === 'Sekretaris' || targetRole === 'Bendahara' ||
-        targetRole === 'Koordinator Publikasi' || targetRole === 'Koordinator Perlengkapan'
-      );
-    }
-
-    if (myRole === 'Sutradara') {
-      return (
-        targetRole === 'Pimpinan Produksi' || targetRole === 'Asisten Sutradara' ||
-        targetRole === 'Koordinator Tata Panggung' || targetRole === 'Koordinator Tata Busana' ||
-        targetRole === 'Koordinator Tata Rias' || targetRole === 'Koordinator Tata Musik' ||
-        targetRole === 'Anggota Tata Panggung' || targetRole === 'Anggota Tata Busana' ||
-        targetRole === 'Anggota Tata Rias' || targetRole === 'Anggota Tata Musik' ||
-        targetRole === 'Pemeran'
-      );
-    }
-
-    if (myRole === 'Sekretaris') return targetRole === 'Bendahara';
-    if (myRole === 'Bendahara') return targetRole === 'Sekretaris';
-
-    if (myRole === 'Koordinator Publikasi' || myRole === 'Koordinator Perlengkapan') {
-      const divPrefix = myRole === 'Koordinator Publikasi' ? 'Anggota Publikasi' : 'Anggota Perlengkapan';
-      return targetRole === divPrefix;
-    }
-    if (myRole === 'Koordinator Tata Panggung') return targetRole === 'Anggota Tata Panggung';
-    if (myRole === 'Koordinator Tata Rias') return targetRole === 'Anggota Tata Rias';
-    if (myRole === 'Koordinator Tata Busana') return targetRole === 'Anggota Tata Busana';
-    if (myRole === 'Koordinator Tata Musik') return targetRole === 'Anggota Tata Musik';
-
-    if (myRole === 'Asisten Sutradara') return targetRole === 'Pemeran';
-
-    if (myRole.startsWith('Anggota ')) {
-      const myDiv = user.divisionName || '';
-      const targetDiv = target.divisionName || '';
-      if (myDiv && targetDiv !== myDiv) return false;
-      if (['Tata Panggung', 'Tata Busana', 'Tata Rias', 'Tata Musik & Suara'].includes(myDiv)) {
-        if (targetRole === 'Sutradara') return true;
-      }
-      if (['Publikasi & Dokumentasi', 'Perlengkapan'].includes(myDiv)) {
-        if (targetRole === 'Sutradara' || targetRole === 'Pimpinan Produksi') return false;
-      }
-      return targetRole.startsWith('Koordinator ') || targetRole.startsWith('Anggota ');
-    }
-
-    if (myRole === 'Pemeran') {
-      return targetRole === 'Sutradara' || targetRole === 'Asisten Sutradara' || targetRole === 'Pemeran';
-    }
-
-    return false;
+    return matrix.some(rel => rel.roles.includes(user.role));
   };
 
   return (
