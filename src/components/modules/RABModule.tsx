@@ -22,7 +22,7 @@ interface RABItem {
   id: string;
   classId: string;
   category: Category;
-  targetName: string; // nama divisi / peran / "Umum"
+  targetName: string;
   itemName: string;
   qty: number;
   unit: string;
@@ -92,11 +92,10 @@ export const RABModule: React.FC = () => {
 
   const [submitting, setSubmitting] = useState(false);
 
-// HANYA BENDAHARA yang bisa edit. Guru & lainnya hanya melihat.
   const canManageItems = isBendahara;
   const canSignDocument = isBendahara;
 
-  // Subscribe
+  // Subscribe items
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'rabItems'), where('classId', '==', activeClass.id));
@@ -106,6 +105,7 @@ export const RABModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
+  // Subscribe documents
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'rabDocuments'), where('classId', '==', activeClass.id));
@@ -218,7 +218,8 @@ export const RABModule: React.FC = () => {
   });
 
   // ==========================================
-  // EXPORT WORD
+  // ✅ FIX: EXPORT WORD → FORMAT RTF (Word asli)
+  // RTF dibuka sempurna di Word tanpa warning "format tidak cocok"
   // ==========================================
   const handleExportWord = () => {
     if (items.length === 0) {
@@ -229,93 +230,86 @@ export const RABModule: React.FC = () => {
     const fmt = (n: number) => 'Rp ' + n.toLocaleString('id-ID');
     const now = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-    let rows = '';
+    // RTF escape: backslash, kurung kurawal, dan baris baru
+    const esc = (s: any) => String(s ?? '')
+      .replace(/\\/g, '\\\\')
+      .replace(/{/g, '\\{')
+      .replace(/}/g, '\\}')
+      .replace(/\n/g, '\\line ');
+
+    let rtf = '{\\rtf1\\ansi\\deff0\n';
+    rtf += '{\\fonttbl{\\f0\\froman Times New Roman;}{\\f1\\fswiss Arial;}}\n';
+    rtf += '\\f0\\fs32\\b\\qc RENCANA ANGGARAN BIAYA (RAB)\\b0\\par\n';
+    rtf += `\\fs22\\qc Produksi Teater ${esc(activeClass?.name || '')}`;
+    if (activeClass?.kerabatKerja) rtf += ` - ${esc(activeClass.kerabatKerja)}`;
+    rtf += '\\par\n';
+    rtf += '\\fs20\\qc SMP Negeri 10 Samarinda\\par\n';
+    rtf += '\\fs18\\qc Tahun Ajaran 2025/2026\\par\n';
+    rtf += `\\fs18\\qc Dicetak: ${esc(now)}\\par\n\\par\n`;
+
+    // Header table
+    rtf += '\\trowd\\trgaph108\\trleft-108\n';
+    rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+    const headers = ['No', 'Item', 'Qty', 'Harga Satuan', 'Total', 'Catatan'];
+    headers.forEach(h => { rtf += `\\intbl\\b\\fs20 ${esc(h)}\\b0\\cell `; });
+    rtf += '\\row\n';
+
+    // Data rows per group
     groupedItems.forEach(g => {
-      rows += `<tr><td colspan="6" style="background:#D4AF37;color:#0f172a;font-weight:bold;padding:6px 8px;">${g.category} — ${g.targetName}</td></tr>`;
+      // Group header row
+      rtf += '\\trowd\\trgaph108\\trleft-108\n';
+      rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+      rtf += `\\intbl\\b\\fs20 ${esc(`${g.category} - ${g.targetName}`)}\\b0\\cell \\cell \\cell \\cell \\cell \\row\n`;
+
       g.items.forEach((it, idx) => {
-        rows += `
-          <tr>
-            <td style="padding:4px 8px;text-align:center;">${idx + 1}</td>
-            <td style="padding:4px 8px;">${it.itemName}</td>
-            <td style="padding:4px 8px;text-align:center;">${it.qty} ${it.unit}</td>
-            <td style="padding:4px 8px;text-align:right;">${fmt(it.unitPrice)}</td>
-            <td style="padding:4px 8px;text-align:right;font-weight:bold;">${fmt(it.qty * it.unitPrice)}</td>
-            <td style="padding:4px 8px;font-size:11px;">${it.notes || '-'}</td>
-          </tr>`;
+        rtf += '\\trowd\\trgaph108\\trleft-108\n';
+        rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+        rtf += `\\intbl\\fs20 ${idx + 1}\\cell `;
+        rtf += `\\intbl\\fs20 ${esc(it.itemName)}\\cell `;
+        rtf += `\\intbl\\fs20 ${esc(`${it.qty} ${it.unit}`)}\\cell `;
+        rtf += `\\intbl\\fs20 ${esc(fmt(it.unitPrice))}\\cell `;
+        rtf += `\\intbl\\b\\fs20 ${esc(fmt(it.qty * it.unitPrice))}\\b0\\cell `;
+        rtf += `\\intbl\\fs18 ${esc(it.notes || '-')}\\cell \\row\n`;
       });
-      rows += `<tr><td colspan="4" style="padding:6px 8px;text-align:right;font-weight:bold;">Subtotal ${g.targetName}:</td><td colspan="2" style="padding:6px 8px;font-weight:bold;background:#f1f5f9;">${fmt(g.subtotal)}</td></tr>`;
+
+      // Subtotal
+      rtf += '\\trowd\\trgaph108\\trleft-108\n';
+      rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+      rtf += `\\intbl \\cell \\cell \\cell \\intbl\\qr\\b\\fs20 Subtotal:\\b0\\cell `;
+      rtf += `\\intbl\\b\\fs20 ${esc(fmt(g.subtotal))}\\b0\\cell \\cell \\row\n`;
     });
 
-    const html = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta charset="utf-8">
-        <title>RAB Produksi Teater</title>
-        <style>
-          body { font-family: 'Times New Roman', serif; padding: 30px; }
-          h1 { text-align: center; font-size: 18px; margin-bottom: 4px; }
-          h2 { text-align: center; font-size: 14px; font-weight: normal; margin-top: 0; color: #475569; }
-          .info { margin: 16px 0; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; font-size: 12px; }
-          th { background: #1e293b; color: #fff; padding: 8px; text-align: left; }
-          td { border: 1px solid #cbd5e1; }
-          .total { font-size: 14px; font-weight: bold; background: #D4AF37; padding: 10px; text-align: right; }
-          .ttd { margin-top: 40px; display: flex; justify-content: space-between; }
-          .ttd div { text-align: center; width: 40%; }
-          .ttd .name { margin-top: 60px; border-top: 1px solid #000; padding-top: 4px; font-weight: bold; }
-        </style>
-      </head>
-      <body>
-        <h1>RENCANA ANGGARAN BIAYA (RAB)</h1>
-        <h2>Produksi Teater ${activeClass?.name || ''} — ${activeClass?.kerabatKerja || ''}</h2>
-        <div class="info">
-          <strong>SMP Negeri 10 Samarinda</strong><br>
-          Tahun Ajaran 2025/2026<br>
-          Tanggal Cetak: ${now}
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width:30px;">No</th>
-              <th>Nama Item</th>
-              <th style="width:80px;">Qty</th>
-              <th style="width:100px;">Harga Satuan</th>
-              <th style="width:110px;">Total</th>
-              <th style="width:150px;">Catatan</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows}
-          </tbody>
-        </table>
-        <p class="total">GRAND TOTAL: ${fmt(grandTotal)}</p>
-        <div class="ttd">
-          <div>
-            <p>Mengetahui,</p>
-            <p>Bendahara</p>
-            <p class="name">( ................................ )</p>
-          </div>
-          <div>
-            <p>Disetujui,</p>
-            <p>Pimpinan Produksi</p>
-            <p class="name">( ................................ )</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
+    // Grand total
+    rtf += '\\trowd\\trgaph108\\trleft-108\n';
+    rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+    rtf += `\\intbl \\cell \\cell \\cell \\intbl\\qr\\b\\fs22 GRAND TOTAL:\\b0\\cell `;
+    rtf += `\\intbl\\b\\fs22 ${esc(fmt(grandTotal))}\\b0\\cell \\cell \\row\n`;
 
-    const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+    // Signature
+    rtf += '\\par\\par\\fs20\\ql\n';
+    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
+    rtf += '\\intbl Mengetahui,\\cell Disetujui,\\cell \\cell \\row\n';
+    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
+    rtf += '\\intbl Bendahara\\cell Pimpinan Produksi\\cell \\cell \\row\n';
+    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
+    rtf += '\\intbl \\cell \\cell \\cell \\row\n';
+    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
+    rtf += '\\intbl (........................)\\cell (........................)\\cell \\cell \\row\n';
+
+    rtf += '}';
+
+    // Generate RTF blob
+    const blob = new Blob([rtf], { type: 'application/rtf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `RAB_${activeClass?.name || 'Kelas'}_${new Date().toISOString().slice(0, 10)}.doc`;
+    link.download = `RAB_${activeClass?.name || 'Kelas'}_${new Date().toISOString().slice(0, 10)}.rtf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
 
-    showToast('RAB diexport ke Word (.doc). Buka dengan Word/LibreOffice.', 'success');
+    showToast('RAB diexport ke format .rtf — buka dengan Word/LibreOffice tanpa warning.', 'success');
   };
 
   // ==========================================
@@ -394,7 +388,7 @@ export const RABModule: React.FC = () => {
                 Rencana Anggaran Biaya {activeClass?.name || ''}
               </h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Input per Divisi/Peran/Umum • Export Word • Upload RAB final
+                Input per Divisi/Peran/Umum - Export Word - Upload RAB final
               </p>
             </div>
           </div>
@@ -410,7 +404,7 @@ export const RABModule: React.FC = () => {
                 <Plus className="w-3.5 h-3.5" /> Tambah Item
               </button>
             )}
-            {activeTab === 'documents' && (
+            {activeTab === 'documents' && canManageItems && (
               <button onClick={openCreateDocument}
                 className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg">
                 <Upload className="w-3.5 h-3.5" /> Upload RAB Final
@@ -521,8 +515,8 @@ export const RABModule: React.FC = () => {
                         <div className="flex-1 min-w-0">
                           <p className="font-bold text-slate-800 dark:text-white">{it.itemName}</p>
                           <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            {it.qty} {it.unit} × Rp {it.unitPrice.toLocaleString('id-ID')}
-                            {it.notes && ` • ${it.notes}`}
+                            {it.qty} {it.unit} x Rp {it.unitPrice.toLocaleString('id-ID')}
+                            {it.notes && ` - ${it.notes}`}
                           </p>
                         </div>
                         <span className="font-bold text-amber-700 dark:text-amber-400 text-[11px] whitespace-nowrap">
@@ -586,7 +580,7 @@ export const RABModule: React.FC = () => {
                           {docItem.title}
                         </h3>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          {docItem.fileName} • Upload: {new Date(docItem.uploadedAt).toLocaleDateString('id-ID')}
+                          {docItem.fileName} - Upload: {new Date(docItem.uploadedAt).toLocaleDateString('id-ID')}
                         </p>
                       </div>
                     </div>
@@ -778,8 +772,8 @@ export const RABModule: React.FC = () => {
             <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
               <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                <strong>Alur:</strong> 1) Susun RAB → 2) Export Word → 3) Tanda tangan fisik kedua pihak →
-                4) Scan/PDF → 5) Upload ke Google Drive → 6) Paste link + nama tanda tangan di sini.
+                <strong>Alur:</strong> 1) Susun RAB - 2) Export Word (.rtf) - 3) Tanda tangan fisik kedua pihak -
+                4) Scan/PDF - 5) Upload ke Google Drive - 6) Paste link + nama tanda tangan di sini.
               </p>
             </div>
 
