@@ -23,7 +23,6 @@ import {
 import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
 type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
-type ScoreMode = 'AKUMULASI' | 'RATA_RATA';
 
 const CATEGORY_LABEL: Record<AssessorCategory, string> = {
   GURU: 'Guru Pengampu',
@@ -40,7 +39,7 @@ const STAGE_LABEL: Record<ProductionStage, string> = {
 };
 
 // =====================================================
-// TIPE DATA HASIL KOMPUTASI
+// TIPE DATA
 // =====================================================
 interface StageDetail {
   stageScore: number | null;
@@ -61,24 +60,20 @@ interface StageDetail {
     belum: number;
     pctOnTime: number;
   };
-  // Kontribusi tahap ini ke nilai akumulasi
-  contribution: number;  // = stageScore × bobot/100
+  contribution: number;
 }
 
 interface StudentRecap {
   user: UserProfile;
   perStage: Record<ProductionStage, StageDetail>;
-  // ✅ DUA MODE PERHITUNGAN
-  accumulatedScore: number;      // Σ (tahap × bobot) — tanpa dibagi
-  weightedAverageScore: number;  // Σ (tahap × bobot) / Σ bobot terisi
-  finalScore: number;            // yang dipakai (mengikuti mode)
+  accumulatedScore: number;      // ✅ Nilai Akhir = Σ (tahap × bobot)
   finalPredikat: { predikat: 'A'|'B'|'C'|'D'|'E'; label: string; color: string };
   stagesWithData: number;
-  totalWeightFilled: number;     // total bobot yang terisi (untuk info)
+  totalWeightFilled: number;
 }
 
 // =====================================================
-// HELPER: hitung nilai tahap dari catatan penilaian
+// HELPER: hitung nilai tahap
 // =====================================================
 function computeStageScore(
   assessments: AssessmentRecord[],
@@ -90,7 +85,6 @@ function computeStageScore(
   const categoryAvg: Record<AssessorCategory, number | null> = {
     GURU: null, ATASAN: null, REKAN: null, BAWAHAN: null,
   };
-
   if (recs.length === 0) return { score: null, categoryAvg, count: 0 };
 
   const byCat: Record<AssessorCategory, number[]> = {
@@ -113,10 +107,7 @@ function computeStageScore(
   (Object.keys(categoryAvg) as AssessorCategory[]).forEach(cat => {
     const avg = categoryAvg[cat];
     const weight = w[cat as keyof typeof w];
-    if (avg !== null && weight > 0) {
-      sum += avg * weight;
-      wSum += weight;
-    }
+    if (avg !== null && weight > 0) { sum += avg * weight; wSum += weight; }
   });
 
   return {
@@ -126,9 +117,6 @@ function computeStageScore(
   };
 }
 
-// =====================================================
-// HELPER: hitung kehadiran per tahap
-// =====================================================
 function computeAttendanceForStage(
   studentId: string,
   stage: ProductionStage,
@@ -146,16 +134,11 @@ function computeAttendanceForStage(
     else if (r.status === 'Sakit') sakit++;
     else if (r.status === 'Alpa') alpa++;
   });
-
   const total = myRecs.length;
   const pct = total > 0 ? Math.round(((hadir + izin + sakit) / total) * 100) : 100;
-
   return { totalSessions: total, hadir, izin, sakit, alpa, pct };
 }
 
-// =====================================================
-// HELPER: hitung ketepatan tugas per tahap
-// =====================================================
 function computeTaskForStage(
   student: UserProfile,
   stage: ProductionStage,
@@ -190,16 +173,11 @@ function computeTaskForStage(
       const subMs = sub.submittedAt ? new Date(sub.submittedAt).getTime() : Date.now();
       if (subMs <= dueMs) tepatWaktu++;
       else terlambat++;
-    } else if (sub.status === 'TERLAMBAT') {
-      terlambat++;
-    } else {
-      belum++;
-    }
+    } else if (sub.status === 'TERLAMBAT') { terlambat++; }
+    else { belum++; }
   });
-
   const total = myDeadlines.length;
   const pctOnTime = total > 0 ? Math.round((tepatWaktu / total) * 100) : 100;
-
   return { totalTasks: total, tepatWaktu, terlambat, belum, pctOnTime };
 }
 
@@ -220,14 +198,10 @@ export const GradeRecapModule: React.FC = () => {
   const [submissions, setSubmissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [filterDivisi, setFilterDivisi] = useState<string>('ALL');
   const [filterPredikat, setFilterPredikat] = useState<string>('ALL');
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
-
-  // ✅ MODE PERHITUNGAN — Default: AKUMULASI
-  const [scoreMode, setScoreMode] = useState<ScoreMode>('AKUMULASI');
 
   // ============================================================
   // SUBSCRIPTIONS
@@ -250,15 +224,11 @@ export const GradeRecapModule: React.FC = () => {
     const u5 = subscribeDeadlineSubmissionsByClass(activeClass.id, setSubmissions);
 
     const t = setTimeout(() => setLoading(false), 1500);
-
-    return () => {
-      u1(); u2(); u3(); u4(); u5();
-      clearTimeout(t);
-    };
+    return () => { u1(); u2(); u3(); u4(); u5(); clearTimeout(t); };
   }, [activeClass]);
 
   // ============================================================
-  // KOMPUTASI REKAP PER SISWA
+  // KOMPUTASI — AKUMULASI MURNI
   // ============================================================
   const recapData: StudentRecap[] = useMemo(() => {
     return users.map(u => {
@@ -275,6 +245,7 @@ export const GradeRecapModule: React.FC = () => {
         const task = computeTaskForStage(u, s.id, deadlines, submissions);
 
         const stageScore = stageScoreData.score;
+        // ✅ Kontribusi = stageScore × bobot/100
         const contribution = stageScore !== null
           ? Math.round((stageScore * (s.defaultWeight / 100)) * 100) / 100
           : 0;
@@ -289,12 +260,7 @@ export const GradeRecapModule: React.FC = () => {
         };
       });
 
-      // =====================================================
-      // ✅ NILAI AKHIR — DUA MODE
-      // =====================================================
-
-      // Mode 1: AKUMULASI — Σ (tahap × bobot) TANPA dibagi
-      // Kalau hanya 2 tahap terisi (total bobot 55%), nilai akhir = 55% dari yang seharusnya
+      // ✅ AKUMULASI = Σ (tahap × bobot) TANPA dibagi
       let accumulatedSum = 0;
       let totalWeightFilled = 0;
       STAGES.forEach(s => {
@@ -305,44 +271,23 @@ export const GradeRecapModule: React.FC = () => {
         }
       });
       const accumulatedScore = Math.round(accumulatedSum * 10) / 10;
-
-      // Mode 2: RATA-RATA TERTIMBANG — re-normalize kalau ada tahap yang belum diisi
-      let weightedSum = 0, weightedTotal = 0;
-      STAGES.forEach(s => {
-        const sc = perStage[s.id].stageScore;
-        if (sc !== null) {
-          weightedSum += sc * (s.defaultWeight / 100);
-          weightedTotal += s.defaultWeight / 100;
-        }
-      });
-      const weightedAverageScore = weightedTotal > 0
-        ? Math.round((weightedSum / weightedTotal) * 10) / 10
-        : 0;
-
-      // Pilih skor sesuai mode
-      const finalScore = scoreMode === 'AKUMULASI' ? accumulatedScore : weightedAverageScore;
       const stagesWithData = STAGES.filter(s => perStage[s.id].stageScore !== null).length;
 
       return {
         user: u,
         perStage,
         accumulatedScore,
-        weightedAverageScore,
-        finalScore,
-        finalPredikat: getPredikat(finalScore),
+        finalPredikat: getPredikat(accumulatedScore),
         stagesWithData,
         totalWeightFilled,
       };
     }).sort((a, b) => {
       if (a.stagesWithData === 0 && b.stagesWithData > 0) return 1;
       if (b.stagesWithData === 0 && a.stagesWithData > 0) return -1;
-      return b.finalScore - a.finalScore;
+      return b.accumulatedScore - a.accumulatedScore;
     });
-  }, [users, assessments, sessions, attRecords, deadlines, submissions, scoreMode]);
+  }, [users, assessments, sessions, attRecords, deadlines, submissions]);
 
-  // ============================================================
-  // FILTER
-  // ============================================================
   const filteredRecap = useMemo(() => {
     return recapData.filter(r => {
       if (searchQuery.trim()) {
@@ -363,9 +308,6 @@ export const GradeRecapModule: React.FC = () => {
     });
   }, [recapData, searchQuery, filterDivisi, filterPredikat]);
 
-  // ============================================================
-  // STATISTIK KELAS
-  // ============================================================
   const classStats = useMemo(() => {
     const withScore = recapData.filter(r => r.stagesWithData > 0);
     if (withScore.length === 0) {
@@ -375,9 +317,9 @@ export const GradeRecapModule: React.FC = () => {
         avgWeightFilled: 0,
       };
     }
-    const avg = Math.round((withScore.reduce((s, r) => s + r.finalScore, 0) / withScore.length) * 10) / 10;
-    const highest = Math.max(...withScore.map(r => r.finalScore));
-    const lowest = Math.min(...withScore.map(r => r.finalScore));
+    const avg = Math.round((withScore.reduce((s, r) => s + r.accumulatedScore, 0) / withScore.length) * 10) / 10;
+    const highest = Math.max(...withScore.map(r => r.accumulatedScore));
+    const lowest = Math.min(...withScore.map(r => r.accumulatedScore));
 
     const distribution: any = { A: 0, B: 0, C: 0, D: 0, E: 0, NONE: 0 };
     recapData.forEach(r => {
@@ -399,18 +341,17 @@ export const GradeRecapModule: React.FC = () => {
   }, [users]);
 
   // ============================================================
-  // EXPORT XLSX MULTI-SHEET
+  // EXPORT XLSX — 8 Sheet
   // ============================================================
   const handleExportXLSX = () => {
     try {
-      // Sheet 1: Ringkasan
       const sheetRingkasan = {
         name: 'Ringkasan',
         headers: ['Metrik', 'Nilai'],
         rows: [
           ['Kelas', activeClass?.name || '-'],
           ['Tahun Ajaran', activeClass?.academicYear || '2025/2026'],
-          ['Mode Perhitungan', scoreMode === 'AKUMULASI' ? 'AKUMULASI (jumlah berbobot)' : 'RATA-RATA TERTIMBANG'],
+          ['Mode Perhitungan', 'AKUMULASI (Σ tahap × bobot)'],
           ['', ''],
           ['Total Siswa', users.length],
           ['Siswa Sudah Dinilai', classStats.totalWithScore],
@@ -428,22 +369,20 @@ export const GradeRecapModule: React.FC = () => {
           ['E (<60)', classStats.distribution.E],
           ['Belum Dinilai', classStats.distribution.NONE],
           ['', ''],
-          ['Catatan', ''],
-          ['Mode AKUMULASI', 'Nilai Akhir = Σ (Nilai Tahap × Bobot). Kalau hanya sebagian tahap terisi, nilai akhir proporsional (mis. 2 tahap = 55% × skor)'],
-          ['Mode RATA-RATA', 'Nilai Akhir = Σ (Nilai Tahap × Bobot) / Σ Bobot terisi. Renormalize ke 100% walau tahap belum lengkap'],
+          ['Rumus', 'Nilai Akhir = Σ (Nilai Tahap × Bobot%)'],
+          ['Bobot', 'Persiapan 20% • Pelaksanaan 35% • Pertunjukan 30% • Pasca 15%'],
+          ['Catatan', 'Kalau hanya sebagian tahap terisi, nilai akhir proporsional (mis. 2 tahap = 55% × skor)'],
           ['', ''],
           ['Tanggal Export', new Date().toLocaleString('id-ID')],
         ],
       };
 
-      // Sheet 2: Nilai Akhir
       const sheetNilaiAkhir = {
         name: 'Nilai Akhir',
         headers: [
           'No', 'Nama', 'Peran', 'Divisi',
           'Persiapan (20%)', 'Pelaksanaan (35%)', 'Pertunjukan (30%)', 'Pasca (15%)',
-          'Akumulasi', 'Rata-rata Tertimbang', 'NILAI AKHIR (' + scoreMode + ')',
-          'Predikat', 'Keterangan', 'Bobot Terisi', 'Jml Tahap',
+          'NILAI AKHIR', 'Predikat', 'Keterangan', 'Bobot Terisi', 'Jml Tahap',
         ],
         rows: filteredRecap.map((r, i) => [
           i + 1,
@@ -455,8 +394,6 @@ export const GradeRecapModule: React.FC = () => {
           r.perStage.PERTUNJUKAN.stageScore ?? '-',
           r.perStage.PASCA.stageScore ?? '-',
           r.accumulatedScore,
-          r.weightedAverageScore,
-          r.finalScore,
           r.stagesWithData > 0 ? r.finalPredikat.predikat : '-',
           r.stagesWithData > 0 ? r.finalPredikat.label : 'Belum dinilai',
           `${r.totalWeightFilled}%`,
@@ -464,7 +401,6 @@ export const GradeRecapModule: React.FC = () => {
         ]),
       };
 
-      // Sheet 3: Kontribusi per Tahap (transparansi akumulasi)
       const sheetKontribusi = {
         name: 'Kontribusi Per Tahap',
         headers: [
@@ -490,7 +426,6 @@ export const GradeRecapModule: React.FC = () => {
         }),
       };
 
-      // Sheet 4: Rincian Kategori
       const sheetKategoriHeaders: string[] = ['Nama', 'Peran'];
       STAGES.forEach(s => {
         sheetKategoriHeaders.push(
@@ -518,7 +453,6 @@ export const GradeRecapModule: React.FC = () => {
         }),
       };
 
-      // Sheet 5: Kehadiran
       const sheetKehadiranHeaders: string[] = ['Nama', 'Peran'];
       STAGES.forEach(s => {
         sheetKehadiranHeaders.push(
@@ -542,7 +476,6 @@ export const GradeRecapModule: React.FC = () => {
         }),
       };
 
-      // Sheet 6: Ketepatan Tugas
       const sheetTugasHeaders: string[] = ['Nama', 'Peran'];
       STAGES.forEach(s => {
         sheetTugasHeaders.push(
@@ -565,7 +498,6 @@ export const GradeRecapModule: React.FC = () => {
         }),
       };
 
-      // Sheet 7: Komentar
       const allComments = assessments
         .filter(a => a.comment && a.comment.trim())
         .map(a => {
@@ -590,14 +522,13 @@ export const GradeRecapModule: React.FC = () => {
         ]),
       };
 
-      // Sheet 8: Per Divisi
       const divisiStats: Record<string, { total: number; sum: number; count: number }> = {};
       recapData.forEach(r => {
         if (r.stagesWithData === 0) return;
         const div = r.user.divisionName || 'Pemeran';
         if (!divisiStats[div]) divisiStats[div] = { total: 0, sum: 0, count: 0 };
         divisiStats[div].total += 1;
-        divisiStats[div].sum += r.finalScore;
+        divisiStats[div].sum += r.accumulatedScore;
         divisiStats[div].count += 1;
       });
       const sheetDivisi = {
@@ -608,24 +539,14 @@ export const GradeRecapModule: React.FC = () => {
             (r.user.divisionName || 'Pemeran') === div && r.stagesWithData > 0
           );
           const highest = divStudents.length > 0
-            ? Math.max(...divStudents.map(r => r.finalScore))
-            : 0;
+            ? Math.max(...divStudents.map(r => r.accumulatedScore)) : 0;
           return [div, s.count, Math.round((s.sum / s.count) * 10) / 10, highest];
         }),
       };
 
       exportMultiSheetXLSX(
-        `Rekap_Nilai_${activeClass?.name || 'Kelas'}_${scoreMode}_${new Date().toISOString().slice(0, 10)}.xlsx`,
-        [
-          sheetRingkasan,
-          sheetNilaiAkhir,
-          sheetKontribusi,
-          sheetKategori,
-          sheetKehadiran,
-          sheetTugas,
-          sheetKomentar,
-          sheetDivisi,
-        ]
+        `Rekap_Nilai_${activeClass?.name || 'Kelas'}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+        [sheetRingkasan, sheetNilaiAkhir, sheetKontribusi, sheetKategori, sheetKehadiran, sheetTugas, sheetKomentar, sheetDivisi]
       );
 
       showToast(`✅ Rekap lengkap 8 sheet berhasil di-export!`, 'success');
@@ -635,9 +556,7 @@ export const GradeRecapModule: React.FC = () => {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
+  const handlePrint = () => { window.print(); };
 
   if (!canAccess) {
     return (
@@ -670,109 +589,43 @@ export const GradeRecapModule: React.FC = () => {
               <BarChart3 className="w-7 h-7" />
             </span>
             <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30 print:hidden">
-                Rekap Nilai Akhir
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30 print:hidden flex items-center gap-1">
+                <Sigma className="w-3 h-3" /> AKUMULASI
               </span>
               <h2 className="text-xl font-black text-white mt-1 print:text-black">
                 Rekap Nilai Akhir — {activeClass.name}
               </h2>
               <p className="text-xs text-slate-300 mt-0.5 print:text-slate-600">
-                {users.length} siswa • 4 tahap produksi • mode {scoreMode === 'AKUMULASI' ? 'akumulasi berbobot' : 'rata-rata tertimbang'}
+                {users.length} siswa • Nilai Akhir = Σ (Nilai Tahap × Bobot)
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap print:hidden">
-            <button
-              onClick={handleExportXLSX}
-              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg"
-            >
+            <button onClick={handleExportXLSX}
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
               <FileSpreadsheet className="w-4 h-4" /> Export XLSX (8 Sheet)
             </button>
-            <button
-              onClick={handlePrint}
-              className="px-4 py-2.5 rounded-xl bg-white text-indigo-900 hover:bg-indigo-50 font-bold text-xs flex items-center gap-2 shadow-lg"
-            >
+            <button onClick={handlePrint}
+              className="px-4 py-2.5 rounded-xl bg-white text-indigo-900 hover:bg-indigo-50 font-bold text-xs flex items-center gap-2 shadow-lg">
               <Printer className="w-4 h-4" /> Cetak
             </button>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-3 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-xs flex items-center gap-1.5"
-            >
+            <button onClick={() => window.location.reload()}
+              className="px-3 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-xs flex items-center gap-1.5">
               <RefreshCw className="w-3.5 h-3.5" /> Refresh
             </button>
           </div>
         </div>
       </div>
 
-      {/* ✅ MODE SWITCHER — Akumulasi vs Rata-rata */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-500/40 shadow-sm print:hidden">
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <Sigma className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            Mode Perhitungan Nilai Akhir:
-          </span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <button
-            onClick={() => setScoreMode('AKUMULASI')}
-            className={`p-4 rounded-2xl border-2 text-left transition ${
-              scoreMode === 'AKUMULASI'
-                ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 shadow-md'
-                : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300'
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <Sigma className={`w-4 h-4 ${scoreMode === 'AKUMULASI' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
-              <span className={`text-xs font-black uppercase tracking-wide ${scoreMode === 'AKUMULASI' ? 'text-indigo-900 dark:text-indigo-200' : 'text-slate-600 dark:text-slate-300'}`}>
-                Akumulasi (Default)
-              </span>
-              {scoreMode === 'AKUMULASI' && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-white ml-auto">AKTIF</span>
-              )}
-            </div>
-            <p className={`text-[10px] leading-relaxed ${scoreMode === 'AKUMULASI' ? 'text-indigo-800 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400'}`}>
-              Nilai Akhir = <strong>Σ (Nilai Tahap × Bobot)</strong>
-              <br />
-              Kalau hanya 2 tahap terisi (total 55%), nilai akhir = <strong>55% × skor</strong>. Belum penuh sampai 100%.
-            </p>
-          </button>
-
-          <button
-            onClick={() => setScoreMode('RATA_RATA')}
-            className={`p-4 rounded-2xl border-2 text-left transition ${
-              scoreMode === 'RATA_RATA'
-                ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 shadow-md'
-                : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300'
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <TrendingUp className={`w-4 h-4 ${scoreMode === 'RATA_RATA' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400'}`} />
-              <span className={`text-xs font-black uppercase tracking-wide ${scoreMode === 'RATA_RATA' ? 'text-indigo-900 dark:text-indigo-200' : 'text-slate-600 dark:text-slate-300'}`}>
-                Rata-rata Tertimbang
-              </span>
-              {scoreMode === 'RATA_RATA' && (
-                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500 text-white ml-auto">AKTIF</span>
-              )}
-            </div>
-            <p className={`text-[10px] leading-relaxed ${scoreMode === 'RATA_RATA' ? 'text-indigo-800 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400'}`}>
-              Nilai Akhir = <strong>Σ (Nilai Tahap × Bobot) / Σ Bobot terisi</strong>
-              <br />
-              Renormalize ke 100% walau tahap belum lengkap. Nilai selalu skala penuh.
-            </p>
-          </button>
-        </div>
-      </div>
-
-      {/* INFO BANNER */}
-      <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2 print:hidden">
-        <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Mode Aktif: {scoreMode === 'AKUMULASI' ? 'AKUMULASI BERBOBOT' : 'RATA-RATA TERTIMBANG'}</strong>
-          {scoreMode === 'AKUMULASI' ? (
-            <span> — Nilai akhir = Σ (Nilai Tahap × Bobot). Bobot: Persiapan 20% • Pelaksanaan 35% • Pertunjukan 30% • Pasca 15%. Nilai maksimal hanya tercapai kalau semua 4 tahap terisi.</span>
-          ) : (
-            <span> — Nilai akhir = Σ (Nilai Tahap × Bobot) / Σ Bobot terisi. Bobot re-normalize ke 100% untuk tahap yang sudah terisi.</span>
-          )}
+      {/* INFO AKUMULASI */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-500/10 dark:to-purple-500/10 border-2 border-indigo-200 dark:border-indigo-500/40 flex items-start gap-3 print:hidden">
+        <Sigma className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
+        <div className="text-[11px] text-indigo-900 dark:text-indigo-200 leading-relaxed">
+          <p className="font-black text-xs mb-1">📊 Sistem Nilai Akumulasi</p>
+          <p>
+            <strong>Nilai Akhir = Σ (Nilai Tahap × Bobot)</strong>. Bobot: Persiapan 20% • Pelaksanaan 35% • Pertunjukan 30% • Pasca 15%.
+            Kalau hanya sebagian tahap terisi, nilai akhir proporsional — <strong>nilai maksimal hanya tercapai jika 4 tahap lengkap</strong>.
+          </p>
         </div>
       </div>
 
@@ -782,7 +635,7 @@ export const GradeRecapModule: React.FC = () => {
           <TrendingUp className="w-5 h-5 mb-1 opacity-90" />
           <p className="text-[10px] font-bold uppercase opacity-90">Rata-rata Kelas</p>
           <p className="text-3xl font-black mt-1">{classStats.avg}</p>
-          <p className="text-[9px] opacity-80 mt-0.5">Mode: {scoreMode === 'AKUMULASI' ? 'Akumulasi' : 'Rata-rata'}</p>
+          <p className="text-[9px] opacity-80 mt-0.5">Mode: Akumulasi</p>
         </div>
         <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 shadow-sm">
           <Award className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mb-1" />
@@ -834,27 +687,17 @@ export const GradeRecapModule: React.FC = () => {
       <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row gap-3 print:hidden">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Cari nama, peran, atau divisi..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white"
-          />
+          <input type="text" placeholder="Cari nama, peran, atau divisi..."
+            value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
         </div>
-        <select
-          value={filterDivisi}
-          onChange={(e) => setFilterDivisi(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white"
-        >
+        <select value={filterDivisi} onChange={(e) => setFilterDivisi(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
           <option value="ALL">Semua Divisi</option>
           {divisiList.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
-        <select
-          value={filterPredikat}
-          onChange={(e) => setFilterPredikat(e.target.value)}
-          className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white"
-        >
+        <select value={filterPredikat} onChange={(e) => setFilterPredikat(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
           <option value="ALL">Semua Predikat</option>
           <option value="A">A (90-100)</option>
           <option value="B">B (80-89)</option>
@@ -865,7 +708,6 @@ export const GradeRecapModule: React.FC = () => {
         </select>
       </div>
 
-      {/* COUNTER */}
       <div className="text-xs text-slate-500 dark:text-slate-400 px-1 print:hidden">
         Menampilkan <strong>{filteredRecap.length}</strong> dari {recapData.length} siswa
       </div>
@@ -896,10 +738,8 @@ export const GradeRecapModule: React.FC = () => {
                   <th className="py-3 px-3 text-center">Pertunjukan</th>
                   <th className="py-3 px-3 text-center">Pasca</th>
                   <th className="py-3 px-3 text-center bg-indigo-50 dark:bg-indigo-500/10">
-                    Nilai Akhir
-                    <div className="text-[9px] font-normal mt-0.5 text-indigo-600 dark:text-indigo-400">
-                      ({scoreMode === 'AKUMULASI' ? 'Akumulasi' : 'Rata-rata'})
-                    </div>
+                    NILAI AKHIR
+                    <div className="text-[9px] font-normal mt-0.5 text-indigo-600 dark:text-indigo-400">(Σ akumulasi)</div>
                   </th>
                   <th className="py-3 px-3 text-center">Predikat</th>
                   <th className="py-3 px-3 text-center w-12 print:hidden">Aksi</th>
@@ -910,9 +750,7 @@ export const GradeRecapModule: React.FC = () => {
                   const isExpanded = expandedStudentId === r.user.uid;
                   return (
                     <React.Fragment key={r.user.uid}>
-                      <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 ${
-                        r.stagesWithData === 0 ? 'opacity-60' : ''
-                      }`}>
+                      <tr className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 ${r.stagesWithData === 0 ? 'opacity-60' : ''}`}>
                         <td className="py-3 px-3 text-center text-slate-500 font-mono">{i + 1}</td>
                         <td className="py-3 px-3">
                           <p className="font-bold text-slate-900 dark:text-white">{r.user.displayName}</p>
@@ -945,7 +783,7 @@ export const GradeRecapModule: React.FC = () => {
                           {r.stagesWithData > 0 ? (
                             <div>
                               <span className="text-base font-black text-indigo-700 dark:text-indigo-300 font-mono">
-                                {r.finalScore.toFixed(1)}
+                                {r.accumulatedScore.toFixed(1)}
                               </span>
                               <div className="text-[9px] text-slate-400 mt-0.5">
                                 Bobot: {r.totalWeightFilled}%
@@ -965,11 +803,8 @@ export const GradeRecapModule: React.FC = () => {
                           )}
                         </td>
                         <td className="py-3 px-3 text-center print:hidden">
-                          <button
-                            onClick={() => setExpandedStudentId(isExpanded ? null : r.user.uid)}
-                            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
-                            title="Lihat rincian"
-                          >
+                          <button onClick={() => setExpandedStudentId(isExpanded ? null : r.user.uid)}
+                            className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
                             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                           </button>
                         </td>
@@ -984,17 +819,9 @@ export const GradeRecapModule: React.FC = () => {
                                   <Layers className="w-4 h-4 text-indigo-600" />
                                   Rincian Detail: {r.user.displayName}
                                 </p>
-                                <div className="flex items-center gap-3 text-[10px]">
-                                  <span className="font-mono px-2 py-1 rounded-md bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-300 font-bold">
-                                    Akumulasi: {r.accumulatedScore.toFixed(1)}
-                                  </span>
-                                  <span className="font-mono px-2 py-1 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 font-bold">
-                                    Rata-rata: {r.weightedAverageScore.toFixed(1)}
-                                  </span>
-                                  <span className={`font-mono px-2 py-1 rounded-md font-black ${r.finalPredikat.color}`}>
-                                    Final: {r.finalScore.toFixed(1)} ({r.finalPredikat.predikat})
-                                  </span>
-                                </div>
+                                <span className={`font-mono px-3 py-1.5 rounded-md font-black text-sm ${r.finalPredikat.color}`}>
+                                  Nilai Akhir: {r.accumulatedScore.toFixed(1)} ({r.finalPredikat.predikat})
+                                </span>
                               </div>
 
                               {STAGES.map(s => {
@@ -1025,22 +852,16 @@ export const GradeRecapModule: React.FC = () => {
                                           </p>
                                         </div>
                                       ))}
-
                                       <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
                                         <p className="text-emerald-700 dark:text-emerald-300 font-bold">Kehadiran</p>
-                                        <p className="text-xs font-black text-emerald-800 dark:text-emerald-200 mt-0.5">
-                                          {d.attendance.pct}%
-                                        </p>
+                                        <p className="text-xs font-black text-emerald-800 dark:text-emerald-200 mt-0.5">{d.attendance.pct}%</p>
                                         <p className="text-[9px] text-emerald-600 dark:text-emerald-400">
                                           {d.attendance.hadir}H • {d.attendance.izin}I • {d.attendance.sakit}S • {d.attendance.alpa}A
                                         </p>
                                       </div>
-
                                       <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
                                         <p className="text-blue-700 dark:text-blue-300 font-bold">Ketepatan Tugas</p>
-                                        <p className="text-xs font-black text-blue-800 dark:text-blue-200 mt-0.5">
-                                          {d.task.pctOnTime}%
-                                        </p>
+                                        <p className="text-xs font-black text-blue-800 dark:text-blue-200 mt-0.5">{d.task.pctOnTime}%</p>
                                         <p className="text-[9px] text-blue-600 dark:text-blue-400">
                                           {d.task.tepatWaktu}T • {d.task.terlambat}L • {d.task.belum}B
                                         </p>
@@ -1056,31 +877,35 @@ export const GradeRecapModule: React.FC = () => {
                                 );
                               })}
 
-                              {/* Ringkasan Akumulasi */}
+                              {/* RINGKASAN AKUMULASI */}
                               <div className="p-4 rounded-2xl bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-500/10 dark:to-purple-500/10 border-2 border-indigo-200 dark:border-indigo-500/40">
                                 <p className="text-xs font-black text-indigo-900 dark:text-indigo-200 mb-2 flex items-center gap-2">
                                   <Sigma className="w-4 h-4" /> RINGKASAN AKUMULASI
                                 </p>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
                                   <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                                    <p className="text-slate-500 dark:text-slate-400 font-bold">Nilai Akumulasi</p>
+                                    <p className="text-slate-500 dark:text-slate-400 font-bold">Nilai Akhir</p>
                                     <p className="text-lg font-black text-indigo-700 dark:text-indigo-300 mt-0.5">{r.accumulatedScore.toFixed(1)}</p>
                                     <p className="text-[9px] text-slate-500">Σ (tahap × bobot)</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                                    <p className="text-slate-500 dark:text-slate-400 font-bold">Rata-rata Tertimbang</p>
-                                    <p className="text-lg font-black text-purple-700 dark:text-purple-300 mt-0.5">{r.weightedAverageScore.toFixed(1)}</p>
-                                    <p className="text-[9px] text-slate-500">÷ bobot terisi</p>
-                                  </div>
-                                  <div className="p-2 rounded-lg bg-indigo-100 dark:bg-indigo-500/20 border border-indigo-300 dark:border-indigo-500/40">
-                                    <p className="text-indigo-700 dark:text-indigo-300 font-bold">Nilai Akhir Aktif</p>
-                                    <p className="text-lg font-black text-indigo-800 dark:text-indigo-200 mt-0.5">{r.finalScore.toFixed(1)}</p>
-                                    <p className="text-[9px] text-indigo-600 dark:text-indigo-400">Mode: {scoreMode}</p>
+                                    <p className="text-slate-500 dark:text-slate-400 font-bold">Predikat</p>
+                                    <p className={`text-lg font-black mt-0.5 ${r.finalPredikat.color.split(' ')[0]}`}>{r.finalPredikat.predikat}</p>
+                                    <p className="text-[9px] text-slate-500">{r.finalPredikat.label}</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
                                     <p className="text-slate-500 dark:text-slate-400 font-bold">Bobot Terisi</p>
                                     <p className="text-lg font-black text-slate-800 dark:text-slate-200 mt-0.5">{r.totalWeightFilled}%</p>
                                     <p className="text-[9px] text-slate-500">{r.stagesWithData}/4 tahap</p>
+                                  </div>
+                                  <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                                    <p className="text-slate-500 dark:text-slate-400 font-bold">Status</p>
+                                    <p className="text-sm font-black text-slate-800 dark:text-slate-200 mt-0.5">
+                                      {r.stagesWithData === 4 ? '✅ Lengkap' : `⏳ ${r.stagesWithData}/4`}
+                                    </p>
+                                    <p className="text-[9px] text-slate-500">
+                                      {r.stagesWithData === 4 ? 'Semua tahap' : 'Belum semua tahap'}
+                                    </p>
                                   </div>
                                 </div>
                               </div>
@@ -1098,15 +923,12 @@ export const GradeRecapModule: React.FC = () => {
       )}
 
       <div className="hidden print:block text-center text-[10px] text-slate-500 pt-4 border-t border-slate-300">
-        SP-PPT — SMP Negeri 10 Samarinda • T.A. 2025/2026 • Rekap Nilai Akhir {activeClass.name} ({scoreMode}) • Dicetak: {new Date().toLocaleDateString('id-ID')}
+        SP-PPT — SMP Negeri 10 Samarinda • T.A. 2025/2026 • Rekap Nilai Akhir (Akumulasi) {activeClass.name} • Dicetak: {new Date().toLocaleDateString('id-ID')}
       </div>
     </div>
   );
 };
 
-// =====================================================
-// HELPER: empty stage detail
-// =====================================================
 function createEmptyStageDetail(): StageDetail {
   return {
     stageScore: null,
