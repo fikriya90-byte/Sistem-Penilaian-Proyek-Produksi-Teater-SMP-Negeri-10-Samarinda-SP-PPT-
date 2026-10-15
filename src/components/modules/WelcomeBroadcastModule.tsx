@@ -6,9 +6,10 @@ import {
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import {
-  collection, onSnapshot, doc, setDoc, writeBatch,
+  collection, query, onSnapshot, doc, setDoc, writeBatch,
   orderBy, limit, deleteDoc,
 } from 'firebase/firestore';
+//           ^^^^^^ ✅ FIX: "query" ditambahkan di sini
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 
