@@ -11,13 +11,18 @@ interface ThemeContextType {
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
-const STORAGE_KEY = 'spppt-theme-v2'; // ← versi baru biar tidak bentrok dengan cache lama
+
+// ✅ FIX: Bump versi storage biar preferensi lama di-reset ke auto
+const STORAGE_KEY = 'spppt-theme-v3';
 
 function safeGet(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
 }
 function safeSet(key: string, val: string) {
   try { localStorage.setItem(key, val); } catch { /* ignore */ }
+}
+function safeRemove(key: string) {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
 function systemPrefersDark(): boolean {
@@ -43,10 +48,13 @@ function applyHtmlClass(isDark: boolean) {
   } catch { /* ignore */ }
 }
 
-// DEFAULT = 'auto' (ikut device)
+// ✅ DEFAULT = 'auto' — selalu ikut device kalau belum ada preferensi user
 function getInitialTheme(): ThemeMode {
   const saved = safeGet(STORAGE_KEY);
   if (saved === 'light' || saved === 'dark' || saved === 'auto') return saved;
+  // Hapus preferensi lama v2 supaya user lama kembali ke auto
+  safeRemove('spppt-theme-v2');
+  safeRemove('spppt-theme');
   return 'auto';
 }
 
@@ -54,7 +62,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [theme, setThemeState] = useState<ThemeMode>(getInitialTheme);
   const [systemDark, setSystemDark] = useState<boolean>(systemPrefersDark);
 
-  // Listen perubahan device
+  // ✅ Listen perubahan tema device (real-time)
   useEffect(() => {
     try {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -70,10 +78,11 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch { /* ignore */ }
   }, []);
 
+  // Tema efektif: kalau 'auto' → ikut device, kalau 'light'/'dark' → pilihan user
   const effectiveTheme: 'light' | 'dark' =
     theme === 'auto' ? (systemDark ? 'dark' : 'light') : theme;
 
-  // Apply class ke html SETIAP kali theme efektif berubah
+  // ✅ Apply class ke <html> SETIAP kali tema efektif berubah
   useEffect(() => {
     applyHtmlClass(effectiveTheme === 'dark');
   }, [effectiveTheme]);
@@ -85,7 +94,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const toggleTheme = useCallback(() => {
     setThemeState(prev => {
-      const order: ThemeMode[] = ['light', 'dark', 'auto'];
+      // Cycle: auto → light → dark → auto (auto jadi default)
+      const order: ThemeMode[] = ['auto', 'light', 'dark'];
       const idx = order.indexOf(prev);
       const next = order[(idx + 1) % order.length];
       safeSet(STORAGE_KEY, next);
