@@ -4,7 +4,8 @@ import {
   Wallet, FileText, Timer, MessageSquare, Mic, Palette, Scissors,
   Camera, Flag, Users, CheckCircle, AlertTriangle, Layers,
   TrendingUp, ClipboardList, Target, Star, Play, Package, Music,
-  RefreshCw, Plus, X, Save, CheckSquare,
+  RefreshCw, Plus, X, Save,
+  CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -13,7 +14,6 @@ import { UserProfile, TaskItem, ScheduleEvent, AttendanceSession, AssessmentReco
 import {
   fetchUsersByClass, subscribeSchedules,
   subscribeAttendanceSessions, subscribeAssessments, recordAuditLog,
-  // ✅ FIX: import subscription baru dari firestoreService
   subscribeDeadlinesByClass, subscribeDeadlineSubmissionsByClass,
 } from '../../services/firestoreService';
 import { doc, collection, setDoc } from 'firebase/firestore';
@@ -23,10 +23,9 @@ interface DashboardModuleProps {
   onNavigate: (module: string) => void;
 }
 
-// ═══════════════════════════════════════════════════════════
-// ✅ FIX: useDashboardData — Baca `deadlines` + `deadlineSubmissions`
-// Transform ke view "virtual tasks" untuk kompatibilitas
-// ═══════════════════════════════════════════════════════════
+// =====================================================
+// DATA HOOK — Baca deadlines + deadlineSubmissions
+// =====================================================
 function useDashboardData() {
   const { activeClass, user } = useAuth();
   const [deadlines, setDeadlines] = useState<any[]>([]);
@@ -47,7 +46,6 @@ function useDashboardData() {
     return () => { u1(); u2(); u3(); u4(); u5(); };
   }, [activeClass]);
 
-  // Transform deadlines → virtual tasks (untuk backward compat dengan dashboard lama)
   const tasks: TaskItem[] = deadlines.map((d: any) => {
     if (d.status === 'CANCELLED') {
       return {
@@ -55,21 +53,16 @@ function useDashboardData() {
         priority: d.priority || 'MEDIUM', status: 'CANCELLED' as any,
         progress: 0, dueDate: d.dueDate || '',
         divisionName: d.targetDivision, role: d.targetRole,
-        isCritical: d.isCritical,
-        stageId: d.stage,
+        isCritical: d.isCritical, stageId: d.stage,
         createdBy: d.createdBy, createdAt: d.createdAt,
       } as TaskItem;
     }
-
-    // Hitung progress dari seluruh submission siswa (untuk guru/pimprod view)
     const totalTargets = (d.targetUserIds || []).length;
     const mySubs = deadlineSubs.filter(s => s.deadlineId === d.id);
     const doneCount = mySubs.filter(s => s.status === 'SELESAI' || s.status === 'TERLAMBAT').length;
     const isApproved = totalTargets > 0 && doneCount === totalTargets;
     const dueMs = new Date(d.dueDate || 0).getTime();
     const isOverdue = !isApproved && dueMs < Date.now();
-
-    // Untuk siswa: cek submission pribadi
     const mySub = user ? mySubs.find(s => s.studentId === user.uid) : null;
     const myDone = mySub && (mySub.status === 'SELESAI' || mySub.status === 'TERLAMBAT');
 
@@ -79,28 +72,22 @@ function useDashboardData() {
     else if (myDone) status = 'SUBMITTED';
 
     return {
-      id: d.id,
-      classId: d.classId,
-      title: d.title || '',
-      description: d.description || '',
-      priority: d.priority || 'MEDIUM',
-      status,
+      id: d.id, classId: d.classId, title: d.title || '', description: d.description || '',
+      priority: d.priority || 'MEDIUM', status,
       progress: totalTargets > 0 ? Math.round((doneCount / totalTargets) * 100) : 0,
       dueDate: d.dueDate || '',
-      divisionName: d.targetDivision,
-      role: d.targetRole,
-      assigneeId: user?.uid,
-      isCritical: d.isCritical,
-      stageId: d.stage,
-      createdBy: d.createdBy,
-      creatorName: d.creatorName,
-      createdAt: d.createdAt,
+      divisionName: d.targetDivision, role: d.targetRole,
+      assigneeId: user?.uid, isCritical: d.isCritical, stageId: d.stage,
+      createdBy: d.createdBy, creatorName: d.creatorName, createdAt: d.createdAt,
     } as TaskItem;
   });
 
   return { tasks, schedules, sessions, assessments, users, deadlines, deadlineSubs };
 }
 
+// =====================================================
+// REUSABLE COMPONENTS
+// =====================================================
 const StatCard: React.FC<{
   icon: any; label: string; value: string | number; sub?: string;
   color?: 'amber' | 'blue' | 'emerald' | 'rose' | 'purple' | 'cyan' | 'indigo';
@@ -139,35 +126,71 @@ const SectionTitle: React.FC<{ icon: any; title: string; subtitle?: string }> =
     </div>
   );
 
-const QuickAction: React.FC<{ icon: any; label: string; sub: string; onClick: () => void }> =
-  ({ icon: Icon, label, sub, onClick }) => (
+const QuickAction: React.FC<{
+  icon: any; label: string; sub: string; onClick: () => void;
+}> = ({ icon: Icon, label, sub, onClick }) => (
+  <button
+    onClick={onClick}
+    className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/10 transition text-left group"
+  >
+    <Icon className="w-5 h-5 text-amber-500 dark:text-amber-400 mb-2 group-hover:scale-110 transition" />
+    <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{label}</p>
+    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{sub}</p>
+  </button>
+);
+
+// ✅ NEW: Komponen wrapper "Aksi Cepat" yang reusable
+const QuickActionsPanel: React.FC<{
+  actions: { icon: any; label: string; sub: string; onClick: () => void }[];
+  accentColor?: 'amber' | 'blue' | 'emerald' | 'rose' | 'purple';
+}> = ({ actions, accentColor = 'amber' }) => {
+  const accent = {
+    amber: 'from-amber-500 via-amber-600 to-orange-600',
+    blue: 'from-blue-600 via-blue-700 to-indigo-700',
+    emerald: 'from-emerald-600 via-emerald-700 to-teal-700',
+    rose: 'from-rose-500 via-rose-600 to-pink-600',
+    purple: 'from-purple-600 via-violet-600 to-indigo-700',
+  }[accentColor];
+
+  return (
+    <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+      <div className={`flex items-center gap-2 mb-3 pb-3 border-b border-slate-100 dark:border-slate-800`}>
+        <span className={`p-1.5 rounded-lg bg-gradient-to-br ${accent} text-white`}>
+          <Sparkles className="w-3.5 h-3.5" />
+        </span>
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">Aksi Cepat</h3>
+        <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 ml-auto">
+          Akses instan menu utama
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+        {actions.map((a, i) => <QuickAction key={i} {...a} />)}
+      </div>
+    </div>
+  );
+};
+
+const TemplateCard: React.FC<{
+  icon: any; label: string; sub: string; onClick: () => void;
+  color?: 'blue' | 'amber' | 'purple' | 'rose' | 'emerald' | 'indigo';
+}> = ({ icon: Icon, label, sub, onClick, color = 'blue' }) => {
+  const colorMap = {
+    blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30',
+    amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30',
+    purple: 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-500/30',
+    rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/30',
+    emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30',
+    indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30',
+  };
+  return (
     <button onClick={onClick}
-      className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/10 transition text-left group">
-      <Icon className="w-5 h-5 text-amber-500 dark:text-amber-400 mb-2 group-hover:scale-110 transition" />
-      <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{label}</p>
-      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{sub}</p>
+      className={`p-4 rounded-2xl border-2 ${colorMap[color]} hover:scale-[1.02] transition text-left`}>
+      <Icon className="w-5 h-5 mb-2" />
+      <p className="text-xs font-extrabold text-slate-900 dark:text-white">{label}</p>
+      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sub}</p>
     </button>
   );
-
-const TemplateCard: React.FC<{ icon: any; label: string; sub: string; onClick: () => void; color?: 'blue' | 'amber' | 'purple' | 'rose' | 'emerald' | 'indigo' }> =
-  ({ icon: Icon, label, sub, onClick, color = 'blue' }) => {
-    const colorMap = {
-      blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30',
-      amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30',
-      purple: 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-500/30',
-      rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/30',
-      emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30',
-      indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30',
-    };
-    return (
-      <button onClick={onClick}
-        className={`p-4 rounded-2xl border-2 ${colorMap[color]} hover:scale-[1.02] transition text-left`}>
-        <Icon className="w-5 h-5 mb-2" />
-        <p className="text-xs font-extrabold text-slate-900 dark:text-white">{label}</p>
-        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sub}</p>
-      </button>
-    );
-  };
+};
 
 const UniversalHeader: React.FC = () => {
   const { user, activeClass } = useAuth();
@@ -267,12 +290,29 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-5">
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-700 via-amber-800 to-orange-900 text-white shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Guru Pengampu</span>
         <h2 className="text-2xl font-black mt-1">Monitoring Produksi & Penilaian</h2>
         <p className="text-xs opacity-90 mt-1">Pantau progres, nilai, dan aktivitas seluruh divisi</p>
       </div>
 
+      {/* ✅ AKSI CEPAT — dipindah ke sini, tepat di bawah header */}
+      <QuickActionsPanel
+        accentColor="amber"
+        actions={[
+          { icon: Award, label: 'Beri Nilai', sub: 'Pimprod & Sutradara', onClick: () => onNavigate('nilai') },
+          { icon: Bell, label: 'Moderasi', sub: 'Cek anomali', onClick: () => onNavigate('moderasi') },
+          { icon: BarChart3, label: 'Statistik', sub: 'Absensi & nilai', onClick: () => onNavigate('statistik-absensi') },
+          { icon: BookOpen, label: 'Kelola Kelas', sub: 'Siswa & kode', onClick: () => onNavigate('kelola-kelas') },
+          { icon: Calendar, label: 'Tahapan', sub: 'Deadline tahap', onClick: () => onNavigate('kelola-tahapan') },
+          { icon: Send, label: 'Broadcast', sub: 'Kirim pesan', onClick: () => onNavigate('broadcast') },
+          { icon: Wallet, label: 'Kas Produksi', sub: 'Lihat kas', onClick: () => onNavigate('kas') },
+          { icon: FileText, label: 'Dokumen', sub: 'Arsip LPJ', onClick: () => onNavigate('dokumen') },
+        ]}
+      />
+
+      {/* STAT CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Users} label="Total Siswa" value={totalUsers} color="blue" />
         <StatCard icon={CheckCircle} label="Tugas Selesai" value={`${completedTasks}/${tasks.length}`} color="emerald" sub={`${taskProgress}% selesai`} />
@@ -350,20 +390,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           Lihat Detail Progress →
         </button>
       </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Beri Nilai" sub="Pimprod & Sutradara" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={Bell} label="Moderasi" sub="Cek anomali" onClick={() => onNavigate('moderasi')} />
-          <QuickAction icon={BarChart3} label="Statistik" sub="Absensi & nilai" onClick={() => onNavigate('statistik-absensi')} />
-          <QuickAction icon={BookOpen} label="Kelola Kelas" sub="Siswa & kode" onClick={() => onNavigate('kelola-kelas')} />
-          <QuickAction icon={Calendar} label="Tahapan" sub="Deadline tahap" onClick={() => onNavigate('kelola-tahapan')} />
-          <QuickAction icon={Send} label="Broadcast" sub="Kirim pesan" onClick={() => onNavigate('broadcast')} />
-          <QuickAction icon={Wallet} label="Kas Produksi" sub="Lihat kas" onClick={() => onNavigate('kas')} />
-          <QuickAction icon={FileText} label="Dokumen" sub="Arsip LPJ" onClick={() => onNavigate('dokumen')} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -387,10 +413,8 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
     const dTasks = tasks.filter(t => (t as any).divisionName === d.id);
     const done = dTasks.filter(t => t.status === 'APPROVED').length;
     return {
-      id: d.id,
-      color: d.color || '#94a3b8',
-      total: dTasks.length,
-      done,
+      id: d.id, color: d.color || '#94a3b8',
+      total: dTasks.length, done,
       pct: dTasks.length > 0 ? Math.round((done / dTasks.length) * 100) : 0,
     };
   });
@@ -400,6 +424,7 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-5">
+      {/* HEADER */}
       <div className={`p-6 rounded-3xl bg-gradient-to-r text-white shadow-lg ${
         statusColor === 'emerald' ? 'from-emerald-700 to-emerald-900' :
         statusColor === 'amber' ? 'from-amber-700 to-amber-900' : 'from-rose-700 to-rose-900'
@@ -417,12 +442,23 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
+      {/* ✅ AKSI CEPAT — dipindah ke atas */}
+      <QuickActionsPanel
+        accentColor="blue"
+        actions={[
+          { icon: Award, label: 'Beri Nilai', sub: 'Sekretaris, Bendahara, Koor', onClick: () => onNavigate('nilai') },
+          { icon: ClipboardList, label: 'Buat Absensi', sub: 'Rapat & briefing', onClick: () => onNavigate('absensi') },
+          { icon: Calendar, label: 'Tambah Jadwal', sub: 'Lintas divisi', onClick: () => onNavigate('jadwal') },
+          { icon: Send, label: 'Broadcast', sub: 'Kirim pesan', onClick: () => onNavigate('broadcast') },
+        ]}
+      />
+
       {criticalTasks.length > 0 && (
         <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 animate-pulse" />
             <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
-              🚨 ALERT KRITIS ★ — {criticalTasks.length} Tugas Kritis Belum Selesai
+              🚨 ALERT KRITIS ★ - {criticalTasks.length} Tugas Kritis Belum Selesai
             </h3>
           </div>
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
@@ -479,16 +515,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Beri Nilai" sub="Sekretaris, Bendahara, Koor" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Buat Absensi" sub="Rapat & briefing" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={Calendar} label="Tambah Jadwal" sub="Lintas divisi" onClick={() => onNavigate('jadwal')} />
-          <QuickAction icon={Send} label="Broadcast" sub="Kirim pesan" onClick={() => onNavigate('broadcast')} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -519,6 +545,17 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <h2 className="text-2xl font-black mt-1">Latihan & Evaluasi Pemeran</h2>
         <p className="text-xs opacity-90 mt-1">{actors.length} pemeran - {rehearsalDone}/{rehearsalTasks.length} tugas latihan selesai</p>
       </div>
+
+      {/* ✅ AKSI CEPAT */}
+      <QuickActionsPanel
+        accentColor="rose"
+        actions={[
+          { icon: Award, label: 'Nilai Pemeran', sub: '6 kriteria akting', onClick: () => onNavigate('nilai') },
+          { icon: ClipboardList, label: 'Absensi Latihan', sub: 'Pemeran + Musik', onClick: () => onNavigate('absensi') },
+          { icon: Calendar, label: 'Jadwal Latihan', sub: 'Agenda akting', onClick: () => onNavigate('jadwal') },
+          { icon: Sparkles, label: 'Prompt Book', sub: 'Blocking + Cue', onClick: () => onNavigate('studio') },
+        ]}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Users} label="Total Pemeran" value={actors.length} color="rose" />
@@ -554,16 +591,6 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           </div>
         )}
       </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Nilai Pemeran" sub="6 kriteria akting" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Absensi Latihan" sub="Pemeran + Musik" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={Calendar} label="Jadwal Latihan" sub="Agenda akting" onClick={() => onNavigate('jadwal')} />
-          <QuickAction icon={Sparkles} label="Prompt Book" sub="Blocking + Cue" onClick={() => onNavigate('studio')} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -586,21 +613,21 @@ const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <p className="text-xs opacity-90 mt-1">Blocking, cue sheet, dan standby pertunjukan</p>
       </div>
 
+      <QuickActionsPanel
+        accentColor="purple"
+        actions={[
+          { icon: Sparkles, label: 'Prompt Book', sub: 'Editor blocking', onClick: () => onNavigate('studio') },
+          { icon: Award, label: 'Nilai Pemeran', sub: 'Aspek teknis', onClick: () => onNavigate('nilai') },
+          { icon: ClipboardList, label: 'Absensi Pemeran', sub: 'Pemeran + Musik', onClick: () => onNavigate('absensi') },
+          { icon: FileText, label: 'Catatan', sub: 'Upload evaluasi', onClick: () => onNavigate('dokumen') },
+        ]}
+      />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Play} label="Prompt Book" value="Aktif" color="purple" sub="Editor blocking 3x3" />
         <StatCard icon={FileText} label="Catatan Latihan" value={tasks.length} color="amber" sub="Update harian" />
         <StatCard icon={ClipboardList} label="Absensi Pemeran" value={pemainSessions.length} color="blue" />
         <StatCard icon={Users} label="Status Pemeran" value={actors.length} color="emerald" />
-      </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Prompt Book & Blocking" subtitle="Editor posisi panggung 3x3" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">Blocking Grid</button>
-          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">Cue Sheet</button>
-          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">Standby Cue</button>
-          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">Naskah</button>
-        </div>
       </div>
 
       <div className="p-5 rounded-3xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 shadow-sm">
@@ -623,16 +650,6 @@ const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           </div>
         )}
       </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Sparkles} label="Prompt Book" sub="Editor blocking" onClick={() => onNavigate('studio')} />
-          <QuickAction icon={Award} label="Nilai Pemeran" sub="Aspek teknis" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Absensi Pemeran" sub="Pemeran + Musik" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={FileText} label="Catatan" sub="Upload evaluasi" onClick={() => onNavigate('dokumen')} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -654,6 +671,16 @@ const SekretarisDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => 
         <h2 className="text-2xl font-black mt-1">Presensi & Administrasi</h2>
         <p className="text-xs opacity-90 mt-1">Kelola presensi, jadwal, arsip, dan LPJ</p>
       </div>
+
+      <QuickActionsPanel
+        accentColor="blue"
+        actions={[
+          { icon: ClipboardList, label: 'Isi Presensi', sub: 'Manual cepat', onClick: () => onNavigate('absensi') },
+          { icon: Calendar, label: 'Buat Jadwal', sub: 'Rapat & briefing', onClick: () => onNavigate('jadwal') },
+          { icon: FileText, label: 'Arsip Dokumen', sub: 'Upload & kelola', onClick: () => onNavigate('dokumen') },
+          { icon: Send, label: 'Broadcast', sub: 'Pengumuman', onClick: () => onNavigate('broadcast') },
+        ]}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={ClipboardList} label="Sesi Terbuka" value={openSessions.length} color="emerald" />
@@ -697,16 +724,6 @@ const SekretarisDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => 
           )}
         </div>
       </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={ClipboardList} label="Isi Presensi" sub="Manual cepat" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={Calendar} label="Buat Jadwal" sub="Rapat & briefing" onClick={() => onNavigate('jadwal')} />
-          <QuickAction icon={FileText} label="Arsip Dokumen" sub="Upload & kelola" onClick={() => onNavigate('dokumen')} />
-          <QuickAction icon={Send} label="Broadcast" sub="Pengumuman" onClick={() => onNavigate('broadcast')} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -723,6 +740,16 @@ const BendaharaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <p className="text-xs opacity-90 mt-1">Kelola tagihan kas, verifikasi bayar, dan arsip nota</p>
       </div>
 
+      <QuickActionsPanel
+        accentColor="emerald"
+        actions={[
+          { icon: Wallet, label: 'Buat Tagihan Kas', sub: 'Kirim ke siswa', onClick: () => onNavigate('kas') },
+          { icon: Send, label: 'Reminder Kas', sub: 'Pengingat bayar', onClick: () => onNavigate('kas') },
+          { icon: FileText, label: 'Arsip Nota', sub: 'Upload bukti', onClick: () => onNavigate('dokumen') },
+          { icon: Send, label: 'Broadcast', sub: 'Info keuangan', onClick: () => onNavigate('broadcast') },
+        ]}
+      />
+
       <div className="p-5 rounded-3xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
         <div className="flex items-center gap-3 flex-wrap">
           <Wallet className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -731,16 +758,6 @@ const BendaharaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
             <p className="text-xs text-emerald-700 dark:text-emerald-300">Buat tagihan, kirim reminder, verifikasi pembayaran.</p>
           </div>
           <button onClick={() => onNavigate('kas')} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0">Buka Kas</button>
-        </div>
-      </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Wallet} label="Buat Tagihan Kas" sub="Kirim ke siswa" onClick={() => onNavigate('kas')} />
-          <QuickAction icon={Send} label="Reminder Kas" sub="Pengingat bayar" onClick={() => onNavigate('kas')} />
-          <QuickAction icon={FileText} label="Arsip Nota" sub="Upload bukti" onClick={() => onNavigate('dokumen')} />
-          <QuickAction icon={Send} label="Broadcast" sub="Info keuangan" onClick={() => onNavigate('broadcast')} />
         </div>
       </div>
     </div>
@@ -785,6 +802,16 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
         <h2 className="text-2xl font-black mt-1">{division}</h2>
         <p className="text-xs opacity-90 mt-1">Kelola {members.length} anggota - Progress: {pct}%</p>
       </div>
+
+      <QuickActionsPanel
+        accentColor="purple"
+        actions={[
+          { icon: Award, label: 'Nilai Anggota', sub: '+ Sutradara', onClick: () => onNavigate('nilai') },
+          { icon: ClipboardList, label: 'Absensi Divisi', sub: 'Anggota', onClick: () => onNavigate('absensi') },
+          { icon: Calendar, label: 'Jadwal Internal', sub: 'Agenda', onClick: () => onNavigate('jadwal') },
+          { icon: Send, label: 'Broadcast', sub: 'Info anggota', onClick: () => onNavigate('broadcast') },
+        ]}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Users} label="Anggota" value={members.length} color="blue" />
@@ -846,16 +873,6 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
           </div>
         )}
       </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Nilai Anggota" sub="+ Sutradara" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Absensi Divisi" sub="Anggota" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={Calendar} label="Jadwal Internal" sub="Agenda" onClick={() => onNavigate('jadwal')} />
-          <QuickAction icon={Send} label="Broadcast" sub="Info anggota" onClick={() => onNavigate('broadcast')} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -890,6 +907,16 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <h2 className="text-2xl font-black mt-1">Tugas & Progres Saya</h2>
         <p className="text-xs opacity-90 mt-1">Divisi: {user?.divisionName || '-'} - {myTasks.length} tugas</p>
       </div>
+
+      <QuickActionsPanel
+        accentColor="amber"
+        actions={[
+          { icon: CheckSquare, label: 'Tugas Saya', sub: 'Upload bukti', onClick: () => onNavigate('tugas') },
+          { icon: Award, label: 'Nilai Saya', sub: 'Rapor lengkap', onClick: () => onNavigate('nilai-saya') },
+          { icon: Star, label: 'Nilai Rekan', sub: 'Penilaian sejawat', onClick: () => onNavigate('nilai') },
+          { icon: ClipboardList, label: 'Presensi', sub: 'Kehadiran', onClick: () => onNavigate('absensi') },
+        ]}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={CheckSquare} label="Tugas Selesai" value={`${myDone.length}/${myTasks.length}`} color="emerald" />
@@ -939,16 +966,6 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           </div>
         )}
       </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={CheckSquare} label="Tugas Saya" sub="Upload bukti" onClick={() => onNavigate('tugas')} />
-          <QuickAction icon={Award} label="Nilai Saya" sub="Rapor lengkap" onClick={() => onNavigate('nilai-saya')} />
-          <QuickAction icon={Star} label="Nilai Rekan" sub="Penilaian sejawat" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Presensi" sub="Kehadiran" onClick={() => onNavigate('absensi')} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -984,6 +1001,16 @@ const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <h2 className="text-2xl font-black mt-1">Naskah, Blocking & Latihan</h2>
         <p className="text-xs opacity-90 mt-1">Progres latihan: <strong>{rehearsalPct}%</strong> - {rehearsalDone}/{rehearsalTasks.length} tugas selesai</p>
       </div>
+
+      <QuickActionsPanel
+        accentColor="rose"
+        actions={[
+          { icon: Award, label: 'Nilai Saya', sub: 'Rapor lengkap', onClick: () => onNavigate('nilai-saya') },
+          { icon: Star, label: 'Nilai Rekan', sub: 'Penilaian sejawat', onClick: () => onNavigate('nilai') },
+          { icon: ClipboardList, label: 'Presensi', sub: 'Kehadiran', onClick: () => onNavigate('absensi') },
+          { icon: Timer, label: 'Deadline', sub: 'Tenggat waktu', onClick: () => onNavigate('tugas') },
+        ]}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Award} label="Nilai Saya" value={myAvg > 0 ? myAvg.toFixed(1) : '-'} color="rose" />
@@ -1033,22 +1060,12 @@ const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           <button onClick={() => onNavigate('tugas')} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shrink-0">Isi</button>
         </div>
       </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Sparkles} title="Aksi Cepat" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          <QuickAction icon={Award} label="Nilai Saya" sub="Rapor lengkap" onClick={() => onNavigate('nilai-saya')} />
-          <QuickAction icon={Star} label="Nilai Rekan" sub="Penilaian sejawat" onClick={() => onNavigate('nilai')} />
-          <QuickAction icon={ClipboardList} label="Presensi" sub="Kehadiran" onClick={() => onNavigate('absensi')} />
-          <QuickAction icon={Timer} label="Deadline" sub="Tenggat waktu" onClick={() => onNavigate('tugas')} />
-        </div>
-      </div>
     </div>
   );
 };
 
 // =====================================================
-// MAIN DASHBOARD MODULE — ROUTER
+// MAIN DASHBOARD MODULE - ROUTER
 // =====================================================
 export const DashboardModule: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { user, isGuruPengampu, isAdminRole } = useAuth();
