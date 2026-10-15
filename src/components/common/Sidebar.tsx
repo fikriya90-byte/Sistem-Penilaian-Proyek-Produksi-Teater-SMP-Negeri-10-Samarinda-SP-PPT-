@@ -206,7 +206,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
             { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
-            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
           ],
         },
         {
@@ -216,6 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
             { id: 'moderasi', label: 'Moderasi', icon: ShieldCheck },
           ],
         },
