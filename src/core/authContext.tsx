@@ -131,9 +131,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!isMounted) { clearTimeout(safetyTimer); return; }
 
           if (profile) {
-            // Note: fetchUserProfile SUDAH normalize role via enrichUser
+            // fetchUserProfile SUDAH normalize role via enrichUser
             const fixedProfile = await autoFillDivision(profile);
-
             if (!isMounted) { clearTimeout(safetyTimer); return; }
             setUser(fixedProfile);
           } else {
@@ -167,6 +166,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restoreClassRef.current = false;
   }, [user?.uid]);
 
+  // =====================================================
+  // ✅ FIX: AUTO-SET ACTIVE CLASS UNTUK SISWA
+  // Prioritas:
+  // 1. Saved class di localStorage
+  // 2. Match by user.classId
+  // 3. Fallback: match by user.className
+  // =====================================================
   useEffect(() => {
     if (!user || classes.length === 0) return;
     if (restoreClassRef.current) return;
@@ -176,6 +182,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user.role === 'Admin' ||
       user.role === 'Super Admin';
 
+    // 1. Cek saved class di localStorage
     let savedId: string | null = null;
     try { savedId = localStorage.getItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
 
@@ -189,9 +196,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try { localStorage.removeItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
     }
 
+    // 2. Match by user.classId
     if (!isTeacherRole && user.classId) {
       const match = classes.find(c => c.id === user.classId);
-      if (match) _setActiveClass(match);
+      if (match) {
+        _setActiveClass(match);
+        restoreClassRef.current = true;
+        return;
+      }
+
+      // 3. ✅ FALLBACK: match by user.className
+      if (user.className) {
+        const matchByName = classes.find(c =>
+          (c.name || '').toLowerCase().trim() === (user.className || '').toLowerCase().trim()
+        );
+        if (matchByName) {
+          _setActiveClass(matchByName);
+          restoreClassRef.current = true;
+          return;
+        }
+      }
     }
 
     restoreClassRef.current = true;
@@ -234,7 +258,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      // fetchUserProfile sudah normalize role, tapi kita tetap panggil autoFillDivision
+      // fetchUserProfile sudah normalize role, tambahkan division
       profile = await autoFillDivision(profile);
 
       setUser(profile);
@@ -459,15 +483,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
-  /**
-   * ✅ FIX: canAssessTarget sekarang SINGLE SOURCE OF TRUTH
-   * Menggunakan ASSESSMENT_MATRIX via getAssessmentMatrix().
-   *
-   * Aturan:
-   * 1. Tidak boleh menilai diri sendiri
-   * 2. Guru Pengampu & Admin bisa menilai siapa saja
-   * 3. Selain itu: cek matrix dari SISI TARGET (bukan dari sisi asesor)
-   */
+  // =====================================================
+  // ✅ canAssessTarget — Single source of truth
+  // Pakai matrix dari SISI TARGET + normalize role
+  // =====================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
     if (target.uid === user.uid) return false;
@@ -475,7 +494,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Guru & Admin boleh menilai siapa saja
     if (isGuruPengampu || isAdminRole) return true;
 
-    // Cek matrix dari SISI TARGET
+    // Cek matrix dari SISI TARGET (dengan normalisasi role)
     const targetRole = normalizeUserRole(target.role);
     const matrix = getAssessmentMatrix(targetRole);
 
