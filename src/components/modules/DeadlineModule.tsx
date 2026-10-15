@@ -5,6 +5,7 @@ import {
   Sparkles, Target, ListChecks, Square, CheckSquare, User, Briefcase,
   Copy, FilePlus, Wand2, Loader2, Trash2, Pencil, Pause, Play, Ban,
   XCircle, Info, Save, Star, FileText, Link2, MessageSquare, Calendar,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -20,6 +21,8 @@ import {
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { DEADLINE_TEMPLATES, STAGE_INFO } from '../../core/deadlineTemplates';
+// ✅ NEW: Import photo uploader
+import { PhotoEvidenceUploader, PhotoEvidence, checkPhotoContent } from '../common/PhotoEvidenceUploader';
 
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   LOW: { label: 'Rendah', color: 'bg-slate-100 text-slate-700 border-slate-300', dot: 'bg-slate-400' },
@@ -125,27 +128,12 @@ const DeadlineCopyModal: React.FC<{
     const dTargetDivisions: string[] = (source as any).targetDivisions || [];
 
     studentsInClass.forEach(u => {
-      if (dScope === 'SEMUA') {
-        recipientIds.add(u.uid);
-        return;
-      }
-      if (dScope === 'PERAN') {
-        if (dRole && u.role === dRole) recipientIds.add(u.uid);
-        return;
-      }
-      if (dScope === 'DIVISI') {
-        if (dDivision && u.divisionName === dDivision) recipientIds.add(u.uid);
-        return;
-      }
+      if (dScope === 'SEMUA') { recipientIds.add(u.uid); return; }
+      if (dScope === 'PERAN') { if (dRole && u.role === dRole) recipientIds.add(u.uid); return; }
+      if (dScope === 'DIVISI') { if (dDivision && u.divisionName === dDivision) recipientIds.add(u.uid); return; }
       if (dScope === 'CUSTOM') {
-        if (dTargetRoles.length > 0 && dTargetRoles.includes(u.role)) {
-          recipientIds.add(u.uid);
-          return;
-        }
-        if (dTargetDivisions.length > 0 && u.divisionName && dTargetDivisions.includes(u.divisionName)) {
-          recipientIds.add(u.uid);
-          return;
-        }
+        if (dTargetRoles.length > 0 && dTargetRoles.includes(u.role)) { recipientIds.add(u.uid); return; }
+        if (dTargetDivisions.length > 0 && u.divisionName && dTargetDivisions.includes(u.divisionName)) { recipientIds.add(u.uid); return; }
       }
     });
 
@@ -237,6 +225,8 @@ const DeadlineCopyModal: React.FC<{
             targetUserIds: Array.from(recipientIds),
             stage: (source as any).stage,
             isCritical: (source as any).isCritical || false,
+            photoHint: (source as any).photoHint || '',
+            photoSearchQuery: (source as any).photoSearchQuery || '',
             createdBy: user.uid,
             creatorName: user.displayName,
             creatorRole: user.role,
@@ -275,9 +265,7 @@ const DeadlineCopyModal: React.FC<{
       }
 
       let msg = `${totalCreated} deadline diduplikat. ${totalNotif} siswa menerima notifikasi.`;
-      if (totalSkipped > 0) {
-        msg += ` (${totalSkipped} di-skip karena target tidak cocok)`;
-      }
+      if (totalSkipped > 0) msg += ` (${totalSkipped} di-skip karena target tidak cocok)`;
       showToast(msg, 'success');
       onSuccess?.();
       onClose();
@@ -630,6 +618,8 @@ export const DeadlineModule: React.FC = () => {
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteLink, setNoteLink] = useState('');
+  // ✅ NEW: state foto bukti
+  const [notePhotos, setNotePhotos] = useState<PhotoEvidence[]>([]);
 
   const [confirmDoneItem, setConfirmDoneItem] = useState<DeadlineItem | null>(null);
   const [quickDoneLoading, setQuickDoneLoading] = useState<string | null>(null);
@@ -651,7 +641,6 @@ export const DeadlineModule: React.FC = () => {
   const [editIsCritical, setEditIsCritical] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  // State target edit
   const [editTargetScope, setEditTargetScope] = useState<'SEMUA' | 'PERAN' | 'DIVISI' | 'CUSTOM'>('SEMUA');
   const [editTargetRole, setEditTargetRole] = useState<string>('');
   const [editTargetDivision, setEditTargetDivision] = useState<string>('');
@@ -667,6 +656,7 @@ export const DeadlineModule: React.FC = () => {
   const [manualTargetAll, setManualTargetAll] = useState(true);
   const [manualTargets, setManualTargets] = useState<TargetItem[]>([]);
   const [manualIsCritical, setManualIsCritical] = useState(false);
+  const [manualPhotoHint, setManualPhotoHint] = useState('');
 
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackRating, setFeedbackRating] = useState(5);
@@ -732,6 +722,14 @@ export const DeadlineModule: React.FC = () => {
 
   const handleQuickDone = async (d: DeadlineItem) => {
     if (!user || !activeClass) return;
+    // ✅ Jika PELAKSANAAN → buka modal catatan + foto (wajib foto)
+    const isPelaksanaan = (d as any).stage === 'PELAKSANAAN';
+    if (isPelaksanaan) {
+      handleOpenNote(d);
+      setConfirmDoneItem(null);
+      return;
+    }
+
     setQuickDoneLoading(d.id);
     try {
       const subId = `${d.id}_${user.uid}`;
@@ -748,6 +746,9 @@ export const DeadlineModule: React.FC = () => {
         progress: 100,
         proofUrl: '',
         proofNote: '',
+        evidencePhotos: [],
+        evidenceCount: 0,
+        stage: (d as any).stage || null,
         extensionRequested: false,
         updatedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
@@ -785,11 +786,39 @@ export const DeadlineModule: React.FC = () => {
     setSelectedDeadline(d);
     setNoteText(existing?.proofNote || '');
     setNoteLink(existing?.proofUrl || '');
+    // ✅ Load foto yang sudah ada
+    setNotePhotos(((existing as any)?.evidencePhotos || []) as PhotoEvidence[]);
     setIsNoteOpen(true);
   };
 
   const handleSaveNote = async () => {
     if (!user || !activeClass || !selectedDeadline) return;
+
+    // ✅ VALIDASI: Foto wajib untuk tahap PELAKSANAAN
+    const isPelaksanaan = (selectedDeadline as any).stage === 'PELAKSANAAN';
+    if (isPelaksanaan && notePhotos.length === 0) {
+      showToast('Tahap PELAKSANAAN wajib menyertakan minimal 1 foto bukti!', 'error');
+      return;
+    }
+
+    // ✅ Validasi caption
+    for (const p of notePhotos) {
+      if (p.caption) {
+        const check = checkPhotoContent(p.caption);
+        if (check.has) {
+          showToast(`Keterangan foto mengandung kata tidak pantas: ${check.found.join(', ')}`, 'error');
+          return;
+        }
+      }
+    }
+
+    // ✅ Validasi total ukuran foto
+    const totalPhotoKB = notePhotos.reduce((s, p) => s + p.sizeKB, 0);
+    if (totalPhotoKB > 900) {
+      showToast(`Total foto terlalu besar (${totalPhotoKB}KB). Maks 900KB.`, 'error');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const subId = `${selectedDeadline.id}_${user.uid}`;
@@ -806,14 +835,31 @@ export const DeadlineModule: React.FC = () => {
         progress: 100,
         proofUrl: noteLink.trim(),
         proofNote: noteText.trim(),
+        evidencePhotos: notePhotos.map(p => ({
+          id: p.id,
+          dataUrl: p.dataUrl,
+          caption: p.caption || '',
+          uploadedAt: p.uploadedAt,
+          sizeKB: p.sizeKB,
+        })),
+        evidenceCount: notePhotos.length,
+        stage: (selectedDeadline as any).stage || null,
         extensionRequested: false,
         updatedAt: new Date().toISOString(),
         submittedAt: new Date().toISOString(),
       });
-      showToast('Catatan tersimpan!', 'success');
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'SUBMIT', targetType: 'DeadlineSubmission', targetId: subId,
+        details: `Bukti tersimpan: "${selectedDeadline.title}" (${notePhotos.length} foto)`,
+      });
+
+      showToast(`✅ Bukti tersimpan dengan ${notePhotos.length} foto!`, 'success');
       setIsNoteOpen(false);
       setNoteText('');
       setNoteLink('');
+      setNotePhotos([]);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     } finally {
@@ -841,6 +887,7 @@ export const DeadlineModule: React.FC = () => {
     setManualTargetAll(true);
     setManualTargets([]);
     setManualIsCritical(false);
+    setManualPhotoHint('');
     setIsManualOpen(true);
   };
 
@@ -1171,6 +1218,8 @@ export const DeadlineModule: React.FC = () => {
           targetUserIds: Array.from(recipientIds),
           stage: selectedStage,
           isCritical: tpl.isCritical || false,
+          photoHint: (tpl as any).photoHint || '',
+          photoSearchQuery: (tpl as any).photoSearchQuery || '',
           createdBy: user.uid,
           creatorName: user.displayName,
           creatorRole: user.role,
@@ -1247,6 +1296,8 @@ export const DeadlineModule: React.FC = () => {
         targetUserIds: Array.from(recipientIds),
         stage: manualStage,
         isCritical: manualIsCritical,
+        photoHint: manualPhotoHint.trim(),
+        photoSearchQuery: '',
         createdBy: user.uid,
         creatorName: user.displayName,
         creatorRole: user.role,
@@ -1368,7 +1419,7 @@ export const DeadlineModule: React.FC = () => {
               <p className="text-xs text-slate-300 mt-0.5">
                 {canCreate
                   ? 'Buat dari template, input manual, atau duplikat ke kelas lain'
-                  : 'Tandai selesai dengan 1 klik — tidak perlu link apapun'}
+                  : 'Tandai selesai dengan 1 klik - tahap PELAKSANAAN wajib foto bukti'}
               </p>
             </div>
           </div>
@@ -1392,10 +1443,10 @@ export const DeadlineModule: React.FC = () => {
 
         {!canCreate && (
           <div className="mt-3 p-2.5 rounded-xl bg-white/10 border border-white/20 text-[11px] text-slate-200 flex items-start gap-2">
-            <CheckCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <Camera className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-300" />
             <span>
-              <strong>Tips:</strong> Klik tombol <strong>"Tandai Selesai"</strong> jika sudah mengerjakan.
-              Tidak perlu upload link. Kalau mau kasih catatan/link (opsional), klik "Tambah Catatan".
+              <strong>Info:</strong> Tugas di tahap <strong>PELAKSANAAN wajib melampirkan foto bukti</strong>.
+              Foto auto-kompres (≤300KB/foto). Kalau tidak ada foto, tugas tidak bisa ditandai selesai.
             </span>
           </div>
         )}
@@ -1451,6 +1502,8 @@ export const DeadlineModule: React.FC = () => {
             const isManual = (d as any).isManual;
             const isDone = !!mySub;
             const isLoadingQuick = quickDoneLoading === d.id;
+            const isPelaksanaan = dStage === 'PELAKSANAAN';
+            const photos = ((mySub as any)?.evidencePhotos || []) as any[];
 
             return (
               <div key={d.id} className={`p-5 rounded-3xl border-2 transition shadow-sm space-y-3 ${
@@ -1467,6 +1520,11 @@ export const DeadlineModule: React.FC = () => {
                   {isCritical && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 flex items-center gap-1">
                       <Star className="w-3 h-3" /> KRITIS
+                    </span>
+                  )}
+                  {isPelaksanaan && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-500/40 flex items-center gap-1">
+                      <Camera className="w-3 h-3" /> WAJIB FOTO
                     </span>
                   )}
                   {isManual && (
@@ -1515,7 +1573,7 @@ export const DeadlineModule: React.FC = () => {
 
                 <p className="text-[11px] text-slate-400 dark:text-slate-500">
                   Oleh <strong className="text-slate-600 dark:text-slate-300">{d.creatorName || 'Guru'}</strong>
-                  {d.dueDate ? ` — ${new Date(d.dueDate).toLocaleString('id-ID')}` : ''}
+                  {d.dueDate ? ` - ${new Date(d.dueDate).toLocaleString('id-ID')}` : ''}
                 </p>
 
                 {!canCreate && (
@@ -1526,13 +1584,15 @@ export const DeadlineModule: React.FC = () => {
                           className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-md transition disabled:opacity-50 active:scale-[0.98]">
                           {isLoadingQuick ? (
                             <><Loader2 className="w-5 h-5 animate-spin" /> Menyimpan...</>
+                          ) : isPelaksanaan ? (
+                            <><Camera className="w-5 h-5" /> Kirim Bukti + Foto</>
                           ) : (
                             <><CheckCircle className="w-5 h-5" /> Tandai Selesai</>
                           )}
                         </button>
                         <button onClick={() => handleOpenNote(d)}
                           className="w-full py-2 rounded-xl bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-xs flex items-center justify-center gap-1.5 transition">
-                          <MessageSquare className="w-3.5 h-3.5" /> Tambah Catatan (Opsional)
+                          <MessageSquare className="w-3.5 h-3.5" /> {isPelaksanaan ? 'Kirim Bukti + Foto (Wajib)' : 'Tambah Catatan (Opsional)'}
                         </button>
                       </>
                     ) : (
@@ -1544,11 +1604,41 @@ export const DeadlineModule: React.FC = () => {
                               Anda sudah menandai tugas ini selesai
                             </p>
                             <p className="text-[10px] text-emerald-700 dark:text-emerald-300">
-                              {mySub.status === 'TERLAMBAT' ? '⚠️ Dikerjakan terlambat' : '✅ Tepat waktu'} •{' '}
+                              {mySub.status === 'TERLAMBAT' ? '⚠️ Dikerjakan terlambat' : '✅ Tepat waktu'} -{' '}
                               {mySub.submittedAt ? new Date(mySub.submittedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                              {photos.length > 0 && ` - ${photos.length} foto`}
                             </p>
                           </div>
                         </div>
+
+                        {/* ✅ TAMPILKAN FOTO BUKTI */}
+                        {photos.length > 0 && (
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {photos.map((p, i) => (
+                              <div key={p.id || i} className="relative rounded-lg overflow-hidden border border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-slate-800">
+                                <img src={p.dataUrl} alt={p.caption || `Foto ${i + 1}`}
+                                  className="w-full h-20 object-cover cursor-pointer hover:opacity-90 transition"
+                                  onClick={() => {
+                                    const w = window.open('', '_blank');
+                                    if (w) {
+                                      w.document.write(`
+                                        <html><head><title>${p.caption || 'Bukti Foto'}</title>
+                                        <style>body{margin:0;background:#0f172a;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+                                        img{max-width:95vw;max-height:95vh;border-radius:12px;box-shadow:0 0 40px rgba(0,0,0,0.5);}</style>
+                                        </head><body><img src="${p.dataUrl}" /></body></html>
+                                      `);
+                                      w.document.close();
+                                    }
+                                  }} />
+                                {p.caption && (
+                                  <p className="text-[8px] p-1 bg-emerald-50 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 truncate">
+                                    {p.caption}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                         {mySub.proofNote && (
                           <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
@@ -1568,7 +1658,7 @@ export const DeadlineModule: React.FC = () => {
                         <div className="grid grid-cols-2 gap-2">
                           <button onClick={() => handleOpenNote(d)}
                             className="py-2 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 font-bold text-[11px] flex items-center justify-center gap-1 transition">
-                            <Pencil className="w-3 h-3" /> {mySub.proofNote || mySub.proofUrl ? 'Edit Catatan' : 'Tambah Catatan'}
+                            <Pencil className="w-3 h-3" /> Edit Bukti
                           </button>
                           <button onClick={() => handleUnmarkDone(d)}
                             className="py-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 font-bold text-[11px] flex items-center justify-center gap-1 transition">
@@ -1642,7 +1732,7 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL KONFIRMASI */}
+      {/* MODAL KONFIRMASI QUICK DONE */}
       {confirmDoneItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4">
@@ -1664,7 +1754,7 @@ export const DeadlineModule: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-2">
               <button onClick={() => setConfirmDoneItem(null)}
-                className="py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition">
+                className="py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold text-xs transition">
                 Batal
               </button>
               <button onClick={() => handleQuickDone(confirmDoneItem)}
@@ -1681,68 +1771,102 @@ export const DeadlineModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL CATATAN */}
-      {isNoteOpen && selectedDeadline && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <MessageSquare className="w-5 h-5 text-blue-500" /> Tambah Catatan
-              </h3>
-              <button onClick={() => setIsNoteOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* MODAL CATATAN + FOTO BUKTI */}
+      {isNoteOpen && selectedDeadline && (() => {
+        const isPelaksanaan = (selectedDeadline as any).stage === 'PELAKSANAAN';
+        const stageInfo = (selectedDeadline as any).stage
+          ? STAGE_INFO[(selectedDeadline as any).stage as ProductionStage]
+          : null;
+        const hint = (selectedDeadline as any).photoHint
+          || 'Ambil foto jelas dari hasil kerja: close-up detail, tampak keseluruhan, atau progress pengerjaan.';
+        const searchQuery = (selectedDeadline as any).photoSearchQuery || '';
 
-            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-              <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                <strong>Info:</strong> Catatan dan link <strong>opsional</strong> (tidak wajib).
-                Tugas tetap dianggap selesai meski tidak diisi.
-              </p>
-            </div>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+            <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[95vh] overflow-y-auto space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Camera className="w-5 h-5 text-blue-500" />
+                  {isPelaksanaan ? 'Laporkan Bukti Kerja' : 'Tambah Catatan'}
+                </h3>
+                <button onClick={() => { setIsNoteOpen(false); setNotePhotos([]); }}
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
-            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-              <p className="text-[10px] font-bold text-slate-500 uppercase">Tugas:</p>
-              <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                {selectedDeadline.title}
-              </p>
-            </div>
+              {isPelaksanaan && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                    <p className="font-black">🔴 Tahap PELAKSANAAN - FOTO WAJIB!</p>
+                    <p className="mt-0.5">
+                      Tugas di tahap ini <strong>harus disertai minimal 1 foto bukti</strong>.
+                      Foto otomatis dikompres agar hemat kuota.
+                    </p>
+                  </div>
+                </div>
+              )}
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Catatan (Opsional)
-              </label>
-              <textarea rows={4} value={noteText} onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Contoh: Selesai latihan dialog babak 2, sudah hafal semua."
-                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
-            </div>
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <p className="text-[10px] font-bold text-slate-500 uppercase">Tugas:</p>
+                <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                  {selectedDeadline.title}
+                </p>
+                {stageInfo && (
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                    Tahap: {stageInfo.label}
+                  </p>
+                )}
+              </div>
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Link (Opsional)
-              </label>
-              <div className="relative">
-                <Link2 className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-400" />
-                <input type="url" value={noteLink} onChange={(e) => setNoteLink(e.target.value)}
-                  placeholder="https://drive.google.com/... (boleh dikosongkan)"
-                  className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+              {/* ✅ FOTO UPLOADER */}
+              <PhotoEvidenceUploader
+                photos={notePhotos}
+                onChange={setNotePhotos}
+                maxPhotos={3}
+                required={isPelaksanaan}
+                hint={hint}
+                searchQuery={searchQuery}
+              />
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Catatan {isPelaksanaan ? '(Opsional)' : ''}
+                </label>
+                <textarea rows={3} value={noteText} onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Contoh: Selesai latihan dialog babak 2, sudah hafal semua."
+                  className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Link Referensi (Opsional)
+                </label>
+                <div className="relative">
+                  <Link2 className="w-3.5 h-3.5 absolute left-3 top-3 text-slate-400" />
+                  <input type="url" value={noteLink} onChange={(e) => setNoteLink(e.target.value)}
+                    placeholder="https://drive.google.com/... (boleh dikosongkan)"
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
+                <button type="button" onClick={() => { setIsNoteOpen(false); setNotePhotos([]); }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  Batal
+                </button>
+                <button type="button" onClick={handleSaveNote}
+                  disabled={submitting || (isPelaksanaan && notePhotos.length === 0)}
+                  className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                  <Save className="w-3.5 h-3.5" />
+                  {submitting ? 'Menyimpan...' : (isPelaksanaan ? `Kirim (${notePhotos.length} foto)` : 'Simpan Catatan')}
+                </button>
               </div>
             </div>
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-              <button type="button" onClick={() => setIsNoteOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
-                Batal
-              </button>
-              <button type="button" onClick={handleSaveNote} disabled={submitting}
-                className="px-5 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                <Save className="w-3.5 h-3.5" />
-                {submitting ? 'Menyimpan...' : 'Simpan Catatan'}
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL MANUAL */}
       {isManualOpen && (
@@ -1824,6 +1948,24 @@ export const DeadlineModule: React.FC = () => {
                   onChange={(e) => setManualDueDate(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
+
+              {manualStage === 'PELAKSANAAN' && (
+                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border-2 border-blue-300 dark:border-blue-500/40 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Camera className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <label className="text-xs font-bold text-blue-900 dark:text-blue-200">
+                      Panduan Foto Bukti (untuk siswa)
+                    </label>
+                  </div>
+                  <textarea rows={2} value={manualPhotoHint}
+                    onChange={(e) => setManualPhotoHint(e.target.value)}
+                    placeholder="Contoh: Foto properti yang dikerjakan + hasil akhir, foto tampak depan dan samping."
+                    className="w-full p-2.5 rounded-lg border border-blue-200 dark:border-blue-500/40 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+                  <p className="text-[10px] text-blue-700 dark:text-blue-300">
+                    💡 Tahap PELAKSANAAN otomatis wajib foto bukti. Isi panduan ini supaya siswa tahu foto apa yang perlu diambil.
+                  </p>
+                </div>
+              )}
 
               <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-rose-900 dark:text-rose-200">
@@ -1933,7 +2075,7 @@ export const DeadlineModule: React.FC = () => {
                     <h3 className="text-base font-extrabold text-slate-900 dark:text-white">Kirim dari Template</h3>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
                       Langkah {wizardStep} dari 4
-                      {wizardStep === 2 && ` — ${STAGE_INFO[selectedStage].label}`}
+                      {wizardStep === 2 && ` - ${STAGE_INFO[selectedStage].label}`}
                     </p>
                   </div>
                 </div>
@@ -1990,7 +2132,7 @@ export const DeadlineModule: React.FC = () => {
 
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      <strong>{currentTemplates.length} template</strong> — terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
+                      <strong>{currentTemplates.length} template</strong> - terpilih: <strong className="text-emerald-600">{selectedTemplateIds.length}</strong>
                     </p>
                     <div className="flex items-center gap-2">
                       <button onClick={selectAllTemplates} className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1">
@@ -2034,6 +2176,11 @@ export const DeadlineModule: React.FC = () => {
                                   <>Semua</>
                                 )}
                               </span>
+                              {(tpl as any).photoHint && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 flex items-center gap-0.5">
+                                  <Camera className="w-2.5 h-2.5" /> FOTO
+                                </span>
+                              )}
                             </div>
                             <p className="text-xs font-extrabold text-slate-900 dark:text-white line-clamp-2">{tpl.title}</p>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{tpl.description}</p>
@@ -2225,49 +2372,87 @@ export const DeadlineModule: React.FC = () => {
               <p className="text-xs text-slate-400 dark:text-slate-500 italic text-center py-8">Belum ada siswa yang submit.</p>
             ) : (
               <div className="space-y-3">
-                {submissions.map(sub => (
-                  <div key={sub.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                    <div className="flex items-start justify-between gap-3 flex-wrap">
-                      <div className="flex-1">
-                        <p className="text-sm font-bold text-slate-900 dark:text-white">{sub.studentName}</p>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                            sub.status === 'SELESAI' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300' :
-                            sub.status === 'TERLAMBAT' ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300' :
-                            'bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
-                          }`}>{sub.status}</span>
-                          {sub.submittedAt && (
-                            <span className="text-[10px] text-slate-500">
-                              {new Date(sub.submittedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          )}
+                {submissions.map(sub => {
+                  const photos = ((sub as any).evidencePhotos || []) as any[];
+                  return (
+                    <div key={sub.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-slate-900 dark:text-white">{sub.studentName}</p>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              sub.status === 'SELESAI' ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300' :
+                              sub.status === 'TERLAMBAT' ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300' :
+                              'bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-300'
+                            }`}>{sub.status}</span>
+                            {photos.length > 0 && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-300 flex items-center gap-1">
+                                <Camera className="w-3 h-3" /> {photos.length} foto
+                              </span>
+                            )}
+                            {sub.submittedAt && (
+                              <span className="text-[10px] text-slate-500">
+                                {new Date(sub.submittedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        {sub.proofNote && <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 italic p-2 rounded-lg bg-white dark:bg-slate-900">"{sub.proofNote}"</p>}
-                        {sub.proofUrl && (
-                          <a href={sub.proofUrl} target="_blank" rel="noreferrer"
-                            className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline mt-2 inline-flex items-center gap-1">
-                            <Link2 className="w-3 h-3" /> Buka Link
-                          </a>
-                        )}
+                      </div>
+
+                      {photos.length > 0 && (
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mt-3">
+                          {photos.map((p, i) => (
+                            <div key={p.id || i} className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+                              <img src={p.dataUrl} alt={p.caption || `Foto ${i + 1}`}
+                                className="w-full h-20 object-cover cursor-pointer hover:opacity-90"
+                                onClick={() => {
+                                  const w = window.open('', '_blank');
+                                  if (w) {
+                                    w.document.write(`
+                                      <html><head><title>${p.caption || 'Bukti Foto'}</title>
+                                      <style>body{margin:0;background:#0f172a;display:flex;align-items:center;justify-content:center;min-height:100vh;}
+                                      img{max-width:95vw;max-height:95vh;border-radius:12px;}</style>
+                                      </head><body><img src="${p.dataUrl}" /></body></html>
+                                    `);
+                                    w.document.close();
+                                  }
+                                }} />
+                              {p.caption && (
+                                <p className="text-[8px] p-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 truncate">
+                                  {p.caption}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {sub.proofNote && <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 italic p-2 rounded-lg bg-white dark:bg-slate-900">"{sub.proofNote}"</p>}
+                      {sub.proofUrl && (
+                        <a href={sub.proofUrl} target="_blank" rel="noreferrer"
+                          className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline mt-2 inline-flex items-center gap-1">
+                          <Link2 className="w-3 h-3" /> Buka Link
+                        </a>
+                      )}
+
+                      <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
+                        <textarea rows={2} value={feedbackText} onChange={(e) => setFeedbackText(e.target.value)}
+                          placeholder="Beri feedback..."
+                          className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white" />
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <select value={feedbackRating} onChange={(e) => setFeedbackRating(parseInt(e.target.value))}
+                            className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white">
+                            {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} bintang</option>)}
+                          </select>
+                          <button onClick={() => handleSaveFeedback(sub)}
+                            className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1">
+                            <CheckCircle className="w-3.5 h-3.5" /> Simpan
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
-                      <textarea rows={2} value={feedbackText} onChange={(e) => setFeedbackText(e.target.value)}
-                        placeholder="Beri feedback..."
-                        className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white" />
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <select value={feedbackRating} onChange={(e) => setFeedbackRating(parseInt(e.target.value))}
-                          className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-white">
-                          {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} bintang</option>)}
-                        </select>
-                        <button onClick={() => handleSaveFeedback(sub)}
-                          className="px-4 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[11px] flex items-center gap-1">
-                          <CheckCircle className="w-3.5 h-3.5" /> Simpan
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2341,7 +2526,6 @@ export const DeadlineModule: React.FC = () => {
               </label>
             </div>
 
-            {/* SECTION TARGET PENERIMA */}
             <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 overflow-hidden">
               <button
                 type="button"
@@ -2369,16 +2553,12 @@ export const DeadlineModule: React.FC = () => {
                       const Icon = opt.icon;
                       const isSel = editTargetScope === opt.val;
                       return (
-                        <button
-                          key={opt.val}
-                          type="button"
-                          onClick={() => setEditTargetScope(opt.val as any)}
+                        <button key={opt.val} type="button" onClick={() => setEditTargetScope(opt.val as any)}
                           className={`p-2 rounded-lg border-2 text-[11px] font-bold transition flex items-center gap-1.5 justify-center ${
                             isSel
                               ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
                               : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                          }`}
-                        >
+                          }`}>
                           <Icon className="w-3.5 h-3.5" /> {opt.label}
                         </button>
                       );
@@ -2386,23 +2566,19 @@ export const DeadlineModule: React.FC = () => {
                   </div>
 
                   {editTargetScope === 'PERAN' && (
-                    <select
-                      value={editTargetRole}
+                    <select value={editTargetRole}
                       onChange={(e) => setEditTargetRole(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white"
-                    >
-                      <option value="">— Pilih Peran —</option>
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white">
+                      <option value="">- Pilih Peran -</option>
                       {ROLE_LIST.map(r => <option key={r} value={r}>{r}</option>)}
                     </select>
                   )}
 
                   {editTargetScope === 'DIVISI' && (
-                    <select
-                      value={editTargetDivision}
+                    <select value={editTargetDivision}
                       onChange={(e) => setEditTargetDivision(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white"
-                    >
-                      <option value="">— Pilih Divisi —</option>
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white">
+                      <option value="">- Pilih Divisi -</option>
                       {DIVISION_LIST.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   )}
@@ -2415,14 +2591,10 @@ export const DeadlineModule: React.FC = () => {
                           {ROLE_LIST.map(r => {
                             const sel = editTargetRoles.includes(r);
                             return (
-                              <button
-                                key={r}
-                                type="button"
-                                onClick={() => setEditTargetRoles(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])}
+                              <button key={r} type="button" onClick={() => setEditTargetRoles(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])}
                                 className={`p-1.5 rounded-md text-[10px] font-bold transition text-left truncate ${
                                   sel ? 'bg-blue-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                                }`}
-                              >
+                                }`}>
                                 {sel ? '✓ ' : ''}{r}
                               </button>
                             );
@@ -2435,14 +2607,10 @@ export const DeadlineModule: React.FC = () => {
                           {DIVISION_LIST.map(d => {
                             const sel = editTargetDivisions.includes(d);
                             return (
-                              <button
-                                key={d}
-                                type="button"
-                                onClick={() => setEditTargetDivisions(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])}
+                              <button key={d} type="button" onClick={() => setEditTargetDivisions(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])}
                                 className={`p-1.5 rounded-md text-[10px] font-bold transition text-left truncate ${
                                   sel ? 'bg-purple-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
-                                }`}
-                              >
+                                }`}>
                                 {sel ? '✓ ' : ''}{d}
                               </button>
                             );
