@@ -50,9 +50,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  // ✅ KLIK NOTIFIKASI → ARAHKAN KE MODUL YANG TEPAT
+  // ============================================================
+  // ✅ FIX: HANDLE READ NOTIF
+  // 1. Mark as read
+  // 2. Resolve target module
+  // 3. Dispatch event global supaya App.tsx bisa handle switch view
+  //    (dari welcome → in-class) dan set current module
+  // ============================================================
   const handleReadNotif = async (n: SystemNotification) => {
-    await markNotificationAsRead(n.id);
+    try {
+      await markNotificationAsRead(n.id);
+    } catch (err) {
+      console.warn('Mark read error:', err);
+    }
     setShowNotifMenu(false);
 
     // Resolve modul target (link atau deteksi dari judul)
@@ -64,8 +74,13 @@ export const Navbar: React.FC<NavbarProps> = ({
       target = 'notifikasi';
     }
 
-    // Kalau modul butuh activeClass tapi belum ada, tetap arahkan (App akan handle)
-    onNavigate(target);
+    // ✅ Dispatch event global — App.tsx yang handle navigasi + switch view
+    try {
+      window.dispatchEvent(new CustomEvent('spppt-navigate', { detail: { module: target } }));
+    } catch {
+      // Fallback kalau dispatchEvent gagal (browser lama)
+      onNavigate(target);
+    }
   };
 
   const handleMarkAllRead = async () => {
