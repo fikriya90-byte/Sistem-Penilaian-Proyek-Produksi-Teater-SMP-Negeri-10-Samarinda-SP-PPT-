@@ -12,6 +12,9 @@ export interface DeadlineTemplate {
   isCritical: boolean;
   reference: string;
   deadlineRef: string;
+  // ✅ NEW: Panduan foto untuk tahap PELAKSANAAN
+  photoHint?: string;
+  photoSearchQuery?: string;
 }
 
 // =========================================================
@@ -390,6 +393,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Pimpro § Pelaksanaan',
       deadlineRef: 'Per sesi',
+      photoHint: 'Foto suasana rapat pleno: seluruh tim duduk dalam forum, papan tulis dengan agenda, catatan notulen. Bisa foto dari sudut belakang agar tidak terlalu banyak wajah tertangkap.',
+      photoSearchQuery: 'rapat organisasi siswa sekolah',
     },
     {
       id: 'pelaksanaan-pimpro-2',
@@ -402,6 +407,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Pimpro § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Screenshot dashboard Progress Tugas di web + foto saat koordinasi langsung dengan Koordinator Divisi.',
+      photoSearchQuery: 'koordinasi tim produksi sekolah',
     },
     {
       id: 'pelaksanaan-pimpro-3',
@@ -414,6 +421,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Pimpro § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Screenshot laporan progres yang dikirim ke Guru + foto dokumen fisik laporan bertanda tangan guru penerima.',
+      photoSearchQuery: 'laporan proyek sekolah siswa',
     },
     {
       id: 'pelaksanaan-pimpro-4',
@@ -426,6 +435,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Pimpro § Pelaksanaan',
       deadlineRef: 'Maks 2 hari kerja setelah dilaporkan',
+      photoHint: 'Foto dokumen catatan hambatan + tindak lanjut tertulis. Bisa juga screenshot chat koordinasi penyelesaian masalah.',
+      photoSearchQuery: 'penyelesaian masalah koordinasi sekolah',
     },
 
     // ---------- SEKRETARIS ----------
@@ -440,6 +451,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Sekretaris § Pelaksanaan',
       deadlineRef: 'H+1 rapat',
+      photoHint: 'Foto catatan notulen tangan + halaman notulen yang sudah di-upload ke menu Notulensi.',
+      photoSearchQuery: 'notulen rapat sekolah tulisan tangan',
     },
     {
       id: 'pelaksanaan-sekre-2',
@@ -452,6 +465,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Sekretaris § Pelaksanaan',
       deadlineRef: 'Sebelum kegiatan mulai',
+      photoHint: 'Screenshot menu Presensi di web + foto daftar hadir fisik (kalau ada).',
+      photoSearchQuery: 'presensi kegiatan sekolah',
     },
     {
       id: 'pelaksanaan-sekre-3',
@@ -464,6 +479,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Sekretaris § Pelaksanaan',
       deadlineRef: 'H-1 kegiatan',
+      photoHint: 'Screenshot broadcast yang dikirim via menu Broadcast + screenshot notifikasi yang diterima siswa.',
+      photoSearchQuery: 'broadcast pengumuman sekolah',
     },
     {
       id: 'pelaksanaan-sekre-4',
@@ -476,6 +493,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Sekretaris § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Screenshot folder Drive dengan dokumen yang diarsipkan + foto stack dokumen fisik yang siap diarsip.',
+      photoSearchQuery: 'arsip dokumen sekolah',
     },
 
     // ---------- BENDAHARA ----------
@@ -490,6 +509,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Bendahara § Pelaksanaan',
       deadlineRef: 'Tiap periode kas',
+      photoHint: 'Screenshot menu Kas dengan status pembayaran + screenshot reminder yang dikirim ke siswa yang belum bayar.',
+      photoSearchQuery: 'pembayaran kas siswa sekolah',
     },
     {
       id: 'pelaksanaan-bend-2',
@@ -502,6 +523,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Bendahara § Pelaksanaan',
       deadlineRef: 'Hari yang sama dengan transaksi',
+      photoHint: 'Foto nota/struk transaksi + screenshot entri Buku Kas di web yang sesuai dengan transaksi tersebut.',
+      photoSearchQuery: 'nota belanja keperluan sekolah',
     },
     {
       id: 'pelaksanaan-bend-3',
@@ -514,6 +537,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Bendahara § Pelaksanaan',
       deadlineRef: 'Maks 3 hari setelah transaksi',
+      photoHint: 'Foto nota fisik yang jelas terbaca (tanggal, jumlah, nama toko) + screenshot entri di folder Drive arsip.',
+      photoSearchQuery: 'nota kwitansi pembelian',
     },
     {
       id: 'pelaksanaan-bend-4',
@@ -526,6 +551,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Bendahara § Pelaksanaan',
       deadlineRef: 'Sebelum tugas divisi yang membutuhkannya',
+      photoHint: 'Foto bukti transfer/nota pembayaran + screenshot entri RAB di web yang sesuai.',
+      photoSearchQuery: 'bukti transfer pembayaran',
     },
 
     // ---------- SUTRADARA ----------
@@ -540,6 +567,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Sutradara § Pelaksanaan',
       deadlineRef: 'Per sesi',
+      photoHint: 'Foto suasana latihan dari sudut sutradara: pemain sedang berlatih, catatan sutradara di naskah, atau papan blocking. Hindari foto close-up wajah pemain tanpa izin.',
+      photoSearchQuery: 'latihan drama siswa sekolah',
     },
     {
       id: 'pelaksanaan-sut-2',
@@ -552,6 +581,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Sutradara § Pelaksanaan',
       deadlineRef: 'Sebelum latihan mulai',
+      photoHint: 'Screenshot menu Presensi di web yang menunjukkan sesi Pemeran & Tata Musik sedang terbuka.',
+      photoSearchQuery: 'presensi latihan siswa',
     },
     {
       id: 'pelaksanaan-sut-3',
@@ -564,6 +595,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Sutradara § Pelaksanaan',
       deadlineRef: 'Sesuai Jadwal & Agenda',
+      photoHint: 'Foto suasana rapat artistik + visualisasi konsep artistik (sketsa/moodboard) yang dibahas.',
+      photoSearchQuery: 'rapat artistik teater',
     },
     {
       id: 'pelaksanaan-sut-4',
@@ -576,6 +609,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Sutradara § Pelaksanaan',
       deadlineRef: 'Sebelum Run-Through',
+      photoHint: 'Screenshot Prompt Book di menu Studio yang menunjukkan blocking 3x3 grid final + foto panggung dengan tanda blocking.',
+      photoSearchQuery: 'blocking panggung teater',
     },
 
     // ---------- ASISTEN SUTRADARA ----------
@@ -590,6 +625,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Astrada § Pelaksanaan',
       deadlineRef: 'H+1 setiap sesi blocking',
+      photoHint: 'Screenshot Prompt Book di menu Studio yang sudah diperbarui + foto catatan blocking fisik.',
+      photoSearchQuery: 'prompt book teater',
     },
     {
       id: 'pelaksanaan-astrada-2',
@@ -602,6 +639,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Astrada § Pelaksanaan',
       deadlineRef: 'H+1 setiap sesi',
+      photoHint: 'Foto catatan latihan tulisan tangan yang detail (poin-poin evaluasi per pemain/adegan).',
+      photoSearchQuery: 'catatan evaluasi latihan',
     },
     {
       id: 'pelaksanaan-astrada-3',
@@ -614,6 +653,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Astrada § Pelaksanaan',
       deadlineRef: 'H-1 sesi',
+      photoHint: 'Screenshot chat broadcast/WA ke grup pemeran + daftar penerima yang sudah dibaca.',
+      photoSearchQuery: 'broadcast jadwal latihan siswa',
     },
 
     // ---------- PEMERAN ----------
@@ -628,6 +669,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Pemeran § Pelaksanaan',
       deadlineRef: 'Per sesi',
+      photoHint: 'Selfie saat latihan berlangsung (menunjukkan sedang pegang naskah/di panggung) + foto lawan main. Boleh dari samping atau belakang, hindari menampilkan wajah orang lain tanpa izin.',
+      photoSearchQuery: 'siswa latihan akting',
     },
     {
       id: 'pelaksanaan-pemeran-2',
@@ -640,6 +683,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Pemeran § Pelaksanaan',
       deadlineRef: 'Sesuai tenggat uji per babak',
+      photoHint: 'Foto halaman naskah yang sudah ditandai hafalan (warna stabilo/checkmark) + screenshot video rekaman hafalan.',
+      photoSearchQuery: 'hafalan naskah siswa',
     },
     {
       id: 'pelaksanaan-pemeran-3',
@@ -652,6 +697,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Pemeran § Pelaksanaan',
       deadlineRef: 'Sebelum Run-Through',
+      photoHint: 'Foto blocking yang sudah dihafal — bisa dari panggung saat latihan, atau selfie dengan sketsa blocking di panggung.',
+      photoSearchQuery: 'blocking panggung siswa',
     },
     {
       id: 'pelaksanaan-pemeran-4',
@@ -664,6 +711,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Pemeran § Pelaksanaan',
       deadlineRef: 'Sesuai jadwal',
+      photoHint: 'Foto kostum saat fitting (tampak depan + belakang, full body). Boleh minta tolong orang lain untuk motret. Pastikan kostum terlihat jelas.',
+      photoSearchQuery: 'fitting kostum siswa sekolah',
     },
 
     // ---------- KOORDINATOR (Tugas Tambahan) ----------
@@ -677,6 +726,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Koordinator § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Screenshot dashboard Progress Divisi di web + foto catatan laporan mingguan.',
+      photoSearchQuery: 'laporan divisi organisasi sekolah',
     },
 
     // ---------- PERLENGKAPAN ----------
@@ -691,6 +742,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Perlengkapan § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Foto properti sedang dikerjakan (close-up bahan & tangan yang bekerja) + foto properti selesai dari beberapa sudut. Hindari memotret wajah orang lain tanpa izin.',
+      photoSearchQuery: 'membuat properti teater siswa',
     },
     {
       id: 'pelaksanaan-perlengkapan-2',
@@ -703,6 +756,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Perlengkapan § Pelaksanaan',
       deadlineRef: 'Sebelum Run-Through',
+      photoHint: 'Foto properti sedang diuji/digunakan (properti dipegang/dipasang) + foto detail kekuatan sambungan/tali/lem.',
+      photoSearchQuery: 'uji properti panggung siswa',
     },
     {
       id: 'pelaksanaan-perlengkapan-3',
@@ -715,6 +770,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Perlengkapan § Pelaksanaan',
       deadlineRef: 'Sebelum Run-Through',
+      photoHint: 'Foto semua properti utama berjejer rapi + screenshot menu Properti yang menunjukkan semua properti berstatus SELESAI.',
+      photoSearchQuery: 'properti teater sekolah lengkap',
     },
 
     // ---------- PUBLIKASI ----------
@@ -729,6 +786,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Publikasi § Pelaksanaan',
       deadlineRef: 'H-30 pementasan',
+      photoHint: 'Screenshot post poster di Instagram/medsos + foto poster cetak yang ditempel di mading sekolah.',
+      photoSearchQuery: 'poster pertunjukan sekolah',
     },
     {
       id: 'pelaksanaan-publikasi-2',
@@ -741,6 +800,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Publikasi § Pelaksanaan',
       deadlineRef: 'H-14 pementasan',
+      photoHint: 'Screenshot halaman upload video teaser (YouTube/TikTok/IG) + thumbnail video yang sudah rilis.',
+      photoSearchQuery: 'teaser pertunjukan sekolah',
     },
     {
       id: 'pelaksanaan-publikasi-3',
@@ -753,6 +814,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Publikasi § Pelaksanaan',
       deadlineRef: 'Sesuai jadwal yang ditetapkan Pimpro',
+      photoHint: 'Screenshot poster tiket digital + foto tiket cetak yang sudah siap dijual + screenshot chat pembeli.',
+      photoSearchQuery: 'tiket pertunjukan sekolah',
     },
     {
       id: 'pelaksanaan-publikasi-4',
@@ -765,6 +828,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Publikasi § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Foto behind-the-scenes: 3-5 foto dari sudut berbeda menunjukkan aktivitas divisi lain (tangan sedang bekerja, alat, suasana).',
+      photoSearchQuery: 'behind the scenes teater siswa',
     },
 
     // ---------- TATA PANGGUNG ----------
@@ -779,6 +844,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Tata Panggung § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Foto progres konstruksi: alat, kayu, sambungan, pemasangan. Foto close-up detail pekerjaan + foto keseluruhan set.',
+      photoSearchQuery: 'membuat set panggung siswa',
     },
     {
       id: 'pelaksanaan-panggung-2',
@@ -791,6 +858,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Tata Panggung § Pelaksanaan',
       deadlineRef: 'Akhir Pelaksanaan',
+      photoHint: 'Foto lampu yang sudah terpasang di rigging panggung + foto saat lampu sedang dinyalakan (efek cahaya).',
+      photoSearchQuery: 'lighting panggung sekolah',
     },
 
     // ---------- TATA RIAS ----------
@@ -805,6 +874,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Tata Rias § Pelaksanaan',
       deadlineRef: 'Sebelum Fitting & Rias',
+      photoHint: 'Foto tes alergi di lengan pemain (swatch warna) + foto daftar hasil tes alergi per pemain.',
+      photoSearchQuery: 'tes alergi makeup',
     },
     {
       id: 'pelaksanaan-rias-2',
@@ -817,6 +888,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Tata Rias § Pelaksanaan',
       deadlineRef: 'Sebelum Fitting & Rias',
+      photoHint: 'Foto meja rias yang sudah tertata rapi dengan alat rias lengkap + foto ruang rias yang siap digunakan.',
+      photoSearchQuery: 'ruang rias makeup lengkap',
     },
     {
       id: 'pelaksanaan-rias-3',
@@ -829,6 +902,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Tata Rias § Pelaksanaan',
       deadlineRef: 'Sesuai jadwal Fitting & Rias',
+      photoHint: 'Close-up wajah pemain setelah dirias (tampak depan + samping) + foto face chart sebagai pembanding. Fokuskan pada hasil rias, bukan wajah.',
+      photoSearchQuery: 'hasil makeup karakter panggung',
     },
 
     // ---------- TATA BUSANA ----------
@@ -843,6 +918,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Tata Busana § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Foto kain yang sudah dipotong sesuai pola + foto proses menjahit (tangan + mesin jahit + potongan kain).',
+      photoSearchQuery: 'proses menjahit kostum siswa',
     },
     {
       id: 'pelaksanaan-busana-2',
@@ -855,6 +932,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Tata Busana § Pelaksanaan',
       deadlineRef: 'Sebelum Gladi Resik',
+      photoHint: 'Foto pemain memakai kostum full body (tampak depan + belakang) + close-up detail aksesori. Foto boleh dari belakang atau samping untuk privasi.',
+      photoSearchQuery: 'fitting kostum teater sekolah',
     },
 
     // ---------- TATA MUSIK ----------
@@ -869,6 +948,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Tata Musik § Pelaksanaan',
       deadlineRef: 'Mingguan',
+      photoHint: 'Screenshot software audio editor (Audacity/FL Studio/DAW) saat proses editing + screenshot menu Cue Sheet di web.',
+      photoSearchQuery: 'edit audio siswa sekolah',
     },
     {
       id: 'pelaksanaan-musik-2',
@@ -881,6 +962,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: false,
       reference: 'Job Desc Tata Musik § Pelaksanaan',
       deadlineRef: 'Sebelum Run-Through',
+      photoHint: 'Screenshot timeline cue di software audio yang sinkron dengan nomor adegan + foto setup sound system saat latihan sinkronisasi.',
+      photoSearchQuery: 'sound system panggung siswa',
     },
     {
       id: 'pelaksanaan-musik-3',
@@ -893,6 +976,8 @@ export const DEADLINE_TEMPLATES: Record<ProductionStage, DeadlineTemplate[]> = {
       isCritical: true,
       reference: 'Job Desc Tata Musik § Pelaksanaan',
       deadlineRef: 'Sebelum Technical Rehearsal',
+      photoHint: 'Screenshot file cue sheet lengkap di Google Drive + foto setup mixer/laptop operator yang menunjukkan track siap.',
+      photoSearchQuery: 'cue sheet pertunjukan sekolah',
     },
   ],
 
