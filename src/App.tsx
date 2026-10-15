@@ -53,6 +53,8 @@ import { InterClassCoordModule } from './components/modules/InterClassCoordModul
 import { DebugUsersModule } from './components/modules/DebugUsersModule';
 import { RABModule } from './components/modules/RABModule';
 import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastModule';
+// ✅ NEW: Rekap Nilai Akhir
+import { GradeRecapModule } from './components/modules/GradeRecapModule';
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
@@ -70,6 +72,7 @@ const IN_CLASS_MODULES = [
   'director-timeline', 'properti', 'musik', 'rias', 'busana', 'broadcast', 'aduan',
   'dokumen', 'struktur', 'studio', 'kelola-siswa', 'kelola-tahapan', 'jadwal-penilaian',
   'moderasi', 'booking', 'admin-dashboard',
+  'rekap-nilai',  // ✅ NEW: Rekap Nilai Akhir
 ];
 
 const WelcomeLayout: React.FC<{
@@ -167,8 +170,6 @@ const MainLayout: React.FC = () => {
 
   // =====================================================
   // AUTO-ENTER CLASS UNTUK SISWA
-  // - Guru/Admin: harus pilih kelas dulu
-  // - Siswa: langsung masuk in-class view jika sudah punya kelas
   // =====================================================
   useEffect(() => {
     if (!user) return;
@@ -194,9 +195,7 @@ const MainLayout: React.FC = () => {
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
 
   // =====================================================
-  // ✅ NEW (FIX #3): AUTO-RUN REMINDER CHECKER
-  // Jalankan reminder H-3/H-1/OVERDUE otomatis saat user buka app
-  // Delay 3 detik supaya tidak berat saat pertama load
+  // AUTO-RUN REMINDER CHECKER
   // =====================================================
   useEffect(() => {
     if (!user || !activeClass) return;
@@ -284,6 +283,9 @@ const MainLayout: React.FC = () => {
     await logout();
   };
 
+  // =====================================================
+  // ADMIN LAYOUT
+  // =====================================================
   if (isAdminRole) {
     return (
       <>
@@ -308,6 +310,7 @@ const MainLayout: React.FC = () => {
                currentModule === 'inter-class' ? <InterClassCoordModule /> :
                currentModule === 'debug-users' ? <DebugUsersModule /> :
                currentModule === 'rab' ? <RABModule /> :
+               currentModule === 'rekap-nilai' ? <GradeRecapModule /> :  // ✅ NEW
                <AdminModule />}
             </main>
           </div>
@@ -319,6 +322,9 @@ const MainLayout: React.FC = () => {
     );
   }
 
+  // =====================================================
+  // WELCOME VIEW
+  // =====================================================
   if (view === 'welcome') {
     return (
       <WelcomeLayout
@@ -329,12 +335,16 @@ const MainLayout: React.FC = () => {
     );
   }
 
+  // =====================================================
+  // IN-CLASS MODULE ROUTER
+  // =====================================================
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={handleNavigate} />;
       case 'nilai-saya': return <MyGradeModule />;
       case 'nilai': return <AssessmentModule />;
       case 'moderasi': return <ModerationModule />;
+      case 'rekap-nilai': return <GradeRecapModule />;  // ✅ NEW
       case 'absensi': return <AttendanceModule />;
       case 'statistik-absensi': return <AttendanceStatsModule />;
       case 'kas': return <KasModule />;
