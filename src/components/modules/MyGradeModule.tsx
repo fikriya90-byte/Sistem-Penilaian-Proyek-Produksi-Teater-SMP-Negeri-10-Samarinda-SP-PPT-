@@ -13,7 +13,8 @@ import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import {
   PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES, getPredikat,
-  getAssessmentMatrix, getAssessorWeights,
+  getAssessmentMatrix, getAssessorWeights, normalizeUserRole,
+  isPemeranRole, canRoleAssessTarget,
 } from '../../core/constants';
 import { AssessmentRecord, ProductionStage } from '../../core/types';
 import { subscribeAssessments } from '../../services/firestoreService';
@@ -51,7 +52,10 @@ function isAssessmentOpen(stageDeadlines: any, stageId: ProductionStage) {
 function formatDateTime(iso: string | undefined): string {
   if (!iso) return '-';
   try {
-    return new Date(iso).toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' WITA';
+    return new Date(iso).toLocaleString('id-ID', {
+      day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }) + ' WITA';
   } catch { return '-'; }
 }
 
@@ -92,7 +96,6 @@ export const MyGradeModule: React.FC = () => {
     return () => unsub();
   }, [activeClass, user]);
 
-  // Subscribe stage config untuk gate waktu penilaian
   useEffect(() => {
     if (!activeClass) return;
     const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
@@ -106,36 +109,54 @@ export const MyGradeModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // Load classmates untuk cek peer status
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'users'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, snap => {
-      setClassmates(snap.docs.map(d => ({ ...d.data(), uid: d.id })));
+      // Normalize role ketika load classmates
+      const users = snap.docs.map(d => {
+        const raw = { ...d.data(), uid: d.id };
+        return { ...raw, role: normalizeUserRole(raw.role) };
+      });
+      setClassmates(users);
     });
     return () => unsub();
   }, [activeClass]);
 
-  // ============ PEER GATE ============
+  // ============================================================
+  // ✅ FIX: PEER GATE
+  // Sekarang: cari matrix dari SISI TARGET (bukan dari SISI USER).
+  // ============================================================
   const peerStatus = (() => {
     if (!user || classmates.length === 0) {
       return { total: 0, filled: 0, pending: 0, pct: 100, isComplete: true, targets: [] as any[] };
     }
-    const matrix = getAssessmentMatrix(user.role);
-    const targetRoles = new Set<string>();
-    ['REKAN', 'BAWAHAN', 'ATASAN'].forEach(cat => {
-      const rel = matrix.find(r => r.category === cat);
-      if (rel) rel.roles.forEach(r => targetRoles.add(r));
+
+    // Cari classmate yang MATRIX-NYA mengizinkan user.role menjadi penilai
+    const targets = classmates.filter(s => {
+      if (s.uid === user.uid) return false;
+      if (['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role)) return false;
+      // Cek apakah user boleh menilai s (berdasarkan matrix SISI TARGET)
+      return canRoleAssessTarget(s.role, user.role);
     });
-    const targets = classmates.filter(s =>
-      s.uid !== user.uid && targetRoles.has(s.role) &&
-      s.role !== 'Guru Pengampu' && s.role !== 'Guru Pembina' && s.role !== 'Admin' && s.role !== 'Super Admin'
-    );
+
     const filled = targets.filter(t =>
-      assessments.some(a => a.assessorId === user.uid && a.studentId === t.uid && a.stage === selectedStage)
+      assessments.some(a =>
+        a.assessorId === user.uid &&
+        a.studentId === t.uid &&
+        a.stage === selectedStage
+      )
     ).length;
+
     const total = targets.length;
-    return { total, filled, pending: total - filled, pct: total > 0 ? Math.round((filled / total) * 100) : 100, isComplete: filled >= total, targets };
+    return {
+      total,
+      filled,
+      pending: total - filled,
+      pct: total > 0 ? Math.round((filled / total) * 100) : 100,
+      isComplete: filled >= total,
+      targets,
+    };
   })();
 
   const peerGateUnlocked = canBypassGate || peerStatus.isComplete || peerStatus.total === 0;
@@ -144,7 +165,6 @@ export const MyGradeModule: React.FC = () => {
   const assessmentStatus = isAssessmentOpen(stageConfig?.stageDeadlines, selectedStage);
   const assessmentTimeOpen = canBypassGate || assessmentStatus.open;
 
-  // Nilai user
   const myAssessments = assessments.filter(a => a.studentId === user?.uid);
 
   const getStageScore = (stage: ProductionStage) => {
@@ -156,12 +176,12 @@ export const MyGradeModule: React.FC = () => {
       if (!byCat[cat]) byCat[cat] = [];
       byCat[cat].push(r);
     });
-    const avg = (arr: AssessmentRecord[]) => arr.length > 0 ? arr.reduce((s, a) => s + a.totalScore, 0) / arr.length : null;
-    let weights = { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 };
-    if (user?.role === 'Pimpinan Produksi' || user?.role === 'Sutradara') weights = { GURU: 40, ATASAN: 0, REKAN: 20, BAWAHAN: 40 };
-    else if (user?.role === 'Sekretaris' || user?.role === 'Bendahara') weights = { GURU: 0, ATASAN: 60, REKAN: 40, BAWAHAN: 0 };
-    else if (user?.role?.startsWith('Koordinator ')) weights = { GURU: 0, ATASAN: 50, REKAN: 0, BAWAHAN: 50 };
-    else if (user?.role === 'Asisten Sutradara') weights = { GURU: 0, ATASAN: 60, REKAN: 0, BAWAHAN: 40 };
+    const avg = (arr: AssessmentRecord[]) =>
+      arr.length > 0 ? arr.reduce((s, a) => s + a.totalScore, 0) / arr.length : null;
+
+    // Ambil bobot berdasarkan role user (dinormalisasi)
+    const weights = getAssessorWeights(normalizeUserRole(user?.role));
+
     let sum = 0, wSum = 0;
     Object.entries(weights).forEach(([cat, w]) => {
       const catScore = byCat[cat] ? avg(byCat[cat]) : null;
@@ -190,7 +210,10 @@ export const MyGradeModule: React.FC = () => {
   const predikatInfo = getPredikat(finalScore);
   const hasAnyScore = Object.values(stageScores).some(s => s !== null);
 
-  // ✅ DOWNLOAD — hanya data milik sendiri (filter sudah pakai user.uid)
+  // ✅ Gunakan helper dari constants
+  const isActor = isPemeranRole(user?.role);
+  const allCriteria = isActor ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+
   const handleDownload = () => {
     if (!user) return;
     const sheet1 = {
@@ -219,23 +242,39 @@ export const MyGradeModule: React.FC = () => {
         criteriaScores[k].push(v);
       });
     });
-    const allCriteria = user.role === 'Pemeran' ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
     const sheet3 = {
       name: 'Rincian Kriteria',
       headers: ['Kriteria', 'Bobot', 'Rata-rata (1-4)', 'Konversi (0-100)', 'Sumber'],
       rows: allCriteria.map(c => {
         const arr = criteriaScores[c.key] || [];
         const avg = arr.length > 0 ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
-        return [c.label, `${c.weight}%`, avg ? avg.toFixed(2) : '-', avg ? SCORE_SCALE[Math.round(avg)]?.score100 : '-', c.source === 'MANUAL' ? 'Manual' : 'Otomatis'];
+        return [
+          c.label,
+          `${c.weight}%`,
+          avg ? avg.toFixed(2) : '-',
+          avg ? SCORE_SCALE[Math.round(avg)]?.score100 : '-',
+          c.source === 'MANUAL' ? 'Manual' : 'Otomatis',
+        ];
       }),
     };
-    const comments = myAssessments.filter(a => a.comment && a.comment.trim()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    const comments = myAssessments
+      .filter(a => a.comment && a.comment.trim())
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     const sheet4 = {
       name: 'Komentar',
       headers: ['Tanggal', 'Tahap', 'Kategori', 'Nilai', 'Komentar'],
-      rows: comments.map(c => [new Date(c.createdAt || '').toLocaleString('id-ID'), c.stage, CATEGORY_LABEL[((c as any).assessorCategory as AssessorCategory) || 'REKAN'], c.totalScore, c.comment || '']),
+      rows: comments.map(c => [
+        new Date(c.createdAt || '').toLocaleString('id-ID'),
+        c.stage,
+        CATEGORY_LABEL[((c as any).assessorCategory as AssessorCategory) || 'REKAN'],
+        c.totalScore,
+        c.comment || '',
+      ]),
     };
-    exportMultiSheetXLSX(`Rapor_${user.displayName.replace(/\s+/g, '_')}_${activeClass?.name || 'Kelas'}_${new Date().toISOString().slice(0, 10)}.xls`, [sheet1, sheet2, sheet3, sheet4]);
+    exportMultiSheetXLSX(
+      `Rapor_${user.displayName.replace(/\s+/g, '_')}_${activeClass?.name || 'Kelas'}_${new Date().toISOString().slice(0, 10)}.xls`,
+      [sheet1, sheet2, sheet3, sheet4]
+    );
     showToast('Rapor berhasil diunduh!', 'success');
   };
 
@@ -295,15 +334,22 @@ export const MyGradeModule: React.FC = () => {
             </h3>
             <div className="space-y-2 max-h-64 overflow-y-auto">
               {peerStatus.targets.map(t => {
-                const isFilled = assessments.some(a => a.assessorId === user.uid && a.studentId === t.uid && a.stage === selectedStage);
+                const isFilled = assessments.some(a =>
+                  a.assessorId === user.uid &&
+                  a.studentId === t.uid &&
+                  a.stage === selectedStage
+                );
                 return (
                   <div key={t.uid} className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
-                    isFilled ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
+                    isFilled
+                      ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
                       : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                   }`}>
                     <div className="flex items-center gap-2 min-w-0">
                       <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                        isFilled ? 'bg-emerald-500 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                        isFilled
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                       }`}>
                         {isFilled ? <CheckCircle className="w-3.5 h-3.5" /> : t.displayName.charAt(0).toUpperCase()}
                       </div>
@@ -313,7 +359,8 @@ export const MyGradeModule: React.FC = () => {
                       </div>
                     </div>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                      isFilled ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                      isFilled
+                        ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
                         : 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
                     }`}>
                       {isFilled ? 'Sudah' : 'Belum'}
@@ -378,11 +425,11 @@ export const MyGradeModule: React.FC = () => {
           </p>
 
           <div className={`mt-5 p-4 rounded-2xl bg-white/70 dark:bg-slate-800/70 border max-w-md mx-auto ${
-            assessmentStatus.reason === 'not-started' ? 'border-blue-200 dark:border-blue-500/30' : 'border-rose-200 dark:border-rose-500/30'
+            assessmentStatus.reason === 'not-started'
+              ? 'border-blue-200 dark:border-blue-500/30'
+              : 'border-rose-200 dark:border-rose-500/30'
           }`}>
-            <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Info Tahap Aktif
-            </p>
+            <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">Info Tahap Aktif</p>
             <p className="text-xs text-slate-600 dark:text-slate-400">
               Tahap aktif kelas Anda: <strong className="text-slate-900 dark:text-white">{stageConfig?.currentStage || '-'}</strong>
             </p>
@@ -425,7 +472,10 @@ export const MyGradeModule: React.FC = () => {
     { name: 'BAWAHAN', value: myAssessments.filter(a => (a as any).assessorCategory === 'BAWAHAN').length, color: '#8B5CF6' },
   ].filter(d => d.value > 0);
 
-  const comments = myAssessments.filter(a => a.comment && a.comment.trim()).sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+  const comments = myAssessments
+    .filter(a => a.comment && a.comment.trim())
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
   const criteriaScores: Record<string, number[]> = {};
   myAssessments.forEach(a => {
     Object.entries(a.scores || {}).forEach(([k, v]) => {
@@ -521,7 +571,9 @@ export const MyGradeModule: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {categoryData.map((cat, i) => (
               <div key={i} className={`p-3 rounded-2xl border-2 ${getCategoryBadgeClass(cat.name as AssessorCategory)}`}>
-                <p className="text-[10px] font-bold uppercase opacity-80">{CATEGORY_LABEL[cat.name as AssessorCategory]}</p>
+                <p className="text-[10px] font-bold uppercase opacity-80">
+                  {CATEGORY_LABEL[cat.name as AssessorCategory]}
+                </p>
                 <p className="text-2xl font-black font-mono mt-1">{cat.value}</p>
                 <p className="text-[10px] opacity-70">penilaian</p>
               </div>
@@ -565,7 +617,7 @@ export const MyGradeModule: React.FC = () => {
           <CheckCircle className="w-4 h-4 text-emerald-600" /> Rincian Per Kriteria
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {(user.role === 'Pemeran' ? PEMERAN_CRITERIA : GENERAL_CRITERIA).map(c => {
+          {allCriteria.map(c => {
             const isAuto = c.source !== 'MANUAL';
             const arr = criteriaScores[c.key] || [];
             const avg = arr.length > 0 ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
@@ -587,12 +639,18 @@ export const MyGradeModule: React.FC = () => {
                       <Bot className="w-2.5 h-2.5" /> OTOMATIS
                     </span>
                   ) : (
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">MANUAL</span>
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                      MANUAL
+                    </span>
                   )}
                 </div>
                 <div className="flex items-end justify-between mt-2">
-                  <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">{avg > 0 ? avg.toFixed(1) : '-'}</span>
-                  <span className="text-[10px] text-slate-500">{avg > 0 ? `≈ ${SCORE_SCALE[Math.round(avg)]?.score100}` : 'Belum dinilai'}</span>
+                  <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+                    {avg > 0 ? avg.toFixed(1) : '-'}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    {avg > 0 ? `≈ ${SCORE_SCALE[Math.round(avg)]?.score100}` : 'Belum dinilai'}
+                  </span>
                 </div>
               </div>
             );
@@ -615,13 +673,17 @@ export const MyGradeModule: React.FC = () => {
                 <div key={c.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
                   <div className="flex items-center justify-between text-[11px] mb-1 flex-wrap gap-2">
                     <div className="flex items-center gap-2">
-                      <span className={`font-bold px-2 py-0.5 rounded-md border ${getCategoryBadgeClass(cat)}`}>{CATEGORY_LABEL[cat]}</span>
+                      <span className={`font-bold px-2 py-0.5 rounded-md border ${getCategoryBadgeClass(cat)}`}>
+                        {CATEGORY_LABEL[cat]}
+                      </span>
                       {shouldAnonymize ? (
                         <span className="text-[10px] text-slate-500 flex items-center gap-1">
                           <EyeOff className="w-3 h-3" /> Anonim
                         </span>
                       ) : (
-                        <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">{c.assessorName}</span>
+                        <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                          {c.assessorName}
+                        </span>
                       )}
                     </div>
                     <span className="text-slate-400 text-[10px]">
