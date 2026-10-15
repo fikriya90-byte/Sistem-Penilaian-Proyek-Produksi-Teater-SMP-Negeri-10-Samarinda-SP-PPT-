@@ -4,7 +4,6 @@ import './index.css';
 
 // =========================================================
 // 1. CLEANUP: Hapus Service Worker lama + cache sebelum render
-// Ini menyembuhkan user yang "terjebak" di cache versi lama.
 // =========================================================
 async function cleanupOldServiceWorkers() {
   try {
@@ -32,8 +31,7 @@ async function cleanupOldServiceWorkers() {
 }
 
 // =========================================================
-// 2. GLOBAL ERROR HANDLER — tampilkan error ke DOM jika React crash
-// agar tidak pernah muncul blank page tanpa pesan
+// 2. GLOBAL ERROR HANDLER
 // =========================================================
 function renderFatalError(message: string, detail?: string) {
   const root = document.getElementById('root');
@@ -57,8 +55,7 @@ function renderFatalError(message: string, detail?: string) {
         </details>` : ''}
         <div style="padding:12px;border-radius:12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);margin-bottom:12px;">
           <p style="font-size:11px;color:#fcd34d;margin:0;line-height:1.5;">
-            <strong>Solusi:</strong> Tekan <strong>Hard Reset</strong> di bawah untuk membersihkan cache.
-            Ini menyelesaikan masalah setelah update.
+            <strong>Solusi:</strong> Tekan <strong>Hard Reset</strong> untuk membersihkan cache.
           </p>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
@@ -110,10 +107,18 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 // =========================================================
-// 3. APPLY THEME SEBELUM RENDER
+// 3. ✅ APPLY THEME SEBELUM RENDER — Default AUTO
+// Baca device preference, bukan localStorage yang lama
 // =========================================================
 (function applyThemeEarly() {
-  const STORAGE_KEY = 'spppt-theme-v2';
+  const STORAGE_KEY = 'spppt-theme-v3';
+
+  // Bersihkan preferensi lama v2 supaya user lama kembali ke auto
+  try {
+    localStorage.removeItem('spppt-theme-v2');
+    localStorage.removeItem('spppt-theme');
+  } catch { /* ignore */ }
+
   let saved: string | null = null;
   try { saved = localStorage.getItem(STORAGE_KEY); } catch (_) { /* ignore */ }
 
@@ -121,6 +126,7 @@ window.addEventListener('unhandledrejection', (event) => {
     try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch { return false; }
   })();
 
+  // ✅ Default = auto (ikut device) kalau belum ada preferensi tersimpan
   const mode = saved === 'light' || saved === 'dark' || saved === 'auto' ? saved : 'auto';
   const effective = mode === 'auto' ? (prefersDark ? 'dark' : 'light') : mode;
 
@@ -134,16 +140,16 @@ window.addEventListener('unhandledrejection', (event) => {
     root.classList.add('light');
     root.style.colorScheme = 'light';
   }
+
+  console.log(`[Theme] Mode: ${mode} | Device prefers: ${prefersDark ? 'dark' : 'light'} | Effective: ${effective}`);
 })();
 
 // =========================================================
-// 4. BOOTSTRAP — cleanup SW dulu, baru render App
+// 4. BOOTSTRAP
 // =========================================================
 (async () => {
-  // Cleanup dulu
   await cleanupOldServiceWorkers();
 
-  // Render App
   try {
     const rootEl = document.getElementById('root');
     if (!rootEl) {
@@ -161,10 +167,4 @@ window.addEventListener('unhandledrejection', (event) => {
   }
 })();
 
-// =========================================================
-// 5. SERVICE WORKER — DIMATIKAN TOTAL
-// =========================================================
-// SP-PPT butuh internet untuk Firebase, jadi offline mode tidak berguna.
-// Dengan SW dimatikan, TIDAK AKAN PERNAH terjadi blank page karena cache lama.
-// Tidak ada registrasi SW di sini.
 console.log('Service Worker dimatikan (by design). App selalu load fresh dari server.');
