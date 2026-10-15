@@ -7,10 +7,14 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
-import { subscribeTasksByClass, subscribeSchedules } from '../../services/firestoreService';
+import {
+  subscribeSchedules,
+  subscribeDeadlinesByClass,
+  subscribeDeadlineSubmissionsByClass,
+} from '../../services/firestoreService';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-import { TaskItem, ScheduleEvent } from '../../core/types';
+import { ScheduleEvent } from '../../core/types';
 
 type ReminderType =
   | 'URGENT'
@@ -117,12 +121,14 @@ export const DashboardReminder: React.FC<{
   const { showToast } = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [dismissed, setDismissed] = useState<string[]>([]);
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const [completions, setCompletions] = useState<Record<string, any>>({});
+
+  // ✅ FIX: Gunakan deadlines (bukan tasks)
+  const [deadlines, setDeadlines] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<Record<string, any>>({});
   const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
   const [kas, setKas] = useState<any>(null);
 
-  // ✅ NEW: State untuk pengumuman, broadcast, notifikasi
+  // Pengumuman, broadcast, notifikasi
   const [informations, setInformations] = useState<any[]>([]);
   const [broadcasts, setBroadcasts] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -165,28 +171,29 @@ export const DashboardReminder: React.FC<{
   };
 
   // ============================================================
-  // SUBSCRIPTIONS — TASKS & SCHEDULES (untuk siswa)
+  // ✅ SUBSCRIPTIONS — DEADLINES (BUKAN TASKS)
   // ============================================================
   useEffect(() => {
-    if (!user || !activeClass || isTeacher || isAdminRole) return;
-    const u1 = subscribeTasksByClass(activeClass.id, setTasks);
+    if (!user || !activeClass) return;
+
+    const u1 = subscribeDeadlinesByClass(activeClass.id, setDeadlines);
     const u2 = subscribeSchedules(activeClass.id, setSchedules);
 
     let unsub3 = () => {};
-    (async () => {
-      const q = query(collection(db, 'taskCompletions'), where('classId', '==', activeClass.id));
-      unsub3 = onSnapshot(q, snap => {
-        const map: Record<string, any> = {};
-        snap.docs.forEach(d => {
-          const data = d.data();
-          map[`${data.taskId}_${data.studentId}`] = data;
-        });
-        setCompletions(map);
+    unsub3 = subscribeDeadlineSubmissionsByClass(activeClass.id, (subs: any[]) => {
+      const map: Record<string, any> = {};
+      subs.forEach((data: any) => {
+        map[`${data.deadlineId}_${data.studentId}`] = {
+          ...data,
+          completed: data.status === 'SELESAI' || data.status === 'TERLAMBAT',
+          completedAt: data.submittedAt,
+        };
       });
-    })();
+      setSubmissions(map);
+    });
 
     return () => { u1(); u2(); unsub3(); };
-  }, [user, activeClass, isTeacher, isAdminRole]);
+  }, [user, activeClass]);
 
   // Kas subscription
   useEffect(() => {
@@ -200,13 +207,12 @@ export const DashboardReminder: React.FC<{
     return () => unsub();
   }, [user, activeClass, isTeacher, isAdminRole]);
 
-  // ✅ NEW: Subscribe informasi (pengumuman)
+  // Subscribe informasi (pengumuman)
   useEffect(() => {
     if (!user || !activeClass) return;
     const q = query(collection(db, 'information'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, snap => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-      // Sort: pinned dulu, lalu terbaru
       list.sort((a: any, b: any) => {
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -216,7 +222,7 @@ export const DashboardReminder: React.FC<{
     return () => unsub();
   }, [user, activeClass]);
 
-  // ✅ NEW: Subscribe broadcasts
+  // Subscribe broadcasts
   useEffect(() => {
     if (!user || !activeClass) return;
     const q = query(collection(db, 'broadcasts'), where('classId', '==', activeClass.id));
@@ -228,7 +234,7 @@ export const DashboardReminder: React.FC<{
     return () => unsub();
   }, [user, activeClass]);
 
-  // ✅ NEW: Subscribe notifications (khususnya unread urgent/nilai/feedback)
+  // Subscribe notifications
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, 'notifications'), where('userId', '==', user.uid));
@@ -240,27 +246,42 @@ export const DashboardReminder: React.FC<{
   }, [user]);
 
   // ============================================================
-  // STATISTIK TUGAS
+  // STATISTIK TUGAS — pakai deadlines
   // ============================================================
+  const isDeadlineForUser = (d: any, u: any): boolean => {
+    if (d.status === 'CANCELLED') return false;
+    const scope = d.targetScope;
+    if (scope === 'SEMUA') return true;
+    if (scope === 'PERAN') return d.targetRole === u.role;
+    if (scope === 'DIVISI') return d.targetDivision === u.divisionName;
+    if (scope === 'CUSTOM') {
+      const tr: string[] = d.targetRoles || [], td: string[] = d.targetDivisions || [], tu: string[] = d.targetUserIds || [];
+      if (tr.length > 0 && tr.includes(u.role)) return true;
+      if (td.length > 0 && u.divisionName && td.includes(u.divisionName)) return true;
+      if (tu.length === 0) return true;
+      return tu.includes(u.uid);
+    }
+    return false;
+  };
+
   const taskStats = (() => {
     if (!user) return { total: 0, done: 0, pending: 0, pct: 0, overdue: 0, urgent: 0, today: 0 };
-    const myTasks = tasks.filter(t =>
-      t.assigneeId === user.uid ||
-      (t as any).targetRole === user.role ||
-      (t as any).targetDivision === user.divisionName ||
-      t.assigneeName === 'Semua Siswa' ||
-      t.assigneeName === 'Semua Anggota Divisi'
-    );
-    const doneTasks = myTasks.filter(t => completions[`${t.id}_${user.uid}`]?.completed);
-    const pendingTasks = myTasks.filter(t => !completions[`${t.id}_${user.uid}`]?.completed);
-    const overdue = pendingTasks.filter(t => getDaysLeft(t.dueDate) < 0).length;
-    const todayCount = pendingTasks.filter(t => getDaysLeft(t.dueDate) === 0).length;
-    const urgent = pendingTasks.filter(t => {
-      const d = getDaysLeft(t.dueDate);
-      return d >= 0 && d <= 3;
+    const myDeadlines = deadlines.filter(d => isDeadlineForUser(d, user));
+    const doneDeadlines = myDeadlines.filter(d => submissions[`${d.id}_${user.uid}`]?.completed);
+    const pendingDeadlines = myDeadlines.filter(d => !submissions[`${d.id}_${user.uid}`]?.completed);
+    const overdue = pendingDeadlines.filter(d => getDaysLeft(d.dueDate) < 0).length;
+    const todayCount = pendingDeadlines.filter(d => getDaysLeft(d.dueDate) === 0).length;
+    const urgent = pendingDeadlines.filter(d => {
+      const dl = getDaysLeft(d.dueDate);
+      return dl >= 0 && dl <= 3;
     }).length;
-    const pct = myTasks.length > 0 ? Math.round((doneTasks.length / myTasks.length) * 100) : 0;
-    return { total: myTasks.length, done: doneTasks.length, pending: pendingTasks.length, overdue, urgent, today: todayCount, pct };
+    const pct = myDeadlines.length > 0 ? Math.round((doneDeadlines.length / myDeadlines.length) * 100) : 0;
+    return {
+      total: myDeadlines.length,
+      done: doneDeadlines.length,
+      pending: pendingDeadlines.length,
+      overdue, urgent, today: todayCount, pct,
+    };
   })();
 
   // ============================================================
@@ -290,7 +311,7 @@ export const DashboardReminder: React.FC<{
       });
     });
 
-    // ✅ 2. PENGUMUMAN dari Papan Informasi (pinned, urgent, atau baru 3 hari)
+    // ✅ 2. PENGUMUMAN
     const importantInfos = informations.filter(i =>
       i.isPinned ||
       i.category === 'URGENT' ||
@@ -313,10 +334,9 @@ export const DashboardReminder: React.FC<{
       });
     });
 
-    // ✅ 3. BROADCAST terbaru (3 hari, yang belum dibaca)
+    // ✅ 3. BROADCAST
     const recentBroadcasts = broadcasts.filter(b =>
-      getDaysAgo(b.createdAt) <= 3 &&
-      (b.senderId !== user.uid)
+      getDaysAgo(b.createdAt) <= 3 && b.senderId !== user.uid
     ).slice(0, 3);
 
     recentBroadcasts.forEach(b => {
@@ -334,20 +354,13 @@ export const DashboardReminder: React.FC<{
       });
     });
 
-    // Kalau Guru/Admin, berhenti di sini — tidak perlu task & schedule siswa
+    // Kalau Guru/Admin, berhenti di sini
     if (isTeacher || isAdminRole) return items;
 
-    // ✅ 4. TASKS untuk siswa
-    const myTasks = tasks.filter(t =>
-      t.assigneeId === user.uid ||
-      (t as any).targetRole === user.role ||
-      (t as any).targetDivision === user.divisionName ||
-      t.assigneeName === 'Semua Siswa' ||
-      t.assigneeName === 'Semua Anggota Divisi'
-    );
-
-    const pending = myTasks.filter(t => !completions[`${t.id}_${user.uid}`]?.completed);
-    const done = myTasks.filter(t => completions[`${t.id}_${user.uid}`]?.completed);
+    // ✅ 4. TASKS (deadlines) untuk siswa
+    const myDeadlines = deadlines.filter(d => isDeadlineForUser(d, user));
+    const pending = myDeadlines.filter(d => !submissions[`${d.id}_${user.uid}`]?.completed);
+    const done = myDeadlines.filter(d => submissions[`${d.id}_${user.uid}`]?.completed);
 
     const sortedPending = [...pending].sort((a, b) =>
       new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
@@ -376,7 +389,7 @@ export const DashboardReminder: React.FC<{
         id: `task-done-${t.id}`,
         type: 'TASK_DONE',
         title: t.title,
-        description: `✅ Selesai — ${completions[`${t.id}_${user.uid}`]?.completedAt ? new Date(completions[`${t.id}_${user.uid}`].completedAt).toLocaleDateString('id-ID') : ''}`,
+        description: `✅ Selesai — ${submissions[`${t.id}_${user.uid}`]?.completedAt ? new Date(submissions[`${t.id}_${user.uid}`].completedAt).toLocaleDateString('id-ID') : ''}`,
         actionLink: 'tugas',
         icon: CheckSquare,
         color: 'text-emerald-700',
@@ -426,7 +439,6 @@ export const DashboardReminder: React.FC<{
   const allItems = buildItems();
   const visibleItems = allItems.filter(i => !dismissed.includes(i.id));
 
-  // Auto-show setiap load
   useEffect(() => {
     if (visibleItems.length === 0) return;
     const timer = setTimeout(() => setIsOpen(true), 800);
@@ -508,7 +520,7 @@ export const DashboardReminder: React.FC<{
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
 
-          {/* SUMMARY CARD (khusus siswa yang punya tugas) */}
+          {/* SUMMARY CARD */}
           {taskStats.total > 0 && !isTeacher && !isAdminRole && (
             <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-600 text-white shadow-lg">
               <div className="flex items-center justify-between mb-2">
@@ -568,7 +580,7 @@ export const DashboardReminder: React.FC<{
             </div>
           )}
 
-          {/* NOTIFIKASI PENTING (Urgent/Nilai/Feedback) */}
+          {/* NOTIFIKASI PENTING */}
           {importantNotifItems.length > 0 && (
             <div className="rounded-2xl border-2 border-rose-400 dark:border-rose-500/60 overflow-hidden bg-white dark:bg-slate-900">
               <div className="p-3 bg-gradient-to-r from-rose-600 to-rose-700 text-white flex items-center gap-2">
