@@ -3,6 +3,7 @@ import {
   Bell, X, CheckSquare, Calendar, Wallet, AlertCircle, Check,
   Clock, Users, ChevronDown, ChevronRight, Sparkles, Info,
   Trash2, Eye, EyeOff, TrendingUp, Award, Flame, AlarmClock,
+  Megaphone, Radio, Star, MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -11,7 +12,15 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { TaskItem, ScheduleEvent } from '../../core/types';
 
-type ReminderType = 'URGENT' | 'TASK_PENDING' | 'TASK_DONE' | 'SCHEDULE' | 'KAS';
+type ReminderType =
+  | 'URGENT'
+  | 'NOTIF_PENTING'
+  | 'PENGUMUMAN'
+  | 'BROADCAST'
+  | 'TASK_PENDING'
+  | 'TASK_DONE'
+  | 'SCHEDULE'
+  | 'KAS';
 
 interface ReminderItem {
   id: string;
@@ -25,7 +34,22 @@ interface ReminderItem {
   color: string;
 }
 
-const TYPE_CONFIG: Record<Exclude<ReminderType, 'URGENT'>, { label: string; icon: any; color: string; gradient: string }> = {
+const TYPE_CONFIG: Record<
+  Exclude<ReminderType, 'URGENT' | 'NOTIF_PENTING'>,
+  { label: string; icon: any; color: string; gradient: string }
+> = {
+  PENGUMUMAN: {
+    label: 'Pengumuman Penting',
+    icon: Megaphone,
+    color: 'text-amber-700 dark:text-amber-300',
+    gradient: 'from-amber-500 to-amber-700',
+  },
+  BROADCAST: {
+    label: 'Broadcast Terbaru',
+    icon: Radio,
+    color: 'text-purple-700 dark:text-purple-300',
+    gradient: 'from-purple-500 to-purple-700',
+  },
   TASK_PENDING: {
     label: 'Tugas Belum Dikerjakan',
     icon: Clock,
@@ -58,45 +82,12 @@ const TYPE_CONFIG: Record<Exclude<ReminderType, 'URGENT'>, { label: string; icon
 const formatDaysLeft = (daysLeft: number): { text: string; color: string; bg: string; border: string } => {
   if (daysLeft < 0) {
     const late = Math.abs(daysLeft);
-    return {
-      text: `Terlambat ${late} hari`,
-      color: 'text-white',
-      bg: 'bg-rose-600',
-      border: 'border-rose-700',
-    };
+    return { text: `Terlambat ${late} hari`, color: 'text-white', bg: 'bg-rose-600', border: 'border-rose-700' };
   }
-  if (daysLeft === 0) {
-    return {
-      text: 'HARI INI!',
-      color: 'text-white',
-      bg: 'bg-rose-500',
-      border: 'border-rose-600',
-    };
-  }
-  if (daysLeft === 1) {
-    return {
-      text: 'BESOK',
-      color: 'text-white',
-      bg: 'bg-orange-500',
-      border: 'border-orange-600',
-    };
-  }
-  if (daysLeft <= 3) {
-    return {
-      text: `${daysLeft} hari lagi`,
-      color: 'text-white',
-      bg: 'bg-amber-500',
-      border: 'border-amber-600',
-    };
-  }
-  if (daysLeft <= 7) {
-    return {
-      text: `${daysLeft} hari lagi`,
-      color: 'text-slate-900',
-      bg: 'bg-yellow-200',
-      border: 'border-yellow-400',
-    };
-  }
+  if (daysLeft === 0) return { text: 'HARI INI!', color: 'text-white', bg: 'bg-rose-500', border: 'border-rose-600' };
+  if (daysLeft === 1) return { text: 'BESOK', color: 'text-white', bg: 'bg-orange-500', border: 'border-orange-600' };
+  if (daysLeft <= 3) return { text: `${daysLeft} hari lagi`, color: 'text-white', bg: 'bg-amber-500', border: 'border-amber-600' };
+  if (daysLeft <= 7) return { text: `${daysLeft} hari lagi`, color: 'text-slate-900', bg: 'bg-yellow-200', border: 'border-yellow-400' };
   return {
     text: `${daysLeft} hari lagi`,
     color: 'text-slate-700 dark:text-slate-300',
@@ -112,6 +103,13 @@ const getDaysLeft = (dateString: string): number => {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 };
 
+const getDaysAgo = (dateString: string): number => {
+  const past = new Date(dateString).getTime();
+  const now = Date.now();
+  const diff = now - past;
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+};
+
 export const DashboardReminder: React.FC<{
   onNavigate: (module: string) => void;
 }> = ({ onNavigate }) => {
@@ -123,7 +121,15 @@ export const DashboardReminder: React.FC<{
   const [completions, setCompletions] = useState<Record<string, any>>({});
   const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
   const [kas, setKas] = useState<any>(null);
-  const [expanded, setExpanded] = useState<Record<Exclude<ReminderType, 'URGENT'>, boolean>>({
+
+  // ✅ NEW: State untuk pengumuman, broadcast, notifikasi
+  const [informations, setInformations] = useState<any[]>([]);
+  const [broadcasts, setBroadcasts] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  const [expanded, setExpanded] = useState<Record<Exclude<ReminderType, 'URGENT' | 'NOTIF_PENTING'>, boolean>>({
+    PENGUMUMAN: true,
+    BROADCAST: true,
     TASK_PENDING: true,
     TASK_DONE: false,
     SCHEDULE: true,
@@ -158,7 +164,9 @@ export const DashboardReminder: React.FC<{
     setIsOpen(false);
   };
 
-  // Subscriptions
+  // ============================================================
+  // SUBSCRIPTIONS — TASKS & SCHEDULES (untuk siswa)
+  // ============================================================
   useEffect(() => {
     if (!user || !activeClass || isTeacher || isAdminRole) return;
     const u1 = subscribeTasksByClass(activeClass.id, setTasks);
@@ -192,6 +200,45 @@ export const DashboardReminder: React.FC<{
     return () => unsub();
   }, [user, activeClass, isTeacher, isAdminRole]);
 
+  // ✅ NEW: Subscribe informasi (pengumuman)
+  useEffect(() => {
+    if (!user || !activeClass) return;
+    const q = query(collection(db, 'information'), where('classId', '==', activeClass.id));
+    const unsub = onSnapshot(q, snap => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      // Sort: pinned dulu, lalu terbaru
+      list.sort((a: any, b: any) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      setInformations(list);
+    });
+    return () => unsub();
+  }, [user, activeClass]);
+
+  // ✅ NEW: Subscribe broadcasts
+  useEffect(() => {
+    if (!user || !activeClass) return;
+    const q = query(collection(db, 'broadcasts'), where('classId', '==', activeClass.id));
+    const unsub = onSnapshot(q, snap => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      list.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setBroadcasts(list);
+    });
+    return () => unsub();
+  }, [user, activeClass]);
+
+  // ✅ NEW: Subscribe notifications (khususnya unread urgent/nilai/feedback)
+  useEffect(() => {
+    if (!user) return;
+    const q = query(collection(db, 'notifications'), where('userId', '==', user.uid));
+    const unsub = onSnapshot(q, snap => {
+      const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      setNotifications(list);
+    });
+    return () => unsub();
+  }, [user]);
+
   // ============================================================
   // STATISTIK TUGAS
   // ============================================================
@@ -213,21 +260,84 @@ export const DashboardReminder: React.FC<{
       return d >= 0 && d <= 3;
     }).length;
     const pct = myTasks.length > 0 ? Math.round((doneTasks.length / myTasks.length) * 100) : 0;
-    return {
-      total: myTasks.length,
-      done: doneTasks.length,
-      pending: pendingTasks.length,
-      overdue,
-      urgent,
-      today: todayCount,
-      pct,
-    };
+    return { total: myTasks.length, done: doneTasks.length, pending: pendingTasks.length, overdue, urgent, today: todayCount, pct };
   })();
 
+  // ============================================================
+  // BUILD ITEMS
+  // ============================================================
   const buildItems = (): ReminderItem[] => {
-    if (!user || isTeacher || isAdminRole) return [];
+    if (!user) return [];
     const items: ReminderItem[] = [];
 
+    // ✅ 1. NOTIFIKASI PENTING (Urgent / Nilai / Feedback) yang belum dibaca
+    const importantNotifs = notifications.filter(n =>
+      !n.read &&
+      ['Urgent', 'Nilai', 'Feedback'].includes(n.category) &&
+      getDaysAgo(n.createdAt) <= 7
+    );
+    importantNotifs.forEach(n => {
+      const isUrgent = n.category === 'Urgent';
+      items.push({
+        id: `notif-${n.id}`,
+        type: 'NOTIF_PENTING',
+        title: n.title,
+        description: n.message?.slice(0, 120) || '',
+        daysLeft: 0,
+        actionLink: n.link || 'notifikasi',
+        icon: isUrgent ? AlertCircle : (n.category === 'Nilai' ? Award : Star),
+        color: isUrgent ? 'text-rose-700' : 'text-amber-700',
+      });
+    });
+
+    // ✅ 2. PENGUMUMAN dari Papan Informasi (pinned, urgent, atau baru 3 hari)
+    const importantInfos = informations.filter(i =>
+      i.isPinned ||
+      i.category === 'URGENT' ||
+      i.priority === 'HIGH' ||
+      getDaysAgo(i.createdAt) <= 3
+    ).slice(0, 5);
+
+    importantInfos.forEach(info => {
+      const ago = getDaysAgo(info.createdAt);
+      const timeStr = ago === 0 ? 'Hari ini' : ago === 1 ? 'Kemarin' : `${ago} hari lalu`;
+      items.push({
+        id: `info-${info.id}`,
+        type: 'PENGUMUMAN',
+        title: info.title,
+        description: `${info.isPinned ? '📌 DISEMATKAN • ' : ''}${timeStr} • oleh ${info.authorName} (${info.authorRole})`,
+        priority: info.priority,
+        actionLink: 'informasi',
+        icon: info.isPinned ? Star : Megaphone,
+        color: info.category === 'URGENT' ? 'text-rose-700' : 'text-amber-700',
+      });
+    });
+
+    // ✅ 3. BROADCAST terbaru (3 hari, yang belum dibaca)
+    const recentBroadcasts = broadcasts.filter(b =>
+      getDaysAgo(b.createdAt) <= 3 &&
+      (b.senderId !== user.uid)
+    ).slice(0, 3);
+
+    recentBroadcasts.forEach(b => {
+      const ago = getDaysAgo(b.createdAt);
+      const timeStr = ago === 0 ? 'Hari ini' : ago === 1 ? 'Kemarin' : `${ago} hari lalu`;
+      items.push({
+        id: `broadcast-${b.id}`,
+        type: 'BROADCAST',
+        title: b.title,
+        description: `${timeStr} • oleh ${b.senderName} (${b.senderRole})`,
+        priority: b.priority,
+        actionLink: 'broadcast',
+        icon: Radio,
+        color: b.priority === 'URGENT' ? 'text-rose-700' : 'text-purple-700',
+      });
+    });
+
+    // Kalau Guru/Admin, berhenti di sini — tidak perlu task & schedule siswa
+    if (isTeacher || isAdminRole) return items;
+
+    // ✅ 4. TASKS untuk siswa
     const myTasks = tasks.filter(t =>
       t.assigneeId === user.uid ||
       (t as any).targetRole === user.role ||
@@ -239,10 +349,9 @@ export const DashboardReminder: React.FC<{
     const pending = myTasks.filter(t => !completions[`${t.id}_${user.uid}`]?.completed);
     const done = myTasks.filter(t => completions[`${t.id}_${user.uid}`]?.completed);
 
-    // Sort pending by daysLeft (closest first)
-    const sortedPending = [...pending].sort((a, b) => {
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
-    });
+    const sortedPending = [...pending].sort((a, b) =>
+      new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+    );
 
     sortedPending.forEach(t => {
       const daysLeft = getDaysLeft(t.dueDate);
@@ -274,6 +383,7 @@ export const DashboardReminder: React.FC<{
       });
     });
 
+    // ✅ 5. SCHEDULES
     const now = Date.now();
     const next7 = now + 7 * 86400000;
     schedules
@@ -297,6 +407,7 @@ export const DashboardReminder: React.FC<{
         });
       });
 
+    // ✅ 6. KAS
     if (kas) {
       items.push({
         id: `kas-${kas.id}`,
@@ -315,22 +426,18 @@ export const DashboardReminder: React.FC<{
   const allItems = buildItems();
   const visibleItems = allItems.filter(i => !dismissed.includes(i.id));
 
-  // ============================================================
-  // AUTO-SHOW SETIAP LOAD (tidak lagi sekali per sesi)
-  // User bisa dismiss, tapi refresh berikutnya akan muncul lagi
-  // ============================================================
+  // Auto-show setiap load
   useEffect(() => {
     if (visibleItems.length === 0) return;
-    // Delay kecil supaya tidak mengganggu load halaman
-    const timer = setTimeout(() => {
-      setIsOpen(true);
-    }, 800);
+    const timer = setTimeout(() => setIsOpen(true), 800);
     return () => clearTimeout(timer);
   }, [visibleItems.length]);
 
   if (visibleItems.length === 0 && taskStats.total === 0) return null;
 
-  const grouped: Record<Exclude<ReminderType, 'URGENT'>, ReminderItem[]> = {
+  const grouped: Record<Exclude<ReminderType, 'URGENT' | 'NOTIF_PENTING'>, ReminderItem[]> = {
+    PENGUMUMAN: visibleItems.filter(i => i.type === 'PENGUMUMAN'),
+    BROADCAST: visibleItems.filter(i => i.type === 'BROADCAST'),
     TASK_PENDING: visibleItems.filter(i => i.type === 'TASK_PENDING'),
     TASK_DONE: visibleItems.filter(i => i.type === 'TASK_DONE'),
     SCHEDULE: visibleItems.filter(i => i.type === 'SCHEDULE'),
@@ -338,11 +445,12 @@ export const DashboardReminder: React.FC<{
   };
 
   const urgentItems = visibleItems.filter(i => i.type === 'URGENT');
+  const importantNotifItems = visibleItems.filter(i => i.type === 'NOTIF_PENTING');
 
   // Banner kecil kalau modal tertutup
   if (!isOpen) {
     const totalItems = visibleItems.length;
-    const urgentCount = urgentItems.length;
+    const urgentCount = urgentItems.length + importantNotifItems.length;
     return (
       <button
         onClick={() => setIsOpen(true)}
@@ -355,7 +463,7 @@ export const DashboardReminder: React.FC<{
         {urgentCount > 0 ? <Flame className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
         <span>
           {urgentCount > 0
-            ? `${urgentCount} Deadline Mendesak!`
+            ? `${urgentCount} Info Penting!`
             : totalItems > 0 ? `${totalItems} Pengingat` : 'Progress Tugas'}
         </span>
       </button>
@@ -368,22 +476,26 @@ export const DashboardReminder: React.FC<{
 
         {/* Header */}
         <div className={`p-5 text-white flex items-center justify-between shrink-0 ${
-          urgentItems.length > 0
+          urgentItems.length + importantNotifItems.length > 0
             ? 'bg-gradient-to-r from-rose-500 via-rose-600 to-orange-600'
             : 'bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600'
         }`}>
           <div className="flex items-center gap-3">
             <span className="p-2.5 rounded-xl bg-white/20 backdrop-blur-sm">
-              {urgentItems.length > 0 ? <Flame className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
+              {urgentItems.length + importantNotifItems.length > 0
+                ? <Flame className="w-6 h-6" />
+                : <Bell className="w-6 h-6" />}
             </span>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider opacity-90">Selamat datang kembali</p>
               <h3 className="text-base font-black">
-                {urgentItems.length > 0 ? '🔥 Deadline Mendesak!' : 'Pengingat Hari Ini'}
+                {urgentItems.length + importantNotifItems.length > 0
+                  ? '🔥 Ada Info Penting!'
+                  : 'Pengingat Hari Ini'}
               </h3>
               <p className="text-[11px] opacity-90">
-                {urgentItems.length > 0
-                  ? `${urgentItems.length} tugas dalam ≤3 hari ke depan`
+                {urgentItems.length + importantNotifItems.length > 0
+                  ? `${urgentItems.length + importantNotifItems.length} item butuh perhatian segera`
                   : `${visibleItems.length} item perlu perhatian Anda`}
               </p>
             </div>
@@ -396,8 +508,8 @@ export const DashboardReminder: React.FC<{
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
 
-          {/* SUMMARY CARD */}
-          {taskStats.total > 0 && (
+          {/* SUMMARY CARD (khusus siswa yang punya tugas) */}
+          {taskStats.total > 0 && !isTeacher && !isAdminRole && (
             <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-600 to-pink-600 text-white shadow-lg">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -409,7 +521,9 @@ export const DashboardReminder: React.FC<{
 
               <div className="flex items-end justify-between mb-3">
                 <div>
-                  <p className="text-4xl font-black leading-none">{taskStats.done}<span className="text-2xl opacity-70">/{taskStats.total}</span></p>
+                  <p className="text-4xl font-black leading-none">
+                    {taskStats.done}<span className="text-2xl opacity-70">/{taskStats.total}</span>
+                  </p>
                   <p className="text-[11px] opacity-90 mt-1">Tugas selesai</p>
                 </div>
                 <div className="text-right">
@@ -419,17 +533,13 @@ export const DashboardReminder: React.FC<{
               </div>
 
               <div className="w-full bg-white/20 rounded-full h-3 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    taskStats.pct >= 80 ? 'bg-emerald-300' :
-                    taskStats.pct >= 50 ? 'bg-amber-300' :
-                    taskStats.pct > 0 ? 'bg-orange-300' : 'bg-rose-300'
-                  }`}
-                  style={{ width: `${taskStats.pct}%` }}
-                />
+                <div className={`h-full rounded-full transition-all duration-500 ${
+                  taskStats.pct >= 80 ? 'bg-emerald-300' :
+                  taskStats.pct >= 50 ? 'bg-amber-300' :
+                  taskStats.pct > 0 ? 'bg-orange-300' : 'bg-rose-300'
+                }`} style={{ width: `${taskStats.pct}%` }} />
               </div>
 
-              {/* Breakdown */}
               <div className="grid grid-cols-4 gap-2 mt-3">
                 <div className="p-2 rounded-lg bg-white/15 backdrop-blur-sm text-center">
                   <p className="text-[9px] opacity-90 font-bold">Selesai</p>
@@ -458,15 +568,51 @@ export const DashboardReminder: React.FC<{
             </div>
           )}
 
-          {/* URGENT SECTION */}
+          {/* NOTIFIKASI PENTING (Urgent/Nilai/Feedback) */}
+          {importantNotifItems.length > 0 && (
+            <div className="rounded-2xl border-2 border-rose-400 dark:border-rose-500/60 overflow-hidden bg-white dark:bg-slate-900">
+              <div className="p-3 bg-gradient-to-r from-rose-600 to-rose-700 text-white flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 animate-pulse" />
+                <span className="text-xs font-extrabold uppercase tracking-wide">
+                  🔔 Notifikasi Penting ({importantNotifItems.length})
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {importantNotifItems.map(item => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.id} className="p-3 flex items-start gap-3 hover:bg-rose-50/40 dark:hover:bg-rose-500/5 transition">
+                      <span className="p-1.5 rounded-lg bg-rose-500 text-white shrink-0">
+                        <Icon className="w-4 h-4" />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-slate-900 dark:text-white">{item.title}</p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{item.description}</p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <button onClick={() => { onNavigate(item.actionLink); setIsOpen(false); }}
+                            className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1">
+                            <Eye className="w-3 h-3" /> Buka
+                          </button>
+                          <button onClick={() => handleDismiss(item.id)}
+                            className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            <EyeOff className="w-3 h-3 inline" /> Sembunyikan
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* URGENT (tugas deadline ≤3 hari) */}
           {urgentItems.length > 0 && (
-            <div className="rounded-2xl border-2 border-rose-400 dark:border-rose-500/60 overflow-hidden bg-white dark:bg-slate-900 animate-in">
+            <div className="rounded-2xl border-2 border-rose-400 dark:border-rose-500/60 overflow-hidden bg-white dark:bg-slate-900">
               <div className="p-3 bg-gradient-to-r from-rose-500 to-rose-700 text-white flex items-center gap-2">
                 <Flame className="w-4 h-4 animate-pulse" />
                 <span className="text-xs font-extrabold uppercase tracking-wide">🔥 Deadline Mendesak (≤3 hari)</span>
-                <span className="text-[10px] font-bold bg-white/25 px-2 py-0.5 rounded-full ml-auto">
-                  {urgentItems.length}
-                </span>
+                <span className="text-[10px] font-bold bg-white/25 px-2 py-0.5 rounded-full ml-auto">{urgentItems.length}</span>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                 {urgentItems.map(item => {
@@ -488,24 +634,16 @@ export const DashboardReminder: React.FC<{
                             </span>
                           )}
                         </div>
-                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                          {item.title}
-                        </p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          {item.description}
-                        </p>
+                        <p className="text-xs font-bold text-slate-900 dark:text-white truncate">{item.title}</p>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{item.description}</p>
                         <div className="flex items-center gap-2 mt-2">
-                          <button
-                            onClick={() => { onNavigate(item.actionLink); setIsOpen(false); }}
-                            className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1"
-                          >
-                            <Eye className="w-3 h-3" /> Kerjakan Sekarang
+                          <button onClick={() => { onNavigate(item.actionLink); setIsOpen(false); }}
+                            className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1">
+                            <Eye className="w-3 h-3" /> Kerjakan
                           </button>
-                          <button
-                            onClick={() => handleDismiss(item.id)}
-                            className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center gap-1"
-                          >
-                            <EyeOff className="w-3 h-3" /> Sembunyikan
+                          <button onClick={() => handleDismiss(item.id)}
+                            className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            <EyeOff className="w-3 h-3 inline" /> Sembunyikan
                           </button>
                         </div>
                       </div>
@@ -517,7 +655,7 @@ export const DashboardReminder: React.FC<{
           )}
 
           {/* NORMAL GROUPS */}
-          {(Object.keys(grouped) as Exclude<ReminderType, 'URGENT'>[]).map(type => {
+          {(Object.keys(grouped) as Exclude<ReminderType, 'URGENT' | 'NOTIF_PENTING'>[]).map(type => {
             const items = grouped[type];
             if (items.length === 0) return null;
             const cfg = TYPE_CONFIG[type];
@@ -533,9 +671,7 @@ export const DashboardReminder: React.FC<{
                   <div className="flex items-center gap-2">
                     <Icon className="w-4 h-4" />
                     <span className="text-xs font-extrabold uppercase tracking-wide">{cfg.label}</span>
-                    <span className="text-[10px] font-bold bg-white/25 px-2 py-0.5 rounded-full">
-                      {items.length}
-                    </span>
+                    <span className="text-[10px] font-bold bg-white/25 px-2 py-0.5 rounded-full">{items.length}</span>
                   </div>
                   {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
@@ -548,7 +684,9 @@ export const DashboardReminder: React.FC<{
                         item.priority === 'CRITICAL' ? 'bg-rose-100 text-rose-800' :
                         item.priority === 'HIGH' ? 'bg-amber-100 text-amber-800' :
                         'bg-slate-100 text-slate-700';
-                      const daysInfo = item.daysLeft !== undefined ? formatDaysLeft(item.daysLeft) : null;
+                      const daysInfo = item.daysLeft !== undefined && (item.type === 'TASK_PENDING' || item.type === 'SCHEDULE')
+                        ? formatDaysLeft(item.daysLeft)
+                        : null;
 
                       return (
                         <div key={item.id} className="p-3 flex items-start gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition">
@@ -569,9 +707,7 @@ export const DashboardReminder: React.FC<{
                             <p className="text-xs font-bold text-slate-800 dark:text-white truncate mt-1">
                               {item.title}
                             </p>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                              {item.description}
-                            </p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{item.description}</p>
                             <div className="flex items-center gap-2 mt-2">
                               <button
                                 onClick={() => { onNavigate(item.actionLink); setIsOpen(false); }}
@@ -603,12 +739,12 @@ export const DashboardReminder: React.FC<{
             );
           })}
 
-          {/* Kalau tidak ada tugas sama sekali */}
+          {/* Kalau benar-benar kosong */}
           {taskStats.total === 0 && visibleItems.length === 0 && (
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-center">
               <CheckSquare className="w-8 h-8 mx-auto text-slate-300 mb-2" />
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Belum ada tugas untuk Anda saat ini.
+                Belum ada pengingat untuk Anda saat ini.
               </p>
             </div>
           )}
@@ -617,7 +753,7 @@ export const DashboardReminder: React.FC<{
         {/* Footer */}
         <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 shrink-0">
           <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">
-            💡 Akan muncul setiap kali Anda buka aplikasi
+            💡 Muncul otomatis setiap login/refresh
           </p>
           <div className="flex items-center gap-2">
             <button
