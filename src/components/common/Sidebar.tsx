@@ -5,7 +5,7 @@ import {
   Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
   Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
   GraduationCap, Home, BookOpen, Globe, Bug, ChevronDown, ChevronRight,
-  Info, LayoutGrid, Layers, Target, Wallet2,
+  Info, LayoutGrid, Layers, Target,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -37,9 +37,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { user, isGuruPengampu, isAdminRole } = useAuth();
   const role = user?.role || '';
 
-  // ============================================================
-  // Collapsible state untuk setiap grup (default: semua terbuka)
-  // ============================================================
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const toggleGroup = (title: string) => {
@@ -47,7 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // ============================================================
-  // BUILD MENU — WELCOME MODE
+  // WELCOME MODE
   // ============================================================
   const buildWelcomeMenu = (): MenuGroup[] => {
     if (isGuruPengampu || isAdminRole) {
@@ -117,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // ============================================================
-  // BUILD MENU — IN-CLASS MODE
+  // IN-CLASS MODE
   // ============================================================
   const buildInClassMenu = (): MenuGroup[] => {
 
@@ -149,6 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
             { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+            { id: 'rekap-nilai', label: '📊 Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
             { id: 'booking', label: 'Booking Alat', icon: Package },
           ],
         },
@@ -206,6 +204,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
             { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
+            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
           ],
         },
         {
@@ -215,8 +214,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
             { id: 'moderasi', label: 'Moderasi', icon: ShieldCheck },
+            { id: 'rekap-nilai', label: '📊 Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
           ],
         },
         {
@@ -274,9 +273,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           title: 'Utama',
           icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Dashboard', icon: Home },
-          ],
+          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
         },
         {
           title: 'Info & Komunikasi',
@@ -357,9 +354,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           title: 'Utama',
           icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Dashboard', icon: Home },
-          ],
+          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
         },
         {
           title: 'Info & Komunikasi',
@@ -379,6 +374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+            { id: 'rekap-nilai', label: '📊 Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
           ],
         },
         {
@@ -434,9 +430,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           title: 'Utama',
           icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Dashboard', icon: Home },
-          ],
+          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
         },
         {
           title: 'Info & Komunikasi',
@@ -521,9 +515,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           title: 'Utama',
           icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Dashboard', icon: Home },
-          ],
+          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
         },
         {
           title: 'Info & Komunikasi',
@@ -605,9 +597,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           title: 'Utama',
           icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Beranda', icon: Home },
-          ],
+          items: [{ id: 'dashboard', label: 'Beranda', icon: Home }],
         },
         {
           title: 'Info & Komunikasi',
@@ -683,9 +673,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           title: 'Utama',
           icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Beranda', icon: Home },
-          ],
+          items: [{ id: 'dashboard', label: 'Beranda', icon: Home }],
         },
         {
           title: 'Info & Komunikasi',
@@ -792,7 +780,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const menuGroups = mode === 'welcome' ? buildWelcomeMenu() : buildInClassMenu();
 
-  // Kalau currentModule ada di grup tertentu, auto-expand grup itu
+  // Auto-expand grup yang berisi currentModule
   React.useEffect(() => {
     const group = menuGroups.find(g => g.items.some(i => i.id === currentModule));
     if (group && collapsedGroups[group.title]) {
@@ -867,7 +855,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               return (
                 <div key={group.title} className="mb-3">
-                  {/* Group Header */}
                   <button
                     onClick={() => toggleGroup(group.title)}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition group ${
@@ -888,7 +875,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }
                   </button>
 
-                  {/* Group Items */}
                   {!isCollapsed && (
                     <div className="space-y-0.5 mt-0.5">
                       {group.items.map((item) => {
