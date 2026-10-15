@@ -4,16 +4,17 @@ import {
   Wallet, FileText, Timer, MessageSquare, Mic, Palette, Scissors,
   Camera, Flag, Users, CheckCircle, AlertTriangle, Layers,
   TrendingUp, ClipboardList, Target, Star, Play, Package, Music,
-  RefreshCw, Plus, X, Save,
-  CheckSquare,
+  RefreshCw, Plus, X, Save, CheckSquare,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { DIVISIONS, STAGES, getPredikat } from '../../core/constants';
 import { UserProfile, TaskItem, ScheduleEvent, AttendanceSession, AssessmentRecord, DivisionType, UserRole } from '../../core/types';
 import {
-  fetchUsersByClass, subscribeTasksByClass, subscribeSchedules,
+  fetchUsersByClass, subscribeSchedules,
   subscribeAttendanceSessions, subscribeAssessments, recordAuditLog,
+  // ✅ FIX: import subscription baru dari firestoreService
+  subscribeDeadlinesByClass, subscribeDeadlineSubmissionsByClass,
 } from '../../services/firestoreService';
 import { doc, collection, setDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
@@ -22,9 +23,14 @@ interface DashboardModuleProps {
   onNavigate: (module: string) => void;
 }
 
+// ═══════════════════════════════════════════════════════════
+// ✅ FIX: useDashboardData — Baca `deadlines` + `deadlineSubmissions`
+// Transform ke view "virtual tasks" untuk kompatibilitas
+// ═══════════════════════════════════════════════════════════
 function useDashboardData() {
-  const { activeClass } = useAuth();
-  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const { activeClass, user } = useAuth();
+  const [deadlines, setDeadlines] = useState<any[]>([]);
+  const [deadlineSubs, setDeadlineSubs] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
   const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
@@ -32,15 +38,67 @@ function useDashboardData() {
 
   useEffect(() => {
     if (!activeClass) return;
-    const u1 = subscribeTasksByClass(activeClass.id, setTasks);
-    const u2 = subscribeSchedules(activeClass.id, setSchedules);
-    const u3 = subscribeAttendanceSessions(activeClass.id, setSessions);
-    const u4 = subscribeAssessments(activeClass.id, setAssessments);
+    const u1 = subscribeDeadlinesByClass(activeClass.id, setDeadlines);
+    const u2 = subscribeDeadlineSubmissionsByClass(activeClass.id, setDeadlineSubs);
+    const u3 = subscribeSchedules(activeClass.id, setSchedules);
+    const u4 = subscribeAttendanceSessions(activeClass.id, setSessions);
+    const u5 = subscribeAssessments(activeClass.id, setAssessments);
     fetchUsersByClass(activeClass.id).then(setUsers);
-    return () => { u1(); u2(); u3(); u4(); };
+    return () => { u1(); u2(); u3(); u4(); u5(); };
   }, [activeClass]);
 
-  return { tasks, schedules, sessions, assessments, users };
+  // Transform deadlines → virtual tasks (untuk backward compat dengan dashboard lama)
+  const tasks: TaskItem[] = deadlines.map((d: any) => {
+    if (d.status === 'CANCELLED') {
+      return {
+        id: d.id, classId: d.classId, title: d.title || '', description: d.description || '',
+        priority: d.priority || 'MEDIUM', status: 'CANCELLED' as any,
+        progress: 0, dueDate: d.dueDate || '',
+        divisionName: d.targetDivision, role: d.targetRole,
+        isCritical: d.isCritical,
+        stageId: d.stage,
+        createdBy: d.createdBy, createdAt: d.createdAt,
+      } as TaskItem;
+    }
+
+    // Hitung progress dari seluruh submission siswa (untuk guru/pimprod view)
+    const totalTargets = (d.targetUserIds || []).length;
+    const mySubs = deadlineSubs.filter(s => s.deadlineId === d.id);
+    const doneCount = mySubs.filter(s => s.status === 'SELESAI' || s.status === 'TERLAMBAT').length;
+    const isApproved = totalTargets > 0 && doneCount === totalTargets;
+    const dueMs = new Date(d.dueDate || 0).getTime();
+    const isOverdue = !isApproved && dueMs < Date.now();
+
+    // Untuk siswa: cek submission pribadi
+    const mySub = user ? mySubs.find(s => s.studentId === user.uid) : null;
+    const myDone = mySub && (mySub.status === 'SELESAI' || mySub.status === 'TERLAMBAT');
+
+    let status: any = 'IN_PROGRESS';
+    if (isApproved) status = 'APPROVED';
+    else if (isOverdue) status = 'OVERDUE';
+    else if (myDone) status = 'SUBMITTED';
+
+    return {
+      id: d.id,
+      classId: d.classId,
+      title: d.title || '',
+      description: d.description || '',
+      priority: d.priority || 'MEDIUM',
+      status,
+      progress: totalTargets > 0 ? Math.round((doneCount / totalTargets) * 100) : 0,
+      dueDate: d.dueDate || '',
+      divisionName: d.targetDivision,
+      role: d.targetRole,
+      assigneeId: user?.uid,
+      isCritical: d.isCritical,
+      stageId: d.stage,
+      createdBy: d.createdBy,
+      creatorName: d.creatorName,
+      createdAt: d.createdAt,
+    } as TaskItem;
+  });
+
+  return { tasks, schedules, sessions, assessments, users, deadlines, deadlineSubs };
 }
 
 const StatCard: React.FC<{
@@ -81,42 +139,35 @@ const SectionTitle: React.FC<{ icon: any; title: string; subtitle?: string }> =
     </div>
   );
 
-const QuickAction: React.FC<{
-  icon: any; label: string; sub: string; onClick: () => void;
-}> = ({ icon: Icon, label, sub, onClick }) => (
-  <button
-    onClick={onClick}
-    className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/10 transition text-left group"
-  >
-    <Icon className="w-5 h-5 text-amber-500 dark:text-amber-400 mb-2 group-hover:scale-110 transition" />
-    <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{label}</p>
-    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{sub}</p>
-  </button>
-);
-
-const TemplateCard: React.FC<{
-  icon: any; label: string; sub: string; onClick: () => void;
-  color?: 'blue' | 'amber' | 'purple' | 'rose' | 'emerald' | 'indigo';
-}> = ({ icon: Icon, label, sub, onClick, color = 'blue' }) => {
-  const colorMap = {
-    blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30',
-    amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30',
-    purple: 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-500/30',
-    rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/30',
-    emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30',
-    indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30',
-  };
-  return (
-    <button
-      onClick={onClick}
-      className={`p-4 rounded-2xl border-2 ${colorMap[color]} hover:scale-[1.02] transition text-left`}
-    >
-      <Icon className="w-5 h-5 mb-2" />
-      <p className="text-xs font-extrabold text-slate-900 dark:text-white">{label}</p>
-      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sub}</p>
+const QuickAction: React.FC<{ icon: any; label: string; sub: string; onClick: () => void }> =
+  ({ icon: Icon, label, sub, onClick }) => (
+    <button onClick={onClick}
+      className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/10 transition text-left group">
+      <Icon className="w-5 h-5 text-amber-500 dark:text-amber-400 mb-2 group-hover:scale-110 transition" />
+      <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{label}</p>
+      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{sub}</p>
     </button>
   );
-};
+
+const TemplateCard: React.FC<{ icon: any; label: string; sub: string; onClick: () => void; color?: 'blue' | 'amber' | 'purple' | 'rose' | 'emerald' | 'indigo' }> =
+  ({ icon: Icon, label, sub, onClick, color = 'blue' }) => {
+    const colorMap = {
+      blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30',
+      amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30',
+      purple: 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-500/30',
+      rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/30',
+      emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30',
+      indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30',
+    };
+    return (
+      <button onClick={onClick}
+        className={`p-4 rounded-2xl border-2 ${colorMap[color]} hover:scale-[1.02] transition text-left`}>
+        <Icon className="w-5 h-5 mb-2" />
+        <p className="text-xs font-extrabold text-slate-900 dark:text-white">{label}</p>
+        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sub}</p>
+      </button>
+    );
+  };
 
 const UniversalHeader: React.FC = () => {
   const { user, activeClass } = useAuth();
@@ -171,13 +222,10 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   );
 
   const createDeadlineFromTemplate = async (
-    title: string,
-    description: string,
-    daysFromNow: number,
+    title: string, description: string, daysFromNow: number,
     priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
     target: 'SEMUA' | 'DIVISI' | 'PERAN',
-    targetDivision?: DivisionType,
-    targetRole?: UserRole,
+    targetDivision?: DivisionType, targetRole?: UserRole,
     isCritical: boolean = false,
   ) => {
     if (!user || !activeClass) return;
@@ -191,49 +239,38 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       await setDoc(newRef, {
         id: newRef.id,
         classId: activeClass.id,
-        title,
-        description,
+        title, description,
         dueDate: dueDate.toISOString(),
         priority,
         targetScope: target,
-        targetDivision,
-        targetRole,
+        targetDivision, targetRole,
         isCritical,
         createdBy: user.uid,
         creatorName: user.displayName,
         creatorRole: user.role,
+        status: 'ACTIVE',
         createdAt: new Date().toISOString(),
       });
 
       await recordAuditLog({
-        userId: user.uid,
-        userName: user.displayName,
-        role: user.role,
-        action: 'CREATE',
-        targetType: 'Deadline',
-        targetId: newRef.id,
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'CREATE', targetType: 'Deadline', targetId: newRef.id,
         details: `Buat deadline template: ${title}${isCritical ? ' (★ kritis)' : ''}`,
       });
 
-      showToast(`Deadline "${title}" berhasil dibuat! Cek di menu Deadline.`, 'success');
+      showToast(`Deadline "${title}" berhasil dibuat!`, 'success');
       setTimeout(() => onNavigate('tugas'), 800);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    } finally {
-      setTemplateLoading(false);
-    }
+    } finally { setTemplateLoading(false); }
   };
 
   return (
     <div className="space-y-5">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-700 via-amber-800 to-orange-900 text-white shadow-lg">
-        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-          Dashboard Guru Pengampu
-        </span>
+        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Guru Pengampu</span>
         <h2 className="text-2xl font-black mt-1">Monitoring Produksi & Penilaian</h2>
-        <p className="text-xs opacity-90 mt-1">
-          Pantau progres, nilai, dan aktivitas seluruh divisi
-        </p>
+        <p className="text-xs opacity-90 mt-1">Pantau progres, nilai, dan aktivitas seluruh divisi</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -267,13 +304,8 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
             {usersWithoutAssessment.slice(0, 5).map(u => (
               <div key={u.uid} className="text-xs text-amber-800 dark:text-amber-200 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg flex items-center justify-between">
-                <span className="truncate">
-                  {u.displayName} <span className="text-amber-500 dark:text-amber-400">({u.role})</span>
-                </span>
-                <button onClick={() => onNavigate('nilai')}
-                  className="text-[10px] font-bold text-amber-700 dark:text-amber-300 hover:underline shrink-0">
-                  Nilai
-                </button>
+                <span className="truncate">{u.displayName} <span className="text-amber-500 dark:text-amber-400">({u.role})</span></span>
+                <button onClick={() => onNavigate('nilai')} className="text-[10px] font-bold text-amber-700 dark:text-amber-300 hover:underline shrink-0">Nilai</button>
               </div>
             ))}
           </div>
@@ -281,80 +313,25 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       )}
 
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Timer} title="Template Deadline Cepat" subtitle="Klik untuk buat deadline otomatis - langsung terkirim ke siswa" />
+        <SectionTitle icon={Timer} title="Template Deadline Cepat" subtitle="Klik untuk buat deadline otomatis" />
         {templateLoading && (
           <div className="mb-3 p-2 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-xs text-blue-700 dark:text-blue-300 flex items-center gap-2">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            Mengirim deadline...
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Mengirim deadline...
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <TemplateCard
-            icon={MessageSquare}
-            label="Rapat Pleno"
-            sub="Semua siswa - 1 hari - Prioritas Kritis"
-            color="blue"
-            onClick={() => createDeadlineFromTemplate(
-              'Rapat Pleno Koordinasi',
-              'Rapat pleno seluruh tim produksi teater. Wajib hadir tepat waktu.',
-              1, 'CRITICAL', 'SEMUA', undefined, undefined, true
-            )}
-          />
-          <TemplateCard
-            icon={Mic}
-            label="Latihan Rutin"
-            sub="Pemeran & Musik - 3 hari"
-            color="amber"
-            onClick={() => createDeadlineFromTemplate(
-              'Latihan Rutin Blocking',
-              'Latihan rutin blocking dan dialog untuk seluruh pemeran.',
-              3, 'HIGH', 'DIVISI', 'Pemeran', undefined, false
-            )}
-          />
-          <TemplateCard
-            icon={Palette}
-            label="Produksi Divisi"
-            sub="Semua divisi - 7 hari"
-            color="purple"
-            onClick={() => createDeadlineFromTemplate(
-              'Produksi Internal Divisi',
-              'Setiap divisi menyelesaikan pekerjaan internal sesuai jadwal.',
-              7, 'MEDIUM', 'SEMUA'
-            )}
-          />
-          <TemplateCard
-            icon={Camera}
-            label="Fitting & Rias"
-            sub="Pemeran - 5 hari - Prioritas Tinggi"
-            color="rose"
-            onClick={() => createDeadlineFromTemplate(
-              'Fitting Kostum & Rias',
-              'Fitting kostum dan uji coba rias untuk seluruh pemeran.',
-              5, 'HIGH', 'PERAN', undefined, 'Pemeran'
-            )}
-          />
-          <TemplateCard
-            icon={Scissors}
-            label="Desain Kostum"
-            sub="Divisi Busana - 14 hari"
-            color="emerald"
-            onClick={() => createDeadlineFromTemplate(
-              'Desain & Jahit Kostum',
-              'Tim busana menyelesaikan desain, potong, dan jahit kostum seluruh tokoh.',
-              14, 'MEDIUM', 'DIVISI', 'Tata Busana'
-            )}
-          />
-          <TemplateCard
-            icon={Flag}
-            label="Gladi Resik"
-            sub="Semua - 2 hari - Kritis"
-            color="indigo"
-            onClick={() => createDeadlineFromTemplate(
-              'Gladi Resik Panggung Penuh',
-              'Gladi resik lengkap dengan kostum, properti, dan tata panggung. Wajib hadir.',
-              2, 'CRITICAL', 'SEMUA', undefined, undefined, true
-            )}
-          />
+          <TemplateCard icon={MessageSquare} label="Rapat Pleno" sub="Semua siswa - 1 hari" color="blue"
+            onClick={() => createDeadlineFromTemplate('Rapat Pleno Koordinasi', 'Rapat pleno seluruh tim produksi. Wajib hadir.', 1, 'CRITICAL', 'SEMUA', undefined, undefined, true)} />
+          <TemplateCard icon={Mic} label="Latihan Rutin" sub="Pemeran & Musik - 3 hari" color="amber"
+            onClick={() => createDeadlineFromTemplate('Latihan Rutin Blocking', 'Latihan blocking dan dialog untuk seluruh pemeran.', 3, 'HIGH', 'DIVISI', 'Pemeran', undefined, false)} />
+          <TemplateCard icon={Palette} label="Produksi Divisi" sub="Semua divisi - 7 hari" color="purple"
+            onClick={() => createDeadlineFromTemplate('Produksi Internal Divisi', 'Setiap divisi menyelesaikan pekerjaan internal.', 7, 'MEDIUM', 'SEMUA')} />
+          <TemplateCard icon={Camera} label="Fitting & Rias" sub="Pemeran - 5 hari" color="rose"
+            onClick={() => createDeadlineFromTemplate('Fitting Kostum & Rias', 'Fitting kostum dan uji coba rias.', 5, 'HIGH', 'PERAN', undefined, 'Pemeran')} />
+          <TemplateCard icon={Scissors} label="Desain Kostum" sub="Divisi Busana - 14 hari" color="emerald"
+            onClick={() => createDeadlineFromTemplate('Desain & Jahit Kostum', 'Tim busana menyelesaikan kostum seluruh tokoh.', 14, 'MEDIUM', 'DIVISI', 'Tata Busana')} />
+          <TemplateCard icon={Flag} label="Gladi Resik" sub="Semua - 2 hari" color="indigo"
+            onClick={() => createDeadlineFromTemplate('Gladi Resik Panggung Penuh', 'Gladi resik lengkap. Wajib hadir.', 2, 'CRITICAL', 'SEMUA', undefined, undefined, true)} />
         </div>
       </div>
 
@@ -369,8 +346,7 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <div className="w-full bg-white/20 rounded-full h-2.5 overflow-hidden">
           <div className="h-full bg-white rounded-full transition-all" style={{ width: `${taskProgress}%` }} />
         </div>
-        <button onClick={() => onNavigate('progress-tugas')}
-          className="mt-3 w-full py-2 rounded-xl bg-white/20 hover:bg-white/30 font-bold text-xs">
+        <button onClick={() => onNavigate('progress-tugas')} className="mt-3 w-full py-2 rounded-xl bg-white/20 hover:bg-white/30 font-bold text-xs">
           Lihat Detail Progress →
         </button>
       </div>
@@ -408,7 +384,7 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const criticalTasks = tasks.filter(t => (t as any).isCritical && t.status !== 'APPROVED');
 
   const divProgress = DIVISIONS.slice(1).map(d => {
-    const dTasks = tasks.filter(t => t.divisionName === d.id);
+    const dTasks = tasks.filter(t => (t as any).divisionName === d.id);
     const done = dTasks.filter(t => t.status === 'APPROVED').length;
     return {
       id: d.id,
@@ -430,13 +406,9 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       }`}>
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-              Kartu Komando Produksi
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Kartu Komando Produksi</span>
             <h2 className="text-2xl font-black mt-1">Status Keseluruhan</h2>
-            <p className="text-sm mt-1 opacity-90">
-              Progres: <strong>{progress}%</strong> - Status: <span className="font-black">{statusLabel}</span>
-            </p>
+            <p className="text-sm mt-1 opacity-90">Progres: <strong>{progress}%</strong> - Status: <span className="font-black">{statusLabel}</span></p>
           </div>
           <div className="text-right">
             <p className="text-5xl font-black">{progress}%</p>
@@ -445,7 +417,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* ALERT KRITIS ★ */}
       {criticalTasks.length > 0 && (
         <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
           <div className="flex items-center gap-2 mb-2">
@@ -454,20 +425,11 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
               🚨 ALERT KRITIS ★ — {criticalTasks.length} Tugas Kritis Belum Selesai
             </h3>
           </div>
-          <p className="text-[11px] text-rose-700 dark:text-rose-300 mb-2">
-            Tugas bertanda ★ (tenggat berantai) membuat teman/divisi lain tertunda jika tidak selesai.
-          </p>
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
             {criticalTasks.slice(0, 5).map(t => (
               <div key={t.id} className="text-xs text-rose-800 dark:text-rose-200 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg flex items-center justify-between border border-rose-200 dark:border-rose-500/30">
-                <span className="truncate">
-                  <strong className="text-rose-600 dark:text-rose-400">★</strong> {t.title}
-                  <span className="text-rose-500 dark:text-rose-400 ml-1">({t.divisionName || t.role})</span>
-                </span>
-                <button onClick={() => onNavigate('tugas')}
-                  className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline shrink-0">
-                  Lihat
-                </button>
+                <span className="truncate"><strong className="text-rose-600 dark:text-rose-400">★</strong> {t.title} <span className="text-rose-500 dark:text-rose-400 ml-1">({(t as any).divisionName || t.role})</span></span>
+                <button onClick={() => onNavigate('tugas')} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline shrink-0">Lihat</button>
               </div>
             ))}
           </div>
@@ -479,32 +441,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <StatCard icon={CheckCircle} label="Tugas Selesai" value={`${completedTasks}/${tasks.length}`} color="emerald" />
         <StatCard icon={AlertTriangle} label="Terlambat" value={overdueTasks.length} color="rose" />
         <StatCard icon={ClipboardList} label="Presensi Tim" value={sessions.length} color="cyan" sub="Sesi total" />
-      </div>
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Flag} title="Timeline Produksi" subtitle="4 tahapan utama produksi teater" />
-        <div className="relative">
-          <div className="absolute top-5 left-0 right-0 h-1 bg-slate-200 dark:bg-slate-700 rounded-full" />
-          <div className="absolute top-5 left-0 h-1 bg-amber-500 rounded-full transition-all" style={{ width: '45%' }} />
-          <div className="relative grid grid-cols-4 gap-2">
-            {STAGES.map((s, i) => {
-              const isActive = i <= 1;
-              return (
-                <div key={s.id} className="flex flex-col items-center text-center">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center z-10 border-4 border-white dark:border-slate-900 shadow-md ${
-                    isActive ? 'bg-amber-500 text-white' : 'bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400'
-                  }`}>
-                    <span className="font-black text-xs">{i + 1}</span>
-                  </div>
-                  <p className={`text-[10px] font-bold mt-2 ${isActive ? 'text-amber-700 dark:text-amber-400' : 'text-slate-400 dark:text-slate-500'}`}>
-                    {s.id}
-                  </p>
-                  <p className="text-[9px] text-slate-400 dark:text-slate-500">{s.defaultWeight}%</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
@@ -531,17 +467,13 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
-            <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
-              Alert Kritis - {overdueTasks.length} Tugas Terlambat
-            </h3>
+            <h3 className="text-sm font-extrabold text-rose-900 dark:text-rose-200">Alert Kritis - {overdueTasks.length} Tugas Terlambat</h3>
           </div>
           <div className="space-y-1.5 max-h-40 overflow-y-auto">
             {overdueTasks.slice(0, 5).map(t => (
               <div key={t.id} className="text-xs text-rose-800 dark:text-rose-200 bg-white/70 dark:bg-slate-800/70 p-2 rounded-lg flex items-center justify-between">
-                <span className="truncate">{t.title} <span className="text-rose-500">({t.divisionName})</span></span>
-                <button onClick={() => onNavigate('tugas')} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline">
-                  Lihat
-                </button>
+                <span className="truncate">{t.title} <span className="text-rose-500">({(t as any).divisionName || '-'})</span></span>
+                <button onClick={() => onNavigate('tugas')} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline">Lihat</button>
               </div>
             ))}
           </div>
@@ -562,7 +494,7 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// SUTRADARA DASHBOARD
+// SUTRADARA
 // =====================================================
 const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { tasks, assessments, users, sessions } = useDashboardData();
@@ -575,7 +507,7 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   });
 
   const needAttention = actorScores.filter(a => !a.hasScore || a.avg < 70);
-  const rehearsalTasks = tasks.filter(t => t.divisionName === 'Pemeran');
+  const rehearsalTasks = tasks.filter(t => (t as any).divisionName === 'Pemeran');
   const rehearsalDone = rehearsalTasks.filter(t => t.status === 'APPROVED').length;
   const rehearsalPct = rehearsalTasks.length > 0 ? Math.round((rehearsalDone / rehearsalTasks.length) * 100) : 0;
   const attendanceSessions = sessions.filter(s => s.targetScope === 'PEMAIN_MUSIK');
@@ -585,9 +517,7 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-800 to-rose-950 text-white shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Sutradara</span>
         <h2 className="text-2xl font-black mt-1">Latihan & Evaluasi Pemeran</h2>
-        <p className="text-xs opacity-90 mt-1">
-          {actors.length} pemeran - {rehearsalDone}/{rehearsalTasks.length} tugas latihan selesai
-        </p>
+        <p className="text-xs opacity-90 mt-1">{actors.length} pemeran - {rehearsalDone}/{rehearsalTasks.length} tugas latihan selesai</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -616,8 +546,7 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
                     {a.hasScore ? `Nilai: ${a.avg.toFixed(1)} - perlu bimbingan` : 'Belum ada nilai'}
                   </p>
                 </div>
-                <button onClick={() => onNavigate('nilai')}
-                  className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline px-2 py-1 rounded-md bg-rose-50 dark:bg-rose-500/20 shrink-0">
+                <button onClick={() => onNavigate('nilai')} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline px-2 py-1 rounded-md bg-rose-50 dark:bg-rose-500/20 shrink-0">
                   Beri Nilai
                 </button>
               </div>
@@ -645,10 +574,8 @@ const SutradaraDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { tasks, schedules, users, sessions } = useDashboardData();
   const actors = users.filter(u => u.role === 'Pemeran');
-  const upcoming = schedules
-    .filter(s => new Date(s.startAt).getTime() > Date.now())
-    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
-    .slice(0, 3);
+  const upcoming = schedules.filter(s => new Date(s.startAt).getTime() > Date.now())
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).slice(0, 3);
   const pemainSessions = sessions.filter(s => s.targetScope === 'PEMAIN_MUSIK');
 
   return (
@@ -669,22 +596,10 @@ const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={Sparkles} title="Prompt Book & Blocking" subtitle="Editor posisi panggung 3x3" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">
-            Blocking Grid
-          </button>
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">
-            Cue Sheet
-          </button>
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">
-            Standby Cue
-          </button>
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">
-            Naskah
-          </button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">Blocking Grid</button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">Cue Sheet</button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">Standby Cue</button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">Naskah</button>
         </div>
       </div>
 
@@ -723,16 +638,14 @@ const AsistenDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// SEKRETARIS DASHBOARD
+// SEKRETARIS
 // =====================================================
 const SekretarisDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { schedules, sessions, users } = useDashboardData();
   const today = new Date().toISOString().slice(0, 10);
   const todaySchedules = schedules.filter(s => new Date(s.startAt).toISOString().slice(0, 10) === today);
   const openSessions = sessions.filter(s => s.isOpen);
-  const totalStudents = users.filter(u =>
-    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
-  ).length;
+  const totalStudents = users.filter(u => u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin').length;
 
   return (
     <div className="space-y-5">
@@ -799,7 +712,7 @@ const SekretarisDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => 
 };
 
 // =====================================================
-// BENDAHARA DASHBOARD
+// BENDAHARA
 // =====================================================
 const BendaharaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   return (
@@ -815,14 +728,9 @@ const BendaharaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           <Wallet className="w-6 h-6 text-emerald-600 dark:text-emerald-400 shrink-0" />
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-extrabold text-emerald-900 dark:text-emerald-200">Modul Kas Produksi</h3>
-            <p className="text-xs text-emerald-700 dark:text-emerald-300">
-              Buat tagihan, kirim reminder, verifikasi pembayaran, dan export laporan keuangan.
-            </p>
+            <p className="text-xs text-emerald-700 dark:text-emerald-300">Buat tagihan, kirim reminder, verifikasi pembayaran.</p>
           </div>
-          <button onClick={() => onNavigate('kas')}
-            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0">
-            Buka Kas
-          </button>
+          <button onClick={() => onNavigate('kas')} className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shrink-0">Buka Kas</button>
         </div>
       </div>
 
@@ -840,13 +748,12 @@ const BendaharaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 };
 
 // =====================================================
-// KOORDINATOR DASHBOARD
+// KOORDINATOR
 // =====================================================
-const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }> =
-  ({ onNavigate, division }) => {
+const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }> = ({ onNavigate, division }) => {
   const { tasks, schedules, sessions, assessments, users } = useDashboardData();
 
-  const divTasks = tasks.filter(t => t.divisionName === division);
+  const divTasks = tasks.filter(t => (t as any).divisionName === division);
   const divDone = divTasks.filter(t => t.status === 'APPROVED');
   const pct = divTasks.length > 0 ? Math.round((divDone.length / divTasks.length) * 100) : 0;
   const members = users.filter(u => u.divisionName === division && !u.role.startsWith('Koordinator'));
@@ -876,9 +783,7 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
       <div className={`p-6 rounded-3xl bg-gradient-to-r ${gradClass} text-white shadow-lg`}>
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Koordinator</span>
         <h2 className="text-2xl font-black mt-1">{division}</h2>
-        <p className="text-xs opacity-90 mt-1">
-          Kelola {members.length} anggota - Progress: {pct}%
-        </p>
+        <p className="text-xs opacity-90 mt-1">Kelola {members.length} anggota - Progress: {pct}%</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -912,8 +817,7 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
           <span className="text-2xl font-black text-slate-900 dark:text-white">{pct}%</span>
         </div>
         <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-amber-500 to-amber-600 transition-all"
-            style={{ width: `${pct}%` }} />
+          <div className="h-full bg-gradient-to-r from-amber-500 to-amber-600 transition-all" style={{ width: `${pct}%` }} />
         </div>
       </div>
 
@@ -935,10 +839,7 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
                 {m.avg > 0 ? (
                   <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs">{m.avg.toFixed(1)}</span>
                 ) : (
-                  <button onClick={() => onNavigate('nilai')}
-                    className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline">
-                    Nilai
-                  </button>
+                  <button onClick={() => onNavigate('nilai')} className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline">Nilai</button>
                 )}
               </div>
             ))}
@@ -960,7 +861,7 @@ const KoordinatorDashboard: React.FC<DashboardModuleProps & { division: string }
 };
 
 // =====================================================
-// ANGGOTA DASHBOARD — INI YANG SEBELUMNYA ERROR (CheckSquare)
+// ANGGOTA DASHBOARD
 // =====================================================
 const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { user } = useAuth();
@@ -968,7 +869,7 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 
   const myTasks = tasks.filter(t =>
     t.assigneeId === user?.uid ||
-    (t.divisionName === user?.divisionName && !t.assigneeId)
+    ((t as any).divisionName === user?.divisionName && !t.assigneeId)
   );
   const myDone = myTasks.filter(t => t.status === 'APPROVED');
   const myOverdue = myTasks.filter(t =>
@@ -976,25 +877,18 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   );
 
   const myAssessment = assessments.filter(a => a.studentId === user?.uid);
-  const myAvg = myAssessment.length > 0
-    ? myAssessment.reduce((s, a) => s + a.totalScore, 0) / myAssessment.length : 0;
+  const myAvg = myAssessment.length > 0 ? myAssessment.reduce((s, a) => s + a.totalScore, 0) / myAssessment.length : 0;
   const myPred = myAvg > 0 ? getPredikat(myAvg) : null;
 
-  const upcoming = schedules
-    .filter(s => new Date(s.startAt).getTime() > Date.now())
-    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
-    .slice(0, 3);
+  const upcoming = schedules.filter(s => new Date(s.startAt).getTime() > Date.now())
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).slice(0, 3);
 
   return (
     <div className="space-y-5">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-700 to-orange-800 text-white shadow-lg">
-        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">
-          Dashboard {user?.role}
-        </span>
+        <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard {user?.role}</span>
         <h2 className="text-2xl font-black mt-1">Tugas & Progres Saya</h2>
-        <p className="text-xs opacity-90 mt-1">
-          Divisi: {user?.divisionName || '-'} - {myTasks.length} tugas
-        </p>
+        <p className="text-xs opacity-90 mt-1">Divisi: {user?.divisionName || '-'} - {myTasks.length} tugas</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1012,10 +906,7 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
               <p className="text-4xl font-black mt-1 font-mono">{myAvg.toFixed(1)}</p>
               <p className="text-sm font-black mt-1">Predikat {myPred.predikat} - {myPred.label}</p>
             </div>
-            <button onClick={() => onNavigate('nilai-saya')}
-              className="px-4 py-2 rounded-xl bg-white/80 hover:bg-white font-bold text-xs shadow-sm">
-              Lihat Rapor
-            </button>
+            <button onClick={() => onNavigate('nilai-saya')} className="px-4 py-2 rounded-xl bg-white/80 hover:bg-white font-bold text-xs shadow-sm">Lihat Rapor</button>
           </div>
         </div>
       )}
@@ -1041,10 +932,7 @@ const AnggotaDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
                       Deadline: {new Date(t.dueDate).toLocaleDateString('id-ID')}
                     </p>
                   </div>
-                  <button onClick={() => onNavigate('tugas')}
-                    className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline shrink-0">
-                    Buka
-                  </button>
+                  <button onClick={() => onNavigate('tugas')} className="text-[10px] font-bold text-amber-600 dark:text-amber-400 hover:underline shrink-0">Buka</button>
                 </div>
               </div>
             ))}
@@ -1073,12 +961,11 @@ const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { tasks, schedules, assessments } = useDashboardData();
 
   const myAssessment = assessments.filter(a => a.studentId === user?.uid);
-  const myAvg = myAssessment.length > 0
-    ? myAssessment.reduce((s, a) => s + a.totalScore, 0) / myAssessment.length : 0;
+  const myAvg = myAssessment.length > 0 ? myAssessment.reduce((s, a) => s + a.totalScore, 0) / myAssessment.length : 0;
   const myPred = myAvg > 0 ? getPredikat(myAvg) : null;
 
   const rehearsalTasks = tasks.filter(t =>
-    t.divisionName === 'Pemeran' && (t.assigneeId === user?.uid || !t.assigneeId)
+    (t as any).divisionName === 'Pemeran' && (t.assigneeId === user?.uid || !t.assigneeId)
   );
   const rehearsalDone = rehearsalTasks.filter(t => t.status === 'APPROVED').length;
   const rehearsalPct = rehearsalTasks.length > 0 ? Math.round((rehearsalDone / rehearsalTasks.length) * 100) : 0;
@@ -1088,17 +975,14 @@ const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       (s.participants.toLowerCase().includes('pemeran') ||
        s.participants.toLowerCase().includes('pemain') ||
        s.type === 'Latihan' || s.type === 'Gladi'))
-    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
-    .slice(0, 3);
+    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).slice(0, 3);
 
   return (
     <div className="space-y-5">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-700 to-pink-900 text-white shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Pemeran</span>
         <h2 className="text-2xl font-black mt-1">Naskah, Blocking & Latihan</h2>
-        <p className="text-xs opacity-90 mt-1">
-          Progres latihan: <strong>{rehearsalPct}%</strong> - {rehearsalDone}/{rehearsalTasks.length} tugas selesai
-        </p>
+        <p className="text-xs opacity-90 mt-1">Progres latihan: <strong>{rehearsalPct}%</strong> - {rehearsalDone}/{rehearsalTasks.length} tugas selesai</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1111,22 +995,10 @@ const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
       <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <SectionTitle icon={BookOpen} title="Latihan Dialog & Blocking" subtitle="10 langkah dialog + rekam suara" />
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">
-            Naskah Digital
-          </button>
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">
-            Blocking 3x3
-          </button>
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">
-            Rekam Suara
-          </button>
-          <button onClick={() => onNavigate('studio')}
-            className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">
-            10 Langkah
-          </button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 border border-rose-200 dark:border-rose-500/30 text-rose-900 dark:text-rose-300 font-bold text-xs">Naskah Digital</button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 hover:bg-purple-100 border border-purple-200 dark:border-purple-500/30 text-purple-900 dark:text-purple-300 font-bold text-xs">Blocking 3x3</button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 border border-blue-200 dark:border-blue-500/30 text-blue-900 dark:text-blue-300 font-bold text-xs">Rekam Suara</button>
+          <button onClick={() => onNavigate('studio')} className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 border border-emerald-200 dark:border-emerald-500/30 text-emerald-900 dark:text-emerald-300 font-bold text-xs">10 Langkah</button>
         </div>
       </div>
 
@@ -1144,10 +1016,7 @@ const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
                     {new Date(s.startAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} - {s.location}
                   </p>
                 </div>
-                <button onClick={() => onNavigate('jadwal')}
-                  className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline shrink-0">
-                  Konfirmasi
-                </button>
+                <button onClick={() => onNavigate('jadwal')} className="text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline shrink-0">Konfirmasi</button>
               </div>
             ))}
           </div>
@@ -1159,14 +1028,9 @@ const PemeranDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           <Sparkles className="w-6 h-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
           <div className="flex-1">
             <h3 className="text-sm font-extrabold text-indigo-900 dark:text-indigo-200">Refleksi Diri</h3>
-            <p className="text-xs text-indigo-700 dark:text-indigo-300">
-              Isi refleksi untuk penilaian tahap Pasca Produksi
-            </p>
+            <p className="text-xs text-indigo-700 dark:text-indigo-300">Isi refleksi untuk penilaian tahap Pasca Produksi</p>
           </div>
-          <button onClick={() => onNavigate('tugas')}
-            className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shrink-0">
-            Isi
-          </button>
+          <button onClick={() => onNavigate('tugas')} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shrink-0">Isi</button>
         </div>
       </div>
 
@@ -1191,9 +1055,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({ onNavigate }) 
   const role = user?.role || '';
 
   const renderRoleDashboard = () => {
-    if (isGuruPengampu && !isAdminRole) {
-      return <GuruDashboard onNavigate={onNavigate} />;
-    }
+    if (isGuruPengampu && !isAdminRole) return <GuruDashboard onNavigate={onNavigate} />;
 
     switch (role) {
       case 'Pimpinan Produksi': return <PimprodDashboard onNavigate={onNavigate} />;
@@ -1201,14 +1063,12 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({ onNavigate }) 
       case 'Asisten Sutradara': return <AsistenDashboard onNavigate={onNavigate} />;
       case 'Sekretaris': return <SekretarisDashboard onNavigate={onNavigate} />;
       case 'Bendahara': return <BendaharaDashboard onNavigate={onNavigate} />;
-
       case 'Koordinator Perlengkapan': return <KoordinatorDashboard onNavigate={onNavigate} division="Perlengkapan" />;
       case 'Koordinator Publikasi': return <KoordinatorDashboard onNavigate={onNavigate} division="Publikasi & Dokumentasi" />;
       case 'Koordinator Tata Panggung': return <KoordinatorDashboard onNavigate={onNavigate} division="Tata Panggung" />;
       case 'Koordinator Tata Rias': return <KoordinatorDashboard onNavigate={onNavigate} division="Tata Rias" />;
       case 'Koordinator Tata Busana': return <KoordinatorDashboard onNavigate={onNavigate} division="Tata Busana" />;
       case 'Koordinator Tata Musik': return <KoordinatorDashboard onNavigate={onNavigate} division="Tata Musik & Suara" />;
-
       case 'Anggota Perlengkapan':
       case 'Anggota Publikasi':
       case 'Anggota Tata Panggung':
@@ -1216,9 +1076,7 @@ export const DashboardModule: React.FC<DashboardModuleProps> = ({ onNavigate }) 
       case 'Anggota Tata Busana':
       case 'Anggota Tata Musik':
         return <AnggotaDashboard onNavigate={onNavigate} />;
-
       case 'Pemeran': return <PemeranDashboard onNavigate={onNavigate} />;
-
       default: return <GuruDashboard onNavigate={onNavigate} />;
     }
   };
