@@ -28,6 +28,7 @@ import {
   TaskItem,
   UserProfile,
 } from '../core/types';
+import { normalizeUserRole } from '../core/constants';
 
 // ==========================================
 // ROLE → DIVISI MAPPING (auto-fill)
@@ -54,26 +55,30 @@ const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
   'Anggota Tata Musik': { id: 'div-musik', name: 'Tata Musik & Suara' },
 };
 
+/**
+ * enrichUser — SELALU:
+ * 1. Normalisasi role (Pemain → Pemeran, Guru Pembina → Guru Pengampu)
+ * 2. Auto-fill divisionId & divisionName kalau kosong
+ */
 function enrichUser(u: UserProfile): UserProfile {
-  const mapped = ROLE_DIV_MAP[u.role];
-  if (mapped && (!u.divisionId || !u.divisionName)) {
-    return {
-      ...u,
-      divisionId: u.divisionId || mapped.id,
-      divisionName: u.divisionName || mapped.name,
-    };
-  }
-  return u;
+  const normalizedRole = normalizeUserRole(u.role);
+  const mapped = ROLE_DIV_MAP[normalizedRole];
+
+  return {
+    ...u,
+    role: normalizedRole,
+    divisionId: u.divisionId || mapped?.id || '',
+    divisionName: u.divisionName || mapped?.name || 'Pemeran',
+  };
 }
 
 // ==========================================
-// FETCH USERS — SUPER ROBUST (fetch all + filter lokal)
+// FETCH USERS — SUPER ROBUST
 // ==========================================
 export async function fetchUsersByClass(classId: string): Promise<UserProfile[]> {
   const path = 'users';
   const found: Record<string, UserProfile> = {};
 
-  // Ambil nama class dulu (untuk matching className)
   let className: string | null = null;
   try {
     const classSnap = await getDoc(doc(db, 'classes', classId));
@@ -84,18 +89,14 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     console.warn('fetchUsersByClass: gagal ambil nama kelas:', err);
   }
 
-  // ═══ PRIMARY: Fetch SEMUA users, filter lokal ═══
   try {
     const allSnap = await getDocs(collection(db, path));
-
     allSnap.docs.forEach(d => {
       const u = { ...d.data(), uid: d.id } as UserProfile;
-
       const matchId = u.classId === classId;
       const matchName = className && (
         (u.className || '').toLowerCase().trim() === className.toLowerCase().trim()
       );
-
       if (matchId || matchName) {
         found[d.id] = enrichUser({
           ...u,
@@ -108,7 +109,6 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     console.error('fetchUsersByClass PRIMARY gagal:', err);
   }
 
-  // ═══ FALLBACK 1: Query by classId ═══
   if (Object.keys(found).length === 0) {
     try {
       const q = query(collection(db, path), where('classId', '==', classId));
@@ -122,7 +122,6 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     }
   }
 
-  // ═══ FALLBACK 2: Query by className ═══
   if (Object.keys(found).length === 0 && className) {
     try {
       const q = query(collection(db, path), where('className', '==', className));
