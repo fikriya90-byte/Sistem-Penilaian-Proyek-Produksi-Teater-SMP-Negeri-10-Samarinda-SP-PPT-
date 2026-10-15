@@ -11,6 +11,7 @@ import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
 type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
+// ✅ UPDATE: Label yang humanis untuk UI & Modal
 const CATEGORY_LABEL: Record<AssessorCategory, string> = {
   GURU: 'Guru Pengampu', ATASAN: 'Koordinator', REKAN: 'Rekan Kerja', BAWAHAN: 'Anggota Tim',
 };
@@ -36,7 +37,6 @@ function buildWhatsAppUrl(phone: string, text: string): string {
   return c ? `https://wa.me/${c}?text=${encodeURIComponent(text)}` : '#';
 }
 
-// ✅ FIX 1: Guard anti string "false"
 function isAssessmentOpen(sd: any, sid: ProductionStage) {
   const cfg = sd?.[sid];
   if (!cfg) return { open: false, reason: 'disabled' as const };
@@ -213,7 +213,6 @@ export const AssessmentModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // ✅ FIX 2: Guard anti string "false" untuk stage enabled
   const isStageEnabled = (sid: ProductionStage) => {
     if (!stageConfig?.stageDeadlines) return true;
     const c = stageConfig.stageDeadlines[sid];
@@ -223,7 +222,6 @@ export const AssessmentModule: React.FC = () => {
     return true;
   };
 
-  // ✅ Helper: cek langsung ke Firestore (anti-bypass)
   const isDirectDisabled = () => {
     const directCfg = stageConfig?.stageDeadlines?.[selectedStage];
     if (!directCfg) return false;
@@ -296,23 +294,45 @@ export const AssessmentModule: React.FC = () => {
     return { total: targets.length, filled, pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, isComplete: filled >= targets.length };
   };
 
+  // ✅ UPDATE: Fungsi getAgg yang baru untuk mencatat rincian spesifik peran penilai
   const getAgg = (sid: string, srole: string) => {
     const recs = assessments.filter(a => a.studentId === sid && a.stage === selectedStage);
     if (recs.length === 0) return null;
+    
     const by: Record<string, number[]> = { GURU: [], ATASAN: [], REKAN: [], BAWAHAN: [] };
-    recs.forEach(r => { const c = (r as any).assessorCategory || 'REKAN'; if (!by[c]) by[c] = []; by[c].push(r.totalScore); });
+    const roleBreakdown: Record<string, Record<string, number[]>> = { GURU: {}, ATASAN: {}, REKAN: {}, BAWAHAN: {} };
+
+    recs.forEach(r => { 
+      const c = (r as any).assessorCategory || 'REKAN'; 
+      const role = r.assessorRole || 'Tidak Diketahui';
+      
+      // Simpan nilai per kategori besar
+      if (!by[c]) by[c] = []; 
+      by[c].push(r.totalScore); 
+      
+      // Simpan nilai lebih spesifik per peran (role)
+      if (!roleBreakdown[c]) roleBreakdown[c] = {};
+      if (!roleBreakdown[c][role]) roleBreakdown[c][role] = [];
+      roleBreakdown[c][role].push(r.totalScore);
+    });
+    
     const avg = (a: number[]) => a.length > 0 ? a.reduce((s, x) => s + x, 0) / a.length : null;
     const g = avg(by.GURU), at = avg(by.ATASAN), rk = avg(by.REKAN), bw = avg(by.BAWAHAN);
     const w = getAssessorWeights(srole);
+    
     let sum = 0, wt = 0;
     if (g !== null && w.GURU > 0) { sum += g * w.GURU; wt += w.GURU; }
     if (at !== null && w.ATASAN > 0) { sum += at * w.ATASAN; wt += w.ATASAN; }
     if (rk !== null && w.REKAN > 0) { sum += rk * w.REKAN; wt += w.REKAN; }
     if (bw !== null && w.BAWAHAN > 0) { sum += bw * w.BAWAHAN; wt += w.BAWAHAN; }
-    return { finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs };
+    
+    return { 
+      finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, 
+      guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs,
+      roleBreakdown 
+    };
   };
 
-  // ✅ FIX 3: Guard di openGrading
   const openGrading = (s: UserProfile) => {
     if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan oleh Guru.', 'error'); return; }
     if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
@@ -333,7 +353,6 @@ export const AssessmentModule: React.FC = () => {
     setIsGradingOpen(true);
   };
 
-  // ✅ FIX 4: Guard di handleSave
   const handleSave = async () => {
     if (!user || !selectedStudent || !activeClass) return;
     if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan. Tidak bisa menyimpan.', 'error'); return; }
@@ -413,7 +432,8 @@ export const AssessmentModule: React.FC = () => {
   const handleRekap = () => {
     const sheet1 = {
       name: 'Rekap Nilai',
-      headers: ['Nama', 'Peran', 'Divisi', 'Peer', 'Guru', 'Atasan', 'Rekan', 'Bawahan', 'Nilai Akhir'],
+      // ✅ UPDATE: Header Excel humanis
+      headers: ['Nama', 'Peran', 'Divisi', 'Peer', 'Guru', 'Koordinator', 'Rekan Kerja', 'Anggota Tim', 'Nilai Akhir'],
       rows: filtered.map(s => {
         const a = getAgg(s.uid, s.role); const p = getPeerStatus(s);
         return [s.displayName, s.role, s.divisionName || '-', `${p.filled}/${p.total}`, a?.guru?.toFixed(1) ?? '-', a?.atasan?.toFixed(1) ?? '-', a?.rekan?.toFixed(1) ?? '-', a?.bawahan?.toFixed(1) ?? '-', a?.finalVal ?? '-'];
@@ -674,9 +694,10 @@ export const AssessmentModule: React.FC = () => {
                 <th className="py-3.5 px-4">Peran</th>
                 <th className="py-3.5 px-4 text-center">Peer</th>
                 <th className="py-3.5 px-4 text-center">Guru</th>
-                <th className="py-3.5 px-4 text-center">Atasan</th>
-                <th className="py-3.5 px-4 text-center">Rekan</th>
-                <th className="py-3.5 px-4 text-center">Bawahan</th>
+                {/* ✅ UPDATE: Label Header Tabel Humanis */}
+                <th className="py-3.5 px-4 text-center">Koordinator</th>
+                <th className="py-3.5 px-4 text-center">Rekan Kerja</th>
+                <th className="py-3.5 px-4 text-center">Anggota Tim</th>
                 <th className="py-3.5 px-4 text-center">Nilai</th>
                 <th className="py-3.5 px-4 text-right">Aksi</th>
               </tr>
@@ -776,6 +797,51 @@ export const AssessmentModule: React.FC = () => {
                       <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Tanggung Jawab</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.tanggung_jawab}</p><p className="text-[9px] text-blue-600">{taskResult.pctOnTime}% tepat waktu</p></div>
                       <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kehadiran</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kehadiran}</p><p className="text-[9px] text-blue-600">{attendResult.pct}% hadir</p></div>
                       {selectedStudent.role === 'Pemeran' && <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kedisiplinan</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kedisiplinan}</p></div>}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ✅ UPDATE: Rincian spesifik nilai berdasarkan peran pihak lain di dalam Modal */}
+              {(() => {
+                const ag = getAgg(selectedStudent.uid, selectedStudent.role);
+                // Hanya tampilkan jika sudah ada yang menilai selain guru sendiri saat ini
+                if (!ag || ag.count === 0) return null;
+                
+                return (
+                  <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                    <h4 className="text-xs font-black text-slate-900 mb-3">RINCIAN NILAI DARI PIHAK LAIN</h4>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(['ATASAN', 'REKAN', 'BAWAHAN', 'GURU'] as AssessorCategory[]).map(cat => {
+                        const breakdown = ag.roleBreakdown[cat];
+                        const roles = Object.keys(breakdown);
+                        if (roles.length === 0) return null;
+                        
+                        // Map key ke object agar mudah dibaca
+                        const avgCatKey = cat === 'ATASAN' ? 'atasan' : cat === 'BAWAHAN' ? 'bawahan' : cat === 'REKAN' ? 'rekan' : 'guru';
+                        const avgCat = ag[avgCatKey] as number;
+                        
+                        return (
+                          <div key={cat} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="text-[10px] font-bold text-slate-700 uppercase">{CATEGORY_LABEL[cat]}</span>
+                              <span className="text-xs font-black text-slate-900">{avgCat.toFixed(1)}</span>
+                            </div>
+                            <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                              {roles.map(role => {
+                                const scores = breakdown[role];
+                                const avgRole = scores.reduce((a, b) => a + b, 0) / scores.length;
+                                return (
+                                  <div key={role} className="flex justify-between items-center text-[10.5px]">
+                                    <span className="text-slate-600 font-medium">{role} <span className="text-slate-400">({scores.length} orang)</span></span>
+                                    <span className="font-bold text-slate-800">{avgRole.toFixed(1)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
