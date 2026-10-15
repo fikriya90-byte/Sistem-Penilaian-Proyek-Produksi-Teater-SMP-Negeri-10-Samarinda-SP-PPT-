@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
 } from 'lucide-react';
@@ -56,6 +56,21 @@ import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastMod
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
+
+// Modul yang bisa diakses dari welcome (belum masuk kelas)
+const WELCOME_MODULES = [
+  'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
+  'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
+];
+
+// Modul yang WAJIB sudah masuk kelas
+const IN_CLASS_MODULES = [
+  'nilai', 'nilai-saya', 'absensi', 'statistik-absensi', 'kas', 'rab', 'tugas',
+  'progress-tugas', 'jadwal', 'master-timeline', 'content-schedule', 'division-schedule',
+  'director-timeline', 'properti', 'musik', 'rias', 'busana', 'broadcast', 'aduan',
+  'dokumen', 'struktur', 'studio', 'kelola-siswa', 'kelola-tahapan', 'jadwal-penilaian',
+  'moderasi', 'booking', 'admin-dashboard',
+];
 
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
@@ -128,6 +143,12 @@ const MainLayout: React.FC = () => {
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
   const viewInitRef = useRef(false);
 
+  // Refs untuk akses state terbaru dari listener global
+  const stateRef = useRef({ activeClass, isGuruPengampu, isAdminRole });
+  useEffect(() => {
+    stateRef.current = { activeClass, isGuruPengampu, isAdminRole };
+  }, [activeClass, isGuruPengampu, isAdminRole]);
+
   useEffect(() => {
     try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
   }, [currentModule]);
@@ -161,6 +182,57 @@ const MainLayout: React.FC = () => {
       viewInitRef.current = true;
     }
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
+
+  // =====================================================
+  // ✅ FIX: HANDLER NAVIGASI TERPUSAT
+  // Dipakai oleh Navbar, NotificationPage, MyGradeModule, dll.
+  // Otomatis switch view kalau perlu + set module
+  // =====================================================
+  const handleNavigate = useCallback((target: string) => {
+    const { activeClass } = stateRef.current;
+
+    // Modul yang butuh masuk kelas dulu
+    const needsClass = IN_CLASS_MODULES.includes(target);
+    const isWelcomeOnly = WELCOME_MODULES.includes(target);
+
+    if (needsClass && !activeClass) {
+      // Tidak ada kelas aktif — fallback ke welcome
+      setView('welcome');
+      setCurrentModule(target);
+      return;
+    }
+
+    if (needsClass && activeClass) {
+      // Auto switch ke in-class view
+      setView('in-class');
+      setCurrentModule(target);
+      return;
+    }
+
+    if (isWelcomeOnly) {
+      // Selalu boleh diakses dari welcome
+      setCurrentModule(target);
+      return;
+    }
+
+    // Default: set module tanpa ubah view
+    setCurrentModule(target);
+  }, []);
+
+  // =====================================================
+  // ✅ FIX: LISTENER GLOBAL untuk 'spppt-navigate'
+  // Menangkap event dari NotificationPage, MyGradeModule, dll.
+  // =====================================================
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.module) {
+        handleNavigate(detail.module);
+      }
+    };
+    window.addEventListener('spppt-navigate', handler);
+    return () => window.removeEventListener('spppt-navigate', handler);
+  }, [handleNavigate]);
 
   const handleEnterClass = (c: any) => {
     setActiveClass(c);
@@ -200,9 +272,9 @@ const MainLayout: React.FC = () => {
     return (
       <>
         <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
-          <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={setCurrentModule} />
+          <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={handleNavigate} />
           <div className="flex-1 flex max-w-7xl w-full mx-auto">
-            <Sidebar currentModule={currentModule} onNavigate={setCurrentModule}
+            <Sidebar currentModule={currentModule} onNavigate={handleNavigate}
               isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
             <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
               {currentModule === 'pengaturan' ? <SettingsModule /> :
@@ -235,7 +307,7 @@ const MainLayout: React.FC = () => {
     return (
       <WelcomeLayout
         onEnterClass={handleEnterClass}
-        onNavigate={setCurrentModule}
+        onNavigate={handleNavigate}
         currentModule={currentModule}
       />
     );
@@ -243,7 +315,7 @@ const MainLayout: React.FC = () => {
 
   const renderCurrentModule = () => {
     switch (currentModule) {
-      case 'dashboard': return <DashboardModule onNavigate={setCurrentModule} />;
+      case 'dashboard': return <DashboardModule onNavigate={handleNavigate} />;
       case 'nilai-saya': return <MyGradeModule />;
       case 'nilai': return <AssessmentModule />;
       case 'moderasi': return <ModerationModule />;
@@ -269,7 +341,7 @@ const MainLayout: React.FC = () => {
       case 'dokumen': return <DocumentModule />;
       case 'struktur': return <StructureModule />;
       case 'studio': return <StudioModule />;
-      case 'kelola-siswa': return <ManageStudentModule onNavigate={setCurrentModule} />;
+      case 'kelola-siswa': return <ManageStudentModule onNavigate={handleNavigate} />;
       case 'kelola-tahapan': return <StageManagerModule />;
       case 'jadwal-penilaian': return <AssessmentScheduleModule />;
       case 'aktivitas': return <ActivityLogModule />;
@@ -280,7 +352,7 @@ const MainLayout: React.FC = () => {
       case 'booking': return <BookingModule />;
       case 'inter-class': return <InterClassCoordModule />;
       case 'debug-users': return <DebugUsersModule />;
-      default: return <DashboardModule onNavigate={setCurrentModule} />;
+      default: return <DashboardModule onNavigate={handleNavigate} />;
     }
   };
 
@@ -289,14 +361,14 @@ const MainLayout: React.FC = () => {
       <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
         <Navbar
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          onNavigate={setCurrentModule}
+          onNavigate={handleNavigate}
           view="in-class"
           onExitClass={handleExitClass}
         />
         <div className="flex-1 flex max-w-7xl w-full mx-auto">
           <Sidebar
             currentModule={currentModule}
-            onNavigate={setCurrentModule}
+            onNavigate={handleNavigate}
             isOpen={isSidebarOpen}
             onClose={() => setIsSidebarOpen(false)}
             mode="in-class"
@@ -306,20 +378,20 @@ const MainLayout: React.FC = () => {
           </main>
         </div>
 
-        <DashboardReminder onNavigate={setCurrentModule} />
+        <DashboardReminder onNavigate={handleNavigate} />
 
         <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
-          <button onClick={() => setCurrentModule('informasi')}
+          <button onClick={() => handleNavigate('informasi')}
             className="p-3 sm:p-3.5 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xl border border-amber-400 flex items-center justify-center transition group hover:scale-105"
             title="Papan Pengumuman">
             <Megaphone className="w-5 h-5" />
           </button>
-          <button onClick={() => setCurrentModule('struktur')}
+          <button onClick={() => handleNavigate('struktur')}
             className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
             title="Kerabat Kerja">
             <Users className="w-5 h-5" />
           </button>
-          <button onClick={() => setCurrentModule('aduan')}
+          <button onClick={() => handleNavigate('aduan')}
             className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition group hover:scale-105"
             title="Aduan Cepat">
             <MessageSquare className="w-5 h-5" />
@@ -327,27 +399,27 @@ const MainLayout: React.FC = () => {
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
-          <button onClick={() => setCurrentModule('dashboard')}
+          <button onClick={() => handleNavigate('dashboard')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Home className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Beranda</span>
           </button>
-          <button onClick={() => setCurrentModule('informasi')}
+          <button onClick={() => handleNavigate('informasi')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Megaphone className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Info</span>
           </button>
-          <button onClick={() => setCurrentModule('notifikasi')}
+          <button onClick={() => handleNavigate('notifikasi')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Bell className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Notif</span>
           </button>
-          <button onClick={() => setCurrentModule('kas')}
+          <button onClick={() => handleNavigate('kas')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Wallet className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">Kas</span>
           </button>
-          <button onClick={() => setCurrentModule('rab')}
+          <button onClick={() => handleNavigate('rab')}
             className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'rab' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
             <Calculator className="w-5 h-5" />
             <span className="text-[10px] mt-0.5">RAB</span>
