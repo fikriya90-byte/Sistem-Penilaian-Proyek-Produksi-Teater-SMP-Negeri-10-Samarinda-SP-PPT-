@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
-import { PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES, getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS } from '../../core/constants';
+import {
+  PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES,
+  getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS,
+  // ✅ FIX: Import helper baru dari constants
+  normalizeUserRole, isPemeranRole, getAssessorCategoryFor, getCriteriaForRole,
+} from '../../core/constants';
 import { AssessmentRecord, ProductionStage, UserProfile } from '../../core/types';
 import { fetchUsersByClass, fetchAllUsers, recordAuditLog, saveAssessment, subscribeAssessments, subscribeAttendanceSessions, subscribeAllAttendanceRecords } from '../../services/firestoreService';
 import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
@@ -11,7 +16,7 @@ import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
 type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
-// ✅ UPDATE: Label yang humanis untuk UI & Modal
+// Label yang humanis untuk UI & Modal
 const CATEGORY_LABEL: Record<AssessorCategory, string> = {
   GURU: 'Guru Pengampu', ATASAN: 'Koordinator', REKAN: 'Rekan Kerja', BAWAHAN: 'Anggota Tim',
 };
@@ -168,12 +173,18 @@ export const AssessmentModule: React.FC = () => {
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
 
   const canManageAll = isGuruPengampu || isAdminRole;
-  // Wewenang menilai: aturan lama (canAssessTarget) tetap berlaku, ditambah matriks penilai yang sama dengan handleSave.
+
+  // ✅ FIX: canGradeStudent sekarang pakai helper terpusat
+  // - canAssessTarget (dari authContext) sudah pakai matrix sisi target
+  // - Fallback: langsung cek matrix target dengan normalisasi role
   const canGradeStudent = (s: UserProfile) => {
     if (canManageAll) return true;
     if (!user || s.uid === user.uid) return false;
     if (canAssessTarget(s)) return true;
-    return getAssessmentMatrix(s.role).some(r => r.roles.includes(user.role));
+    // Fallback: cek langsung matrix dari SISI TARGET (dengan normalisasi role)
+    const targetRole = normalizeUserRole(s.role);
+    const matrix = getAssessmentMatrix(targetRole);
+    return matrix.some(r => r.roles.includes(user.role));
   };
 
   useEffect(() => {
@@ -240,14 +251,15 @@ export const AssessmentModule: React.FC = () => {
   const aStatus = isAssessmentOpen(stageConfig?.stageDeadlines, selectedStage);
   const isAssessmentLocked = !aStatus.open;
 
-  const criteria = selectedStudent?.role === 'Pemeran' ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+  // ✅ FIX: pakai helper isPemeranRole yang menangani legacy 'Pemain'
+  const criteria = isPemeranRole(selectedStudent?.role) ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
   const manualCriteria = criteria.filter(c => c.source === 'MANUAL');
 
   const autoScoresFor = (s: UserProfile, st: ProductionStage) => {
     const t = computeTaskResponsibility(s, deadlines, submissions, st);
     const a = computeAttendance(s, sessions, attRecords, st);
     const auto: any = { tanggung_jawab: t.score, kehadiran: a.score };
-    if (s.role === 'Pemeran') auto.kedisiplinan = Math.floor((t.score + a.score) / 2);
+    if (isPemeranRole(s.role)) auto.kedisiplinan = Math.floor((t.score + a.score) / 2);
     return { auto, taskResult: t, attendResult: a };
   };
 
@@ -300,42 +312,40 @@ export const AssessmentModule: React.FC = () => {
     return { total: targets.length, filled, pct: targets.length > 0 ? Math.round((filled / targets.length) * 100) : 100, isComplete: filled >= targets.length };
   };
 
-  // ✅ UPDATE: Fungsi getAgg yang baru untuk mencatat rincian spesifik peran penilai
+  // Agregasi nilai per kategori
   const getAgg = (sid: string, srole: string) => {
     const recs = assessments.filter(a => a.studentId === sid && a.stage === selectedStage);
     if (recs.length === 0) return null;
-    
+
     const by: Record<string, number[]> = { GURU: [], ATASAN: [], REKAN: [], BAWAHAN: [] };
     const roleBreakdown: Record<string, Record<string, number[]>> = { GURU: {}, ATASAN: {}, REKAN: {}, BAWAHAN: {} };
 
-    recs.forEach(r => { 
-      const c = (r as any).assessorCategory || 'REKAN'; 
+    recs.forEach(r => {
+      const c = (r as any).assessorCategory || 'REKAN';
       const role = r.assessorRole || 'Tidak Diketahui';
-      
-      // Simpan nilai per kategori besar
-      if (!by[c]) by[c] = []; 
-      by[c].push(r.totalScore); 
-      
-      // Simpan nilai lebih spesifik per peran (role)
+
+      if (!by[c]) by[c] = [];
+      by[c].push(r.totalScore);
+
       if (!roleBreakdown[c]) roleBreakdown[c] = {};
       if (!roleBreakdown[c][role]) roleBreakdown[c][role] = [];
       roleBreakdown[c][role].push(r.totalScore);
     });
-    
+
     const avg = (a: number[]) => a.length > 0 ? a.reduce((s, x) => s + x, 0) / a.length : null;
     const g = avg(by.GURU), at = avg(by.ATASAN), rk = avg(by.REKAN), bw = avg(by.BAWAHAN);
     const w = getAssessorWeights(srole);
-    
+
     let sum = 0, wt = 0;
     if (g !== null && w.GURU > 0) { sum += g * w.GURU; wt += w.GURU; }
     if (at !== null && w.ATASAN > 0) { sum += at * w.ATASAN; wt += w.ATASAN; }
     if (rk !== null && w.REKAN > 0) { sum += rk * w.REKAN; wt += w.REKAN; }
     if (bw !== null && w.BAWAHAN > 0) { sum += bw * w.BAWAHAN; wt += w.BAWAHAN; }
-    
-    return { 
-      finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, 
+
+    return {
+      finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0,
       guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs,
-      roleBreakdown 
+      roleBreakdown
     };
   };
 
@@ -353,7 +363,10 @@ export const AssessmentModule: React.FC = () => {
     setSelectedStudent(s);
     const ex = assessments.find(a => a.assessorId === user?.uid && a.studentId === s.uid && a.stage === selectedStage);
     const init: Record<string, number> = {};
-    manualCriteria.forEach(c => { init[c.key] = (ex?.scores && ex.scores[c.key]) || 3; });
+    const crit = isPemeranRole(s.role) ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+    crit.filter(c => c.source === 'MANUAL').forEach(c => {
+      init[c.key] = (ex?.scores && ex.scores[c.key]) || 3;
+    });
     setManualScores(init);
     setComment(ex?.comment || '');
     setIsGradingOpen(true);
@@ -369,10 +382,24 @@ export const AssessmentModule: React.FC = () => {
     try {
       const { auto } = autoScoresFor(selectedStudent, selectedStage);
       const total = calcTotal();
-      const matrix = getAssessmentMatrix(selectedStudent.role);
-      let cat: AssessorCategory = 'REKAN';
-      for (const r of matrix) if (r.roles.includes(user.role)) { cat = r.category; break; }
-      if (canManageAll) cat = 'GURU';
+
+      // ✅ FIX: tentukan kategori penilai dengan helper terpusat
+      // - Guru/Admin → GURU
+      // - Selain itu → lookup matrix sisi TARGET (dengan normalisasi role)
+      // - Kalau tidak ada di matrix → TOLAK (jangan asal fallback ke 'REKAN')
+      let cat: AssessorCategory;
+      if (canManageAll) {
+        cat = 'GURU';
+      } else {
+        const foundCat = getAssessorCategoryFor(selectedStudent.role, user.role);
+        if (!foundCat) {
+          showToast('Anda tidak berwenang menilai siswa ini.', 'error');
+          setIsSubmitting(false);
+          return;
+        }
+        cat = foundCat;
+      }
+
       await saveAssessment({
         classId: activeClass.id, productionId: 'prod',
         studentId: selectedStudent.uid, studentName: selectedStudent.displayName,
@@ -381,7 +408,12 @@ export const AssessmentModule: React.FC = () => {
         assessorCategory: cat, stage: selectedStage, scores: manualScores, autoScores: auto,
         totalScore: total, comment: comment.trim(), isFinal: true,
       } as any);
-      await recordAuditLog({ userId: user.uid, userName: user.displayName, role: user.role, action: 'ASSESS', targetType: 'Assessment', targetId: selectedStudent.uid, details: `Nilai ${total} untuk ${selectedStudent.displayName} (${selectedStage})` });
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'ASSESS', targetType: 'Assessment', targetId: selectedStudent.uid,
+        details: `Nilai ${total} untuk ${selectedStudent.displayName} (${selectedStage}, kategori: ${cat})`,
+      });
       showToast(`Penilaian ${selectedStudent.displayName} disimpan!`, 'success');
       setIsGradingOpen(false);
     } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); } finally { setIsSubmitting(false); }
@@ -465,7 +497,6 @@ export const AssessmentModule: React.FC = () => {
   const handleRekap = () => {
     const sheet1 = {
       name: 'Rekap Nilai',
-      // ✅ UPDATE: Header Excel humanis
       headers: ['Nama', 'Peran', 'Divisi', 'Peer', 'Guru', 'Koordinator', 'Rekan Kerja', 'Anggota Tim', 'Nilai Akhir'],
       rows: filtered.map(s => {
         const a = getAgg(s.uid, s.role); const p = getPeerStatus(s);
@@ -725,7 +756,6 @@ export const AssessmentModule: React.FC = () => {
                 <th className="py-3.5 px-4">Peran</th>
                 <th className="py-3.5 px-4 text-center">Peer</th>
                 <th className="py-3.5 px-4 text-center">Guru</th>
-                {/* ✅ UPDATE: Label Header Tabel Humanis */}
                 <th className="py-3.5 px-4 text-center">Koordinator</th>
                 <th className="py-3.5 px-4 text-center">Rekan Kerja</th>
                 <th className="py-3.5 px-4 text-center">Anggota Tim</th>
@@ -827,18 +857,16 @@ export const AssessmentModule: React.FC = () => {
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                       <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Tanggung Jawab</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.tanggung_jawab}</p><p className="text-[9px] text-blue-600">{taskResult.pctOnTime}% tepat waktu</p></div>
                       <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kehadiran</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kehadiran}</p><p className="text-[9px] text-blue-600">{attendResult.pct}% hadir</p></div>
-                      {selectedStudent.role === 'Pemeran' && <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kedisiplinan</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kedisiplinan}</p></div>}
+                      {isPemeranRole(selectedStudent.role) && <div className="p-3 rounded-xl bg-white border border-blue-200"><p className="text-[10px] font-bold text-blue-700">Kedisiplinan</p><p className="text-2xl font-black text-blue-900 font-mono">{auto.kedisiplinan}</p></div>}
                     </div>
                   </div>
                 );
               })()}
 
-              {/* ✅ UPDATE: Rincian spesifik nilai berdasarkan peran pihak lain di dalam Modal */}
               {(() => {
                 const ag = getAgg(selectedStudent.uid, selectedStudent.role);
-                // Hanya tampilkan jika sudah ada yang menilai selain guru sendiri saat ini
                 if (!ag || ag.count === 0) return null;
-                
+
                 return (
                   <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
                     <h4 className="text-xs font-black text-slate-900 mb-3">RINCIAN NILAI DARI PIHAK LAIN</h4>
@@ -847,11 +875,10 @@ export const AssessmentModule: React.FC = () => {
                         const breakdown = ag.roleBreakdown[cat];
                         const roles = Object.keys(breakdown);
                         if (roles.length === 0) return null;
-                        
-                        // Map key ke object agar mudah dibaca
+
                         const avgCatKey = cat === 'ATASAN' ? 'atasan' : cat === 'BAWAHAN' ? 'bawahan' : cat === 'REKAN' ? 'rekan' : 'guru';
                         const avgCat = ag[avgCatKey] as number;
-                        
+
                         return (
                           <div key={cat} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                             <div className="flex justify-between items-center mb-2">
