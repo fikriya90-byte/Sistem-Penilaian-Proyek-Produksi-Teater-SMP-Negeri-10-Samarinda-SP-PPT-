@@ -146,7 +146,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
             { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-            { id: 'rekap-nilai', label: '📊 Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
             { id: 'booking', label: 'Booking Alat', icon: Package },
           ],
         },
@@ -215,7 +215,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
             { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
             { id: 'moderasi', label: 'Moderasi', icon: ShieldCheck },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
         },
         {
@@ -300,6 +300,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
         },
         {
@@ -374,7 +375,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
         },
         {
@@ -450,6 +451,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
         },
         {
@@ -539,6 +541,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Divisi', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai Anggota', icon: Award },
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
         },
         {
@@ -614,6 +617,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
             { id: 'nilai', label: 'Nilai Rekan', icon: Star },
           ],
         },
@@ -698,6 +702,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
             { id: 'nilai', label: 'Nilai Rekan', icon: Star },
           ],
         },
@@ -765,6 +770,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         items: [
           { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
           { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
+          { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
         ],
       },
       {
