@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import {
   BarChart3, TrendingUp, Users, CheckCircle, AlertTriangle,
-  Search, Star, Filter, RefreshCw, Clock,
+  Search, Star, Filter, RefreshCw, Clock, Lock, Award,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { useAuth } from '../../core/authContext';
-import { DIVISIONS } from '../../core/constants';
-import { UserProfile, DeadlineItem, DeadlineSubmission } from '../../core/types';
+import { STAGES } from '../../core/constants';
+import { UserProfile, DeadlineItem, DeadlineSubmission, ProductionStage } from '../../core/types';
 import { fetchUsersByClass } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+
+type StageFilter = 'ALL' | ProductionStage;
 
 export const TaskProgressModule: React.FC = () => {
   const { user, activeClass } = useAuth();
@@ -26,8 +28,12 @@ export const TaskProgressModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // ✅ NEW: Filter tahapan — default ke tahap aktif dari stage config
+  const [selectedStage, setSelectedStage] = useState<StageFilter>('ALL');
+  const [stageConfig, setStageConfig] = useState<any>(null);
+
   // ═══════════════════════════════════════════════════════
-  // SUBSCRIBE: deadlines + deadlineSubmissions + users
+  // SUBSCRIBE: deadlines + deadlineSubmissions + users + stage config
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
@@ -40,7 +46,6 @@ export const TaskProgressModule: React.FC = () => {
     );
     const unsub1 = onSnapshot(qDeadlines, snap => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as DeadlineItem));
-      // Filter yang aktif saja (bukan CANCELLED)
       setDeadlines(list.filter(d => (d as any).status !== 'CANCELLED'));
       setLoading(false);
     }, err => {
@@ -59,11 +64,66 @@ export const TaskProgressModule: React.FC = () => {
       console.warn('Subscribe submissions error:', err);
     });
 
+    // Subscribe stage config untuk auto-select tahap aktif
+    const stageRef = collection(db, 'classes');
+    const stageDocRef = `classes/${activeClass.id}/config/stageManager`;
+    // Karena firestore path dinamis, pakai onSnapshot langsung ke doc
+    import('firebase/firestore').then(({ doc }) => {
+      const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
+      const unsubStage = onSnapshot(ref, snap => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setStageConfig(data);
+          // ✅ Auto-set tahap aktif kalau belum dipilih user
+          if (selectedStage === 'ALL' && data.currentStage) {
+            setSelectedStage(data.currentStage);
+          }
+        }
+      });
+      return () => unsubStage();
+    });
+
     // Fetch users
     fetchUsersByClass(activeClass.id).then(setUsers);
 
     return () => { unsub1(); unsub2(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClass]);
+
+  // Subscribe stage config — dibutuhkan supaya tahap aktif diketahui
+  useEffect(() => {
+    if (!activeClass) return;
+    const ref = (async () => {
+      const { doc } = await import('firebase/firestore');
+      return doc(db, 'classes', activeClass.id, 'config', 'stageManager');
+    })();
+    let unsub: () => void = () => {};
+    ref.then(r => {
+      unsub = onSnapshot(r, snap => {
+        if (snap.exists()) {
+          const data = snap.data();
+          setStageConfig(data);
+        }
+      });
+    });
+    return () => unsub();
+  }, [activeClass]);
+
+  // ═══════════════════════════════════════════════════════
+  // FILTER DEADLINES BERDASARKAN TAHAP YANG DIPILIH
+  // ═══════════════════════════════════════════════════════
+  const filteredDeadlines = selectedStage === 'ALL'
+    ? deadlines
+    : deadlines.filter(d => (d as any).stage === selectedStage);
+
+  // Hitung jumlah deadline per tahap (untuk badge di tab)
+  const stageCounts: Record<StageFilter, number> = {
+    ALL: deadlines.length,
+    PERSIAPAN: deadlines.filter(d => (d as any).stage === 'PERSIAPAN').length,
+    PELAKSANAAN: deadlines.filter(d => (d as any).stage === 'PELAKSANAAN').length,
+    PERTUNJUKAN: deadlines.filter(d => (d as any).stage === 'PERTUNJUKAN').length,
+    PASCA: deadlines.filter(d => (d as any).stage === 'PASCA').length,
+  };
 
   // ═══════════════════════════════════════════════════════
   // HELPER: Apakah deadline ini menargetkan user tertentu?
@@ -86,16 +146,13 @@ export const TaskProgressModule: React.FC = () => {
     return false;
   };
 
-  // ═══════════════════════════════════════════════════════
-  // HELPER: Apakah submission ini sukses (selesai/terlambat)?
-  // ═══════════════════════════════════════════════════════
   const isSubmissionDone = (sub?: DeadlineSubmission): boolean => {
     if (!sub) return false;
     return sub.status === 'SELESAI' || sub.status === 'TERLAMBAT';
   };
 
   // ═══════════════════════════════════════════════════════
-  // HITUNG PROGRESS PER SISWA
+  // HITUNG PROGRESS PER SISWA (pakai filteredDeadlines)
   // ═══════════════════════════════════════════════════════
   const studentProgress = users
     .filter(u =>
@@ -103,10 +160,8 @@ export const TaskProgressModule: React.FC = () => {
       u.role !== 'Admin' && u.role !== 'Super Admin'
     )
     .map(u => {
-      // Deadline yang menjadi tanggung jawab siswa
-      const myDeadlines = deadlines.filter(d => isDeadlineForUser(d, u));
+      const myDeadlines = filteredDeadlines.filter(d => isDeadlineForUser(d, u));
 
-      // Hitung submission yang sudah selesai
       const completedSubs = myDeadlines.filter(d => {
         const sub = submissions.find(s => s.deadlineId === d.id && s.studentId === u.uid);
         return isSubmissionDone(sub);
@@ -116,7 +171,6 @@ export const TaskProgressModule: React.FC = () => {
       const total = myDeadlines.length;
       const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-      // Overdue
       const now = Date.now();
       const overdue = myDeadlines.filter(d => {
         const dueMs = new Date(d.dueDate).getTime();
@@ -214,6 +268,19 @@ export const TaskProgressModule: React.FC = () => {
     return 'text-rose-700 dark:text-rose-300';
   };
 
+  // ═══════════════════════════════════════════════════════
+  // STAGE TAB CONFIG
+  // ═══════════════════════════════════════════════════════
+  const stageTabs: { id: StageFilter; label: string; icon: any; gradient: string }[] = [
+    { id: 'ALL', label: 'Semua Tahap', icon: Award, gradient: 'from-slate-600 to-slate-800' },
+    { id: 'PERSIAPAN', label: 'Persiapan', icon: Star, gradient: 'from-amber-500 to-amber-700' },
+    { id: 'PELAKSANAAN', label: 'Pelaksanaan', icon: TrendingUp, gradient: 'from-blue-500 to-blue-700' },
+    { id: 'PERTUNJUKAN', label: 'Pertunjukan', icon: Star, gradient: 'from-purple-500 to-purple-700' },
+    { id: 'PASCA', label: 'Pasca', icon: CheckCircle, gradient: 'from-emerald-500 to-emerald-700' },
+  ];
+
+  const currentStageActive = stageConfig?.currentStage as ProductionStage | undefined;
+
   return (
     <div className="space-y-6">
       {/* HEADER */}
@@ -229,7 +296,7 @@ export const TaskProgressModule: React.FC = () => {
               </span>
               <h2 className="text-xl font-black text-white mt-1">Grafik Progress Checklist</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Real-time dari centang tugas siswa di menu Tugas & Deadline
+                Real-time dari centang tugas siswa — bisa dilihat per tahap
               </p>
             </div>
           </div>
@@ -242,21 +309,81 @@ export const TaskProgressModule: React.FC = () => {
         </div>
       </div>
 
+      {/* ═══════════════════════════════════════════════════
+          STAGE FILTER TABS — INI YANG BARU
+          ═══════════════════════════════════════════════════ */}
+      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
+          <Filter className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+            Filter Tahapan:
+          </span>
+          {currentStageActive && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 flex items-center gap-1">
+              <CheckCircle className="w-3 h-3" />
+              Aktif sekarang: {currentStageActive}
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          {stageTabs.map(tab => {
+            const Icon = tab.icon;
+            const isActive = selectedStage === tab.id;
+            const count = stageCounts[tab.id];
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setSelectedStage(tab.id)}
+                className={`px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-2 ${
+                  isActive
+                    ? `bg-gradient-to-r ${tab.gradient} text-white shadow-md`
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{tab.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  isActive ? 'bg-white/25' : 'bg-slate-200 dark:bg-slate-700'
+                }`}>
+                  {count}
+                </span>
+                {tab.id === currentStageActive && (
+                  <span className="text-[9px] font-black px-1 py-0.5 rounded bg-white/30">
+                    AKTIF
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Info kalau tahap yang dipilih kosong */}
+        {selectedStage !== 'ALL' && stageCounts[selectedStage] === 0 && (
+          <div className="mt-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+              <strong>Belum ada deadline di tahap {selectedStage}.</strong> Progress akan muncul setelah guru/pengurus membuat tugas untuk tahap ini.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* INFO */}
       <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
         <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Real-time:</strong> Progress di halaman ini otomatis update begitu siswa menandai
-          tugas selesai di menu <strong>Tugas & Deadline</strong>. Data diambil langsung dari
-          <strong> deadlineSubmissions</strong> (bukan collection terpisah).
+          <strong>Real-time:</strong> Data diambil langsung dari <strong>deadlineSubmissions</strong>.
+          Progress otomatis update begitu siswa menandai tugas selesai di menu <strong>Tugas &amp; Deadline</strong>.
+          Gunakan filter tahapan di atas untuk melihat per-tahap.
         </p>
       </div>
 
-      {/* STATISTIK RINGKASAN */}
+      {/* STATISTIK RINGKASAN — mengikuti filter tahap */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm text-center">
-          <Users className="w-5 h-5 mx-auto text-slate-500 mb-1" />
-          <p className="text-[10px] text-slate-500 font-semibold">Total Tugas</p>
+          <Users className="w-5 h-5 mx-auto text-slate-500 dark:text-slate-400 mb-1" />
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">Total Tugas</p>
           <p className="text-xl font-black text-slate-900 dark:text-white">{totalTaskAssigned}</p>
         </div>
         <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 shadow-sm text-center">
@@ -285,7 +412,9 @@ export const TaskProgressModule: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="p-5 rounded-3xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white shadow-md flex flex-col justify-center">
           <TrendingUp className="w-6 h-6 mb-2" />
-          <p className="text-xs font-bold opacity-90">Rata-rata Progress Kelas</p>
+          <p className="text-xs font-bold opacity-90">
+            Rata-rata Progress {selectedStage === 'ALL' ? 'Kelas' : `Tahap ${selectedStage}`}
+          </p>
           <p className="text-5xl font-black mt-1">{overallPct}%</p>
           <p className="text-[11px] mt-2 opacity-80">
             {totalCompleted} dari {totalTaskAssigned} centang tugas
@@ -294,7 +423,7 @@ export const TaskProgressModule: React.FC = () => {
 
         <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm lg:col-span-2">
           <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
-            Distribusi Status Siswa
+            Distribusi Status Siswa {selectedStage !== 'ALL' && <span className="text-xs font-normal text-slate-500">— {selectedStage}</span>}
           </h3>
           <div className="w-full h-52">
             {pieData.length > 0 ? (
@@ -310,7 +439,7 @@ export const TaskProgressModule: React.FC = () => {
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-full text-xs text-slate-400">
-                Belum ada data
+                Belum ada data untuk tahap ini
               </div>
             )}
           </div>
@@ -345,13 +474,13 @@ export const TaskProgressModule: React.FC = () => {
           {roleStats.length === 0 ? (
             <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <BarChart3 className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500">Belum ada data progress</p>
+              <p className="text-sm text-slate-500">Belum ada data progress untuk filter ini</p>
             </div>
           ) : (
             <>
               <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
-                  Progress per Peran (%)
+                  Progress per Peran (%) {selectedStage !== 'ALL' && <span className="text-xs font-normal text-slate-500">— {selectedStage}</span>}
                 </h3>
                 <div className="w-full h-80">
                   <ResponsiveContainer width="100%" height="100%">
@@ -422,13 +551,13 @@ export const TaskProgressModule: React.FC = () => {
           {divisiStats.length === 0 ? (
             <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <Users className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500">Belum ada data progress divisi</p>
+              <p className="text-sm text-slate-500">Belum ada data progress divisi untuk filter ini</p>
             </div>
           ) : (
             <>
               <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
-                  Progress per Divisi (%)
+                  Progress per Divisi (%) {selectedStage !== 'ALL' && <span className="text-xs font-normal text-slate-500">— {selectedStage}</span>}
                 </h3>
                 <div className="w-full h-80">
                   <ResponsiveContainer width="100%" height="100%">
@@ -506,7 +635,7 @@ export const TaskProgressModule: React.FC = () => {
           {filteredStudents.length === 0 ? (
             <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <Star className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500">Belum ada data progress siswa</p>
+              <p className="text-sm text-slate-500">Belum ada data progress siswa untuk filter ini</p>
             </div>
           ) : (
             <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 overflow-hidden">
