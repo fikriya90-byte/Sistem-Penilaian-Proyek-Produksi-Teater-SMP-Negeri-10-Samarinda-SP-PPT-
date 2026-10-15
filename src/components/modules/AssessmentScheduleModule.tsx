@@ -131,7 +131,7 @@ export const AssessmentScheduleModule: React.FC = () => {
             const src = data.stageDeadlines[k] || {};
             merged[k] = {
               stageId: k,
-              assessmentEnabled: src.assessmentEnabled === true,
+              assessmentEnabled: src.assessmentEnabled === true || src.assessmentEnabled === 'true',
               assessmentStartDate: src.assessmentStartDate || '',
               assessmentStartTime: src.assessmentStartTime || '',
               assessmentEndDate: src.assessmentEndDate || '',
