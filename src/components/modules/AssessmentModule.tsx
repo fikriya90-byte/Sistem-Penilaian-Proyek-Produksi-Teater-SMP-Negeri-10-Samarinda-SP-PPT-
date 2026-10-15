@@ -140,7 +140,7 @@ function detectAnomalies(assessments: AssessmentRecord[], students: UserProfile[
 }
 
 export const AssessmentModule: React.FC = () => {
-  const { user, activeClass, isAdminRole, isGuruPengampu, canAssessTarget } = useAuth();
+  const { user, activeClass, isAdminRole, isGuruPengampu } = useAuth();
   const { showToast } = useToast();
 
   const [students, setStudents] = useState<UserProfile[]>([]);
@@ -168,7 +168,13 @@ export const AssessmentModule: React.FC = () => {
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
 
   const canManageAll = isGuruPengampu || isAdminRole;
-  const canGradeStudent = (s: UserProfile) => canManageAll ? true : canAssessTarget(s);
+  // Wewenang menilai dihitung dari matriks penilai yang sama dengan saat menyimpan nilai (handleSave),
+  // sehingga tombol Nilai selalu muncul untuk penilai yang tercantum di matriks peran target.
+  const canGradeStudent = (s: UserProfile) => {
+    if (canManageAll) return true;
+    if (!user || s.uid === user.uid) return false;
+    return getAssessmentMatrix(s.role).some(r => r.roles.includes(user.role));
+  };
 
   useEffect(() => {
     if (!activeClass) { setStudents([]); setStudentsLoading(false); return; }
@@ -757,7 +763,7 @@ export const AssessmentModule: React.FC = () => {
                       <td className="py-3.5 px-4 text-center">{ag ? <span className="text-sm font-black text-slate-900 font-mono">{ag.finalVal}</span> : <span className="text-xs text-slate-400">-</span>}</td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {cg ? <button onClick={() => openGrading(s)} className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1"><Edit3 className="w-3 h-3" /> {ag ? 'Edit' : 'Nilai'}</button> : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : 'Lihat'}</span>}
+                          {cg ? <button onClick={() => openGrading(s)} className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1"><Edit3 className="w-3 h-3" /> {ag ? 'Edit' : 'Nilai'}</button> : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : canGradeStudent(s) ? 'Lihat' : 'Bukan penilai'}</span>}
                           {canManageAll && s.phone && <button onClick={() => handleWAScore(s)} className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100" title="WA tanya nilai"><Send className="w-3.5 h-3.5" /></button>}
                         </div>
                       </td>
