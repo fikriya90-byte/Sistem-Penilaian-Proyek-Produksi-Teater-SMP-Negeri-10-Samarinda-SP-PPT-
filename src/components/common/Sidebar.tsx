@@ -204,7 +204,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
             { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
-            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
           ],
         },
         {
@@ -214,8 +213,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
+            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
             { id: 'moderasi', label: 'Moderasi', icon: ShieldCheck },
-            { id: 'rekap-nilai', label: '📊 Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
           ],
         },
         {
@@ -286,7 +286,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: '💰 Keuangan',
+          title: 'Keuangan',
           icon: Wallet,
           items: [
             { id: 'kas', label: 'Kas & Buku Kas', icon: Wallet },
@@ -374,7 +374,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'rekap-nilai', label: '📊 Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
+            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },  // ✅ NEW
           ],
         },
         {
@@ -685,7 +685,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: '🎭 Akting',
+          title: 'Akting',
           icon: Sparkles,
           items: [
             { id: 'studio', label: 'Naskah & Blocking', icon: Sparkles },
