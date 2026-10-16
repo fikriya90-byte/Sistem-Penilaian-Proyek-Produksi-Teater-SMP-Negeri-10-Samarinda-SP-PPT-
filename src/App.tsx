@@ -1,971 +1,467 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Award, BarChart3, Bell, Calendar, CheckSquare, ClipboardList,
-  Database, FileText, HelpCircle, MessageSquare, Music, Activity,
-  Package, Palette, Radio, Scissors, Settings, ShieldCheck, Sparkles,
-  Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
-  GraduationCap, Home, BookOpen, Globe, Bug, ChevronDown, ChevronRight,
-  Info, LayoutGrid, Layers, Target,
-  Library,  // ✅ NEW — Template Hub
+  Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
 } from 'lucide-react';
-import { useAuth } from '../../core/authContext';
 
-interface SidebarProps {
+import { AuthProvider, useAuth } from './core/authContext';
+import { ThemeProvider } from './core/themeContext';
+import { ToastProvider } from './components/common/Toast';
+import { Navbar } from './components/common/Navbar';
+import { Sidebar } from './components/common/Sidebar';
+import { LoginModal } from './components/auth/LoginModal';
+import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
+import { StudentWelcomePage } from './components/welcome/StudentWelcomePage';
+import { DashboardReminder } from './components/common/DashboardReminder';
+
+import { DashboardModule } from './components/modules/DashboardModule';
+import { AssessmentModule } from './components/modules/AssessmentModule';
+import { MyGradeModule } from './components/modules/MyGradeModule';
+import { AttendanceModule } from './components/modules/AttendanceModule';
+import { ScheduleModule } from './components/modules/ScheduleModule';
+import { TaskProgressModule } from './components/modules/TaskProgressModule';
+import { StructureModule } from './components/modules/StructureModule';
+import { StudioModule } from './components/modules/StudioModule';
+import { BroadcastModule } from './components/modules/BroadcastModule';
+import { DocumentModule } from './components/modules/DocumentModule';
+import { ComplaintModule } from './components/modules/ComplaintModule';
+import { GuideModule } from './components/modules/GuideModule';
+import { SettingsModule } from './components/modules/SettingsModule';
+import { AdminModule } from './components/modules/AdminModule';
+import { ManageClassModule } from './components/modules/ManageClassModule';
+import { ManageStudentModule } from './components/modules/ManageStudentModule';
+import { StageManagerModule } from './components/modules/StageManagerModule';
+import { AssessmentScheduleModule } from './components/modules/AssessmentScheduleModule';
+import { ModerationModule } from './components/modules/ModerationModule';
+import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
+import { KasModule } from './components/modules/KasModule';
+import { PropertyModule } from './components/modules/PropertyModule';
+import { MusicCueModule } from './components/modules/MusicCueModule';
+import { FaceChartModule } from './components/modules/FaceChartModule';
+import { CostumeModule } from './components/modules/CostumeModule';
+import { BackupModule } from './components/modules/BackupModule';
+import { InformationModule } from './components/modules/InformationModule';
+import { NotificationPage } from './components/modules/NotificationPage';
+import { ActivityLogModule } from './components/modules/ActivityLogModule';
+import { MasterTimelineModule } from './components/modules/MasterTimelineModule';
+import { ContentScheduleModule } from './components/modules/ContentScheduleModule';
+import { DivisionScheduleModule } from './components/modules/DivisionScheduleModule';
+import { DirectorTimelineModule } from './components/modules/DirectorTimelineModule';
+import { DeadlineModule } from './components/modules/DeadlineModule';
+import { NotulensiModule } from './components/modules/NotulensiModule';
+import { BookingModule } from './components/modules/BookingModule';
+import { InterClassCoordModule } from './components/modules/InterClassCoordModule';
+import { DebugUsersModule } from './components/modules/DebugUsersModule';
+import { RABModule } from './components/modules/RABModule';
+import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastModule';
+import { GradeRecapModule } from './components/modules/GradeRecapModule';
+import { TemplateHubModule } from './components/modules/TemplateHubModule';
+
+const NAV_STORAGE_KEY = 'spppt-current-module';
+const VIEW_STORAGE_KEY = 'spppt-view';
+
+// Modul yang bisa diakses dari welcome (belum masuk kelas)
+const WELCOME_MODULES = [
+  'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
+  'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
+];
+
+// Modul yang WAJIB sudah masuk kelas
+const IN_CLASS_MODULES = [
+  'nilai', 'nilai-saya', 'absensi', 'statistik-absensi', 'kas', 'rab', 'tugas',
+  'progress-tugas', 'jadwal', 'master-timeline', 'content-schedule', 'division-schedule',
+  'director-timeline', 'properti', 'musik', 'rias', 'busana', 'broadcast', 'aduan',
+  'dokumen', 'struktur', 'studio', 'kelola-siswa', 'kelola-tahapan', 'jadwal-penilaian',
+  'moderasi', 'booking', 'admin-dashboard', 'rekap-nilai', 'template-hub',
+];
+
+const WelcomeLayout: React.FC<{
+  onEnterClass: (c: any) => void;
+  onNavigate: (m: string) => void;
   currentModule: string;
-  onNavigate: (module: string) => void;
-  isOpen: boolean;
-  onClose: () => void;
-  mode?: 'welcome' | 'in-class';
-}
+}> = ({ onEnterClass, onNavigate, currentModule }) => {
+  const { isGuruPengampu, isAdminRole } = useAuth();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
-interface MenuItem {
-  id: string;
-  label: string;
-  icon: any;
-  badge?: string;
-}
-
-interface MenuGroup {
-  title: string;
-  icon: any;
-  items: MenuItem[];
-  collapsible?: boolean;
-}
-
-export const Sidebar: React.FC<SidebarProps> = ({
-  currentModule, onNavigate, isOpen, onClose, mode = 'in-class',
-}) => {
-  const { user, isGuruPengampu, isAdminRole } = useAuth();
-  const role = user?.role || '';
-
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-
-  const toggleGroup = (title: string) => {
-    setCollapsedGroups(prev => ({ ...prev, [title]: !prev[title] }));
+  const renderWelcomeModule = () => {
+    switch (currentModule) {
+      case 'informasi': return <InformationModule />;
+      case 'notifikasi': return <NotificationPage />;
+      case 'aktivitas': return <ActivityLogModule />;
+      case 'notulensi': return <NotulensiModule />;
+      case 'backup': return <BackupModule />;
+      case 'panduan': return <GuideModule />;
+      case 'pengaturan': return <SettingsModule />;
+      case 'inter-class': return <InterClassCoordModule />;
+      case 'debug-users': return <DebugUsersModule />;
+      case 'welcome-broadcast': return <WelcomeBroadcastModule />;
+      case 'dashboard':
+      default:
+        return isGuruPengampu || isAdminRole ? (
+          <ManageClassModule embedded onEnterClass={onEnterClass} />
+        ) : (
+          <StudentWelcomePage onEnterClass={onEnterClass} onNavigate={onNavigate} />
+        );
+    }
   };
 
-  // ============================================================
-  // WELCOME MODE
-  // ============================================================
-  const buildWelcomeMenu = (): MenuGroup[] => {
-    if (isGuruPengampu || isAdminRole) {
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Kelola Kelas', icon: BookOpen },
-          ],
-        },
-        {
-          title: 'Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'welcome-broadcast', label: 'Broadcast Lintas Kelas', icon: Radio },
-            { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-          ],
-        },
-        {
-          title: 'Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'backup', label: 'Backup & Restore', icon: Database },
-            { id: 'debug-users', label: 'Debug Users', icon: Bug },
-            { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings },
-          ],
-        },
-      ];
-    }
-    return [
-      {
-        title: 'Utama',
-        icon: Home,
-        items: [
-          { id: 'dashboard', label: 'Beranda Saya', icon: Home },
-        ],
-      },
-      {
-        title: 'Info & Komunikasi',
-        icon: MessageSquare,
-        items: [
-          { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-          { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-        ],
-      },
-      {
-        title: 'Bantuan',
-        icon: HelpCircle,
-        items: [
-          { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
-          { id: 'pengaturan', label: 'Pengaturan Akun', icon: Settings },
-        ],
-      },
-    ];
-  };
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
+      <Navbar
+        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+        onNavigate={onNavigate}
+        view="welcome"
+      />
+      <div className="flex-1 flex max-w-7xl w-full mx-auto">
+        <Sidebar
+          currentModule={currentModule}
+          onNavigate={onNavigate}
+          isOpen={isSidebarOpen}
+          onClose={() => setIsSidebarOpen(false)}
+          mode="welcome"
+        />
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
+          {renderWelcomeModule()}
+        </main>
+      </div>
+    </div>
+  );
+};
 
-  // ============================================================
-  // IN-CLASS MODE
-  // ============================================================
-  const buildInClassMenu = (): MenuGroup[] => {
+const MainLayout: React.FC = () => {
+  const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
 
-    // ---------- ADMIN ----------
-    if (isAdminRole) {
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [
-            { id: 'admin-dashboard', label: 'Dashboard Admin', icon: ShieldCheck },
-          ],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
-          ],
-        },
-        {
-          title: 'Monitoring',
-          icon: TrendingUp,
-          items: [
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
-            { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-            { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Keuangan',
-          icon: Wallet,
-          items: [
-            { id: 'rab', label: 'RAB Digital', icon: Calculator },
-          ],
-        },
-        {
-          title: 'Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'debug-users', label: 'Debug Users', icon: Bug },
-            { id: 'backup', label: 'Backup & Restore', icon: Database },
-            { id: 'pengaturan', label: 'Pengaturan Sistem', icon: Settings },
-          ],
-        },
-      ];
-    }
+  const [currentModule, setCurrentModule] = useState<string>(() => {
+    try { return localStorage.getItem(NAV_STORAGE_KEY) || 'dashboard'; }
+    catch { return 'dashboard'; }
+  });
+  const [view, setView] = useState<'welcome' | 'in-class'>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+      if (saved === 'in-class' || saved === 'welcome') return saved;
+    } catch { /* ignore */ }
+    return 'welcome';
+  });
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showLoginConfirm, setShowLoginConfirm] = useState(false);
+  const viewInitRef = useRef(false);
 
-    // ---------- GURU PENGAMPU ----------
-    if (isGuruPengampu) {
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [
-            { id: 'dashboard', label: 'Dashboard', icon: Home },
-          ],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'broadcast', label: 'Broadcast', icon: Radio },
-            { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
-            { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-          ],
-        },
-        {
-          title: 'Kelola Kelas',
-          icon: GraduationCap,
-          items: [
-            { id: 'kelola-siswa', label: 'Kelola Siswa', icon: GraduationCap },
-            { id: 'kelola-tahapan', label: 'Kelola Tahapan', icon: Calendar },
-          ],
-        },
-        {
-          title: 'Tugas',
-          icon: CheckSquare,
-          items: [
-            { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-            { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-          ],
-        },
-        {
-          title: 'Penilaian',
-          icon: Award,
-          items: [
-            { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Calendar },
-            { id: 'moderasi', label: 'Moderasi', icon: ShieldCheck },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-          ],
-        },
-        {
-          title: 'Presensi',
-          icon: ClipboardList,
-          items: [
-            { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-            { id: 'statistik-absensi', label: 'Statistik Presensi', icon: BarChart3 },
-          ],
-        },
-        {
-          title: 'Jadwal & Timeline',
-          icon: Calendar,
-          items: [
-            { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-          ],
-        },
-        {
-          title: 'Produksi',
-          icon: Layers,
-          items: [
-            { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-            { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Dokumen & Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-            { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'debug-users', label: 'Debug Users', icon: Bug },
-            { id: 'backup', label: 'Backup & Restore', icon: Database },
-            { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-          ],
-        },
-      ];
-    }
+  const stateRef = useRef({ activeClass, isGuruPengampu, isAdminRole, view });
+  useEffect(() => {
+    stateRef.current = { activeClass, isGuruPengampu, isAdminRole, view };
+  }, [activeClass, isGuruPengampu, isAdminRole, view]);
 
-    // ---------- BENDAHARA ----------
-    if (role === 'Bendahara') {
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'broadcast', label: 'Broadcast', icon: Radio },
-            { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-          ],
-        },
-        {
-          title: 'Keuangan',
-          icon: Wallet,
-          items: [
-            { id: 'kas', label: 'Kas & Buku Kas', icon: Wallet },
-            { id: 'rab', label: 'RAB Digital', icon: Calculator },
-          ],
-        },
-        {
-          title: 'Tugas',
-          icon: CheckSquare,
-          items: [
-            { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-            { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-          ],
-        },
-        {
-          title: 'Penilaian',
-          icon: Award,
-          items: [
-            { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-          ],
-        },
-        {
-          title: 'Presensi',
-          icon: ClipboardList,
-          items: [
-            { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-          ],
-        },
-        {
-          title: 'Jadwal & Timeline',
-          icon: Calendar,
-          items: [
-            { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
-          ],
-        },
-        {
-          title: 'Produksi',
-          icon: Layers,
-          items: [
-            { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-            { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Dokumen & Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-            { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ---------- PIMPINAN PRODUKSI ----------
-    if (role === 'Pimpinan Produksi') {
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'broadcast', label: 'Broadcast', icon: Radio },
-            { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
-            { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-          ],
-        },
-        {
-          title: 'Tugas',
-          icon: CheckSquare,
-          items: [
-            { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-            { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-          ],
-        },
-        {
-          title: 'Penilaian',
-          icon: Award,
-          items: [
-            { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-          ],
-        },
-        {
-          title: 'Presensi',
-          icon: ClipboardList,
-          items: [
-            { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-          ],
-        },
-        {
-          title: 'Jadwal & Timeline',
-          icon: Calendar,
-          items: [
-            { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
-            { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-          ],
-        },
-        {
-          title: 'Produksi',
-          icon: Layers,
-          items: [
-            { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-            { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Dokumen & Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-            { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ---------- SEKRETARIS / SUTRADARA / ASISTEN SUTRADARA ----------
-    if (['Sekretaris', 'Sutradara', 'Asisten Sutradara'].includes(role)) {
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'broadcast', label: 'Broadcast', icon: Radio },
-            { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
-            { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-          ],
-        },
-        {
-          title: 'Tugas',
-          icon: CheckSquare,
-          items: [
-            { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-            { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
-          ],
-        },
-        {
-          title: 'Penilaian',
-          icon: Award,
-          items: [
-            { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-          ],
-        },
-        {
-          title: 'Presensi',
-          icon: ClipboardList,
-          items: [
-            { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-          ],
-        },
-        {
-          title: 'Jadwal & Timeline',
-          icon: Calendar,
-          items: [
-            { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
-            { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-          ],
-        },
-        {
-          title: 'Produksi',
-          icon: Layers,
-          items: [
-            { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-            { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Dokumen & Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-            { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'panduan', label: 'Panduan & FAQ', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ---------- KOORDINATOR ----------
-    if (role.startsWith('Koordinator ')) {
-      const specific: Record<string, MenuItem[]> = {
-        'Koordinator Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
-        'Koordinator Publikasi': [{ id: 'dokumen', label: 'Dokumentasi', icon: FileText }],
-        'Koordinator Tata Panggung': [{ id: 'properti', label: 'Properti Panggung', icon: Package }],
-        'Koordinator Tata Rias': [{ id: 'rias', label: 'Face Chart', icon: Palette }],
-        'Koordinator Tata Busana': [{ id: 'busana', label: 'Kostum', icon: Scissors }],
-        'Koordinator Tata Musik': [{ id: 'musik', label: 'Cue Sheet', icon: Music }],
-      };
-      const extras = specific[role] || [];
-
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [{ id: 'dashboard', label: 'Dashboard', icon: Home }],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'broadcast', label: 'Broadcast Divisi', icon: Radio },
-            { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-          ],
-        },
-        {
-          title: 'Divisi Saya',
-          icon: Star,
-          items: extras,
-        },
-        {
-          title: 'Tugas',
-          icon: CheckSquare,
-          items: [
-            { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-            { id: 'progress-tugas', label: 'Progress Divisi', icon: TrendingUp },
-          ],
-        },
-        {
-          title: 'Penilaian',
-          icon: Award,
-          items: [
-            { id: 'nilai', label: 'Nilai Anggota', icon: Award },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-          ],
-        },
-        {
-          title: 'Presensi & Jadwal',
-          icon: ClipboardList,
-          items: [
-            { id: 'absensi', label: 'Absensi Divisi', icon: ClipboardList },
-            { id: 'jadwal', label: 'Jadwal Internal', icon: Calendar },
-            { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
-          ],
-        },
-        {
-          title: 'Produksi',
-          icon: Layers,
-          items: [
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-            { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-            { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Dokumen',
-          icon: FileText,
-          items: [
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-            { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'panduan', label: 'Panduan', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ---------- ANGGOTA DIVISI ----------
-    if (role.startsWith('Anggota ')) {
-      const specific: Record<string, MenuItem[]> = {
-        'Anggota Perlengkapan': [{ id: 'properti', label: 'Properti', icon: Package }],
-        'Anggota Publikasi': [{ id: 'dokumen', label: 'Upload Media', icon: FileText }],
-        'Anggota Tata Panggung': [{ id: 'properti', label: 'Properti Panggung', icon: Package }],
-        'Anggota Tata Rias': [{ id: 'rias', label: 'Face Chart', icon: Palette }],
-        'Anggota Tata Busana': [{ id: 'busana', label: 'Kostum', icon: Scissors }],
-        'Anggota Tata Musik': [{ id: 'musik', label: 'Cue Sheet', icon: Music }],
-      };
-      const extras = specific[role] || [];
-
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [{ id: 'dashboard', label: 'Beranda', icon: Home }],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-          ],
-        },
-        {
-          title: 'Tugas Saya',
-          icon: CheckSquare,
-          items: [
-            { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-            { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-            { id: 'nilai', label: 'Nilai Rekan', icon: Star },
-          ],
-        },
-        {
-          title: 'Divisi Saya',
-          icon: Star,
-          items: extras,
-        },
-        {
-          title: 'Presensi & Jadwal',
-          icon: Calendar,
-          items: [
-            { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-            { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
-            { id: 'division-schedule', label: 'Jadwal Divisi Saya', icon: Users },
-          ],
-        },
-        {
-          title: 'Produksi',
-          icon: Layers,
-          items: [
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-            { id: 'studio', label: 'Studio & Naskah', icon: Sparkles },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Keuangan',
-          icon: Wallet,
-          items: [
-            { id: 'kas', label: 'Kas Saya', icon: Wallet },
-          ],
-        },
-        {
-          title: 'Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'panduan', label: 'Panduan', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ---------- PEMERAN ----------
-    if (role === 'Pemain' || role === 'Pemeran') {
-      return [
-        {
-          title: 'Utama',
-          icon: Home,
-          items: [{ id: 'dashboard', label: 'Beranda', icon: Home }],
-        },
-        {
-          title: 'Info & Komunikasi',
-          icon: MessageSquare,
-          items: [
-            { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-            { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-            { id: 'aduan', label: 'Aduan & Saran', icon: MessageSquare },
-          ],
-        },
-        {
-          title: 'Akting',
-          icon: Sparkles,
-          items: [
-            { id: 'studio', label: 'Naskah & Blocking', icon: Sparkles },
-            { id: 'jadwal', label: 'Jadwal Latihan', icon: Calendar },
-          ],
-        },
-        {
-          title: 'Tugas Saya',
-          icon: CheckSquare,
-          items: [
-            { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-            { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
-            { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-            { id: 'nilai', label: 'Nilai Rekan', icon: Star },
-          ],
-        },
-        {
-          title: 'Presensi',
-          icon: ClipboardList,
-          items: [
-            { id: 'absensi', label: 'Presensi', icon: ClipboardList },
-          ],
-        },
-        {
-          title: 'Produksi',
-          icon: Layers,
-          items: [
-            { id: 'master-timeline', label: 'Master Timeline', icon: Film },
-            { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
-            { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
-            { id: 'struktur', label: 'Struktur Kerabat', icon: Users },
-            { id: 'booking', label: 'Booking Alat', icon: Package },
-          ],
-        },
-        {
-          title: 'Keuangan',
-          icon: Wallet,
-          items: [
-            { id: 'kas', label: 'Kas Saya', icon: Wallet },
-          ],
-        },
-        {
-          title: 'Administrasi',
-          icon: FileText,
-          items: [
-            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-            { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
-          ],
-        },
-        {
-          title: 'Sistem',
-          icon: Settings,
-          items: [
-            { id: 'panduan', label: 'Panduan', icon: HelpCircle },
-            { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ---------- DEFAULT FALLBACK ----------
-    return [
-      {
-        title: 'Utama',
-        icon: Home,
-        items: [{ id: 'dashboard', label: 'Beranda', icon: Home }],
-      },
-      {
-        title: 'Info & Komunikasi',
-        icon: MessageSquare,
-        items: [
-          { id: 'informasi', label: 'Papan Informasi', icon: Megaphone },
-          { id: 'notifikasi', label: 'Notifikasi', icon: Bell },
-        ],
-      },
-      {
-        title: 'Tugas & Penilaian',
-        icon: CheckSquare,
-        items: [
-          { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
-          { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
-          { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
-        ],
-      },
-      {
-        title: 'Administrasi',
-        icon: FileText,
-        items: [
-          { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
-        ],
-      },
-      {
-        title: 'Sistem',
-        icon: Settings,
-        items: [
-          { id: 'panduan', label: 'Panduan', icon: HelpCircle },
-          { id: 'pengaturan', label: 'Pengaturan', icon: Settings },
-        ],
-      },
-    ];
-  };
-
-  const menuGroups = mode === 'welcome' ? buildWelcomeMenu() : buildInClassMenu();
-
-  // Auto-expand grup yang berisi currentModule
-  React.useEffect(() => {
-    const group = menuGroups.find(g => g.items.some(i => i.id === currentModule));
-    if (group && collapsedGroups[group.title]) {
-      setCollapsedGroups(prev => ({ ...prev, [group.title]: false }));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
   }, [currentModule]);
+
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_STORAGE_KEY, view); } catch { /* ignore */ }
+  }, [view]);
+
+  useEffect(() => {
+    if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
+      setShowLoginConfirm(true);
+    }
+  }, [user]);
+
+  useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
+
+  // AUTO-ENTER CLASS UNTUK SISWA
+  useEffect(() => {
+    if (!user) return;
+    if (viewInitRef.current) return;
+    const isGuruOrAdmin = isGuruPengampu || isAdminRole;
+    let savedView: 'welcome' | 'in-class' = 'welcome';
+    try {
+      const s = localStorage.getItem(VIEW_STORAGE_KEY);
+      if (s === 'in-class' || s === 'welcome') savedView = s;
+    } catch { /* ignore */ }
+
+    if (isGuruOrAdmin) {
+      if (activeClass && savedView === 'in-class') { setView('in-class'); viewInitRef.current = true; }
+      else if (activeClass && savedView === 'welcome') { setView('welcome'); viewInitRef.current = true; }
+    } else {
+      if (activeClass) {
+        setView('in-class');
+      } else {
+        setView('welcome');
+      }
+      viewInitRef.current = true;
+    }
+  }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
+
+  // AUTO-RUN REMINDER CHECKER
+  useEffect(() => {
+    if (!user || !activeClass) return;
+    const timer = setTimeout(() => {
+      import('./utils/reminder').then(({ runAllReminders }) => {
+        runAllReminders(activeClass.id).catch(err =>
+          console.warn('Reminder check error (non-fatal):', err)
+        );
+      }).catch(err => {
+        console.warn('Reminder import error (non-fatal):', err);
+      });
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [user?.uid, activeClass?.id]);
+
+  // HANDLER NAVIGASI TERPUSAT
+  const handleNavigate = useCallback((target: string) => {
+    const st = stateRef.current;
+    const needsClass = IN_CLASS_MODULES.includes(target);
+    const isWelcomeOnly = WELCOME_MODULES.includes(target);
+
+    if (needsClass && !st.activeClass) {
+      setView('welcome');
+      setCurrentModule(target);
+      return;
+    }
+
+    if (needsClass && st.activeClass) {
+      setView('in-class');
+      setCurrentModule(target);
+      return;
+    }
+
+    if (isWelcomeOnly) {
+      setCurrentModule(target);
+      return;
+    }
+
+    setCurrentModule(target);
+  }, []);
+
+  // Listener global untuk 'spppt-navigate'
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.module) handleNavigate(detail.module);
+    };
+    window.addEventListener('spppt-navigate', handler);
+    return () => window.removeEventListener('spppt-navigate', handler);
+  }, [handleNavigate]);
+
+  const handleEnterClass = (c: any) => {
+    setActiveClass(c);
+    setView('in-class');
+    setCurrentModule('dashboard');
+  };
+
+  const handleExitClass = () => {
+    setView('welcome');
+    setCurrentModule('dashboard');
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
+        <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <h2 className="text-lg font-black tracking-tight text-amber-400">Memuat SP-PPT...</h2>
+        <p className="text-xs text-slate-400 mt-1">Sistem Penilaian Produksi Teater SMPN 10 Samarinda</p>
+      </div>
+    );
+  }
+
+  if (!user) return <LoginModal />;
+
+  const handleLoginConfirmYes = () => {
+    try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
+    setShowLoginConfirm(false);
+  };
+
+  const handleLoginConfirmNo = async () => {
+    try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
+    setShowLoginConfirm(false);
+    await logout();
+  };
+
+  // =====================================================
+  // ADMIN LAYOUT
+  // =====================================================
+  if (isAdminRole) {
+    return (
+      <>
+        <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
+          <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={handleNavigate} />
+          <div className="flex-1 flex max-w-7xl w-full mx-auto">
+            <Sidebar currentModule={currentModule} onNavigate={handleNavigate}
+              isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+            <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
+              {currentModule === 'pengaturan' ? <SettingsModule /> :
+               currentModule === 'backup' ? <BackupModule /> :
+               currentModule === 'informasi' ? <InformationModule /> :
+               currentModule === 'notifikasi' ? <NotificationPage /> :
+               currentModule === 'aktivitas' ? <ActivityLogModule /> :
+               currentModule === 'master-timeline' ? <MasterTimelineModule /> :
+               currentModule === 'content-schedule' ? <ContentScheduleModule /> :
+               currentModule === 'division-schedule' ? <DivisionScheduleModule /> :
+               currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
+               currentModule === 'progress-tugas' ? <TaskProgressModule /> :
+               currentModule === 'notulensi' ? <NotulensiModule /> :
+               currentModule === 'booking' ? <BookingModule /> :
+               currentModule === 'inter-class' ? <InterClassCoordModule /> :
+               currentModule === 'debug-users' ? <DebugUsersModule /> :
+               currentModule === 'rab' ? <RABModule /> :
+               currentModule === 'rekap-nilai' ? <GradeRecapModule /> :
+               currentModule === 'template-hub' ? <TemplateHubModule /> :
+               <AdminModule />}
+            </main>
+          </div>
+        </div>
+        {showLoginConfirm && user && (
+          <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
+        )}
+      </>
+    );
+  }
+
+  // =====================================================
+  // WELCOME VIEW
+  // =====================================================
+  if (view === 'welcome') {
+    return (
+      <WelcomeLayout
+        onEnterClass={handleEnterClass}
+        onNavigate={handleNavigate}
+        currentModule={currentModule}
+      />
+    );
+  }
+
+  // =====================================================
+  // IN-CLASS MODULE ROUTER
+  // =====================================================
+  const renderCurrentModule = () => {
+    switch (currentModule) {
+      case 'dashboard': return <DashboardModule onNavigate={handleNavigate} />;
+      case 'nilai-saya': return <MyGradeModule />;
+      case 'nilai': return <AssessmentModule />;
+      case 'moderasi': return <ModerationModule />;
+      case 'rekap-nilai': return <GradeRecapModule />;
+      case 'absensi': return <AttendanceModule />;
+      case 'statistik-absensi': return <AttendanceStatsModule />;
+      case 'kas': return <KasModule />;
+      case 'rab': return <RABModule />;
+      case 'tugas': return <DeadlineModule />;
+      case 'progress-tugas': return <TaskProgressModule />;
+      case 'jadwal': return <ScheduleModule />;
+      case 'master-timeline': return <MasterTimelineModule />;
+      case 'content-schedule': return <ContentScheduleModule />;
+      case 'division-schedule': return <DivisionScheduleModule />;
+      case 'director-timeline': return <DirectorTimelineModule />;
+      case 'properti': return <PropertyModule />;
+      case 'musik': return <MusicCueModule />;
+      case 'rias': return <FaceChartModule />;
+      case 'busana': return <CostumeModule />;
+      case 'informasi': return <InformationModule />;
+      case 'notifikasi': return <NotificationPage />;
+      case 'broadcast': return <BroadcastModule />;
+      case 'aduan': return <ComplaintModule />;
+      case 'dokumen': return <DocumentModule />;
+      case 'struktur': return <StructureModule />;
+      case 'studio': return <StudioModule />;
+      case 'kelola-siswa': return <ManageStudentModule onNavigate={handleNavigate} />;
+      case 'kelola-tahapan': return <StageManagerModule />;
+      case 'jadwal-penilaian': return <AssessmentScheduleModule />;
+      case 'aktivitas': return <ActivityLogModule />;
+      case 'backup': return <BackupModule />;
+      case 'pengaturan': return <SettingsModule />;
+      case 'panduan': return <GuideModule />;
+      case 'notulensi': return <NotulensiModule />;
+      case 'booking': return <BookingModule />;
+      case 'inter-class': return <InterClassCoordModule />;
+      case 'debug-users': return <DebugUsersModule />;
+      case 'template-hub': return <TemplateHubModule />;
+      default: return <DashboardModule onNavigate={handleNavigate} />;
+    }
+  };
 
   return (
     <>
-      {isOpen && (
-        <div onClick={onClose} className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 lg:hidden" />
-      )}
-      <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 w-64 bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-700/80 transform transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:inset-0 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <div className="flex flex-col h-full">
-          {/* Mobile close header */}
-          <div className="p-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-700 lg:hidden">
-            <span className="font-extrabold text-base text-amber-600">
-              {mode === 'welcome' ? 'Menu Beranda' : 'Menu Kelas'}
-            </span>
-            <button onClick={onClose} className="p-1 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* User card */}
-          <div className={`p-4 m-3 rounded-2xl text-white shadow-md shrink-0 ${
-            isAdminRole ? 'bg-gradient-to-br from-blue-900 to-blue-800' :
-            mode === 'welcome' ? 'bg-gradient-to-br from-amber-700 to-orange-800' :
-            'bg-gradient-to-br from-slate-900 to-slate-800'
-          }`}>
-            <div className="flex items-center gap-3">
-              {user?.photoURL ? (
-                <img src={user.photoURL} alt={user.displayName}
-                  className="w-10 h-10 rounded-full object-cover border-2 border-amber-400" />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-amber-500 text-slate-900 font-bold flex items-center justify-center">
-                  {user?.displayName ? user.displayName.charAt(0).toUpperCase() : 'U'}
-                </div>
-              )}
-              <div className="overflow-hidden">
-                <p className="text-xs font-bold truncate text-white">{user?.displayName || 'Pengguna'}</p>
-                <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 mt-0.5 rounded-full border ${
-                  isAdminRole ? 'bg-blue-400/20 text-blue-200 border-blue-400/30' : 'bg-amber-400/20 text-amber-300 border-amber-400/30'
-                }`}>
-                  {user?.role || 'Siswa'}
-                </span>
-              </div>
-            </div>
-            {!isAdminRole && user?.divisionName && mode === 'in-class' && (
-              <p className="text-[10px] text-slate-400 mt-2 truncate font-medium">
-                Divisi: <span className="text-slate-200">{user.divisionName}</span>
-              </p>
-            )}
-            {mode === 'welcome' && (
-              <p className="text-[10px] text-amber-100/80 mt-2 italic">
-                Pilih kelas untuk mulai beraktivitas
-              </p>
-            )}
-          </div>
-
-          {/* NAVIGATION */}
-          <nav className="flex-1 px-3 py-2 overflow-y-auto">
-            {menuGroups.map((group) => {
-              const GroupIcon = group.icon;
-              const isCollapsed = collapsedGroups[group.title] || false;
-              const hasActiveItem = group.items.some(i => i.id === currentModule);
-
-              return (
-                <div key={group.title} className="mb-3">
-                  <button
-                    onClick={() => toggleGroup(group.title)}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg transition group ${
-                      hasActiveItem
-                        ? 'text-amber-700 dark:text-amber-400'
-                        : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <GroupIcon className="w-3 h-3 shrink-0" />
-                      <span className="text-[10px] font-black uppercase tracking-wider truncate">
-                        {group.title}
-                      </span>
-                    </div>
-                    {isCollapsed
-                      ? <ChevronRight className="w-3 h-3 shrink-0" />
-                      : <ChevronDown className="w-3 h-3 shrink-0" />
-                    }
-                  </button>
-
-                  {!isCollapsed && (
-                    <div className="space-y-0.5 mt-0.5">
-                      {group.items.map((item) => {
-                        const Icon = item.icon;
-                        const isActive = currentModule === item.id;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={() => { onNavigate(item.id); onClose(); }}
-                            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition ${
-                              isActive
-                                ? isAdminRole
-                                  ? 'bg-blue-600 text-white font-bold shadow-sm'
-                                  : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
-                            }`}
-                          >
-                            <Icon className={`w-4 h-4 shrink-0 ${
-                              isActive
-                                ? isAdminRole ? 'text-white' : 'text-slate-950'
-                                : 'text-slate-500 dark:text-slate-400'
-                            }`} />
-                            <span className="truncate">{item.label}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </nav>
-
-          {/* Footer */}
-          <div className="p-3 border-t border-slate-100 dark:border-slate-700 text-center shrink-0">
-            <p className="text-[10px] font-semibold text-slate-400">SP-PPT © 2026 SMPN 10 Samarinda</p>
-          </div>
+      <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
+        <Navbar
+          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          onNavigate={handleNavigate}
+          view="in-class"
+          onExitClass={handleExitClass}
+        />
+        <div className="flex-1 flex max-w-7xl w-full mx-auto">
+          <Sidebar
+            currentModule={currentModule}
+            onNavigate={handleNavigate}
+            isOpen={isSidebarOpen}
+            onClose={() => setIsSidebarOpen(false)}
+            mode="in-class"
+          />
+          <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
+            {renderCurrentModule()}
+          </main>
         </div>
-      </aside>
+
+        <DashboardReminder onNavigate={handleNavigate} />
+
+        <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
+          <button onClick={() => handleNavigate('informasi')}
+            className="p-3 sm:p-3.5 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xl border border-amber-400 flex items-center justify-center transition group hover:scale-105"
+            title="Papan Pengumuman">
+            <Megaphone className="w-5 h-5" />
+          </button>
+          <button onClick={() => handleNavigate('struktur')}
+            className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
+            title="Kerabat Kerja">
+            <Users className="w-5 h-5" />
+          </button>
+          <button onClick={() => handleNavigate('aduan')}
+            className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition group hover:scale-105"
+            title="Aduan Cepat">
+            <MessageSquare className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
+          <button onClick={() => handleNavigate('dashboard')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+            <Home className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Beranda</span>
+          </button>
+          <button onClick={() => handleNavigate('informasi')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+            <Megaphone className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Info</span>
+          </button>
+          <button onClick={() => handleNavigate('notifikasi')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+            <Bell className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Notif</span>
+          </button>
+          <button onClick={() => handleNavigate('kas')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+            <Wallet className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">Kas</span>
+          </button>
+          <button onClick={() => handleNavigate('rab')}
+            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'rab' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+            <Calculator className="w-5 h-5" />
+            <span className="text-[10px] mt-0.5">RAB</span>
+          </button>
+        </div>
+      </div>
+
+      {showLoginConfirm && user && (
+        <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
+      )}
     </>
   );
 };
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <ToastProvider>
+        <AuthProvider>
+          <MainLayout />
+        </AuthProvider>
+      </ToastProvider>
+    </ThemeProvider>
+  );
+}
