@@ -6,6 +6,7 @@ import {
   Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
   GraduationCap, Home, BookOpen, Globe, Bug, ChevronDown, ChevronRight,
   Info, LayoutGrid, Layers, Target,
+  Library,  // ✅ NEW — Template Hub
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -161,6 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title: 'Administrasi',
           icon: FileText,
           items: [
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
           ],
@@ -207,13 +209,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: 'Tugas & Penilaian',
-          icon: Target,
+          title: 'Tugas',
+          icon: CheckSquare,
           items: [
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+          ],
+        },
+        {
+          title: 'Penilaian',
+          icon: Award,
+          items: [
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
-            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Award },
+            { id: 'jadwal-penilaian', label: 'Jadwal Penilaian', icon: Calendar },
             { id: 'moderasi', label: 'Moderasi', icon: ShieldCheck },
             { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
@@ -250,6 +258,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: FileText,
           items: [
             { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
             { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
           ],
@@ -294,11 +303,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: 'Tugas & Penilaian',
-          icon: Target,
+          title: 'Tugas',
+          icon: CheckSquare,
           items: [
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+          ],
+        },
+        {
+          title: 'Penilaian',
+          icon: Award,
+          items: [
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
             { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
@@ -334,6 +349,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: FileText,
           items: [
             { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
             { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
           ],
@@ -369,11 +385,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: 'Tugas & Penilaian',
-          icon: Target,
+          title: 'Tugas',
+          icon: CheckSquare,
           items: [
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+          ],
+        },
+        {
+          title: 'Penilaian',
+          icon: Award,
+          items: [
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
             { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
@@ -410,6 +432,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: FileText,
           items: [
             { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
             { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
           ],
@@ -445,11 +468,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: 'Tugas & Penilaian',
-          icon: Target,
+          title: 'Tugas',
+          icon: CheckSquare,
           items: [
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Tugas', icon: TrendingUp },
+          ],
+        },
+        {
+          title: 'Penilaian',
+          icon: Award,
+          items: [
             { id: 'nilai', label: 'Nilai & Penilaian', icon: Award },
             { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
@@ -486,6 +515,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: FileText,
           items: [
             { id: 'dokumen', label: 'Dokumen & Arsip', icon: FileText },
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
             { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
           ],
@@ -535,11 +565,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: extras,
         },
         {
-          title: 'Tugas & Penilaian',
-          icon: Target,
+          title: 'Tugas',
+          icon: CheckSquare,
           items: [
             { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
             { id: 'progress-tugas', label: 'Progress Divisi', icon: TrendingUp },
+          ],
+        },
+        {
+          title: 'Penilaian',
+          icon: Award,
+          items: [
             { id: 'nilai', label: 'Nilai Anggota', icon: Award },
             { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
           ],
@@ -569,6 +605,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title: 'Dokumen',
           icon: FileText,
           items: [
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
             { id: 'aktivitas', label: 'Log Aktivitas', icon: Activity },
           ],
@@ -657,6 +694,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title: 'Administrasi',
           icon: FileText,
           items: [
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
           ],
         },
@@ -707,7 +745,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: 'Presensi & Jadwal',
+          title: 'Presensi',
           icon: ClipboardList,
           items: [
             { id: 'absensi', label: 'Presensi', icon: ClipboardList },
@@ -735,6 +773,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title: 'Administrasi',
           icon: FileText,
           items: [
+            { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
             { id: 'notulensi', label: 'Notulensi Rapat', icon: FileText },
           ],
         },
@@ -765,12 +804,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ],
       },
       {
-        title: 'Tugas',
+        title: 'Tugas & Penilaian',
         icon: CheckSquare,
         items: [
           { id: 'tugas', label: 'Tugas & Deadline', icon: CheckSquare },
           { id: 'nilai-saya', label: 'Nilai Saya', icon: Award },
           { id: 'rekap-nilai', label: 'Rekap Nilai Akhir', icon: BarChart3 },
+        ],
+      },
+      {
+        title: 'Administrasi',
+        icon: FileText,
+        items: [
+          { id: 'template-hub', label: 'Template & Hasil Karya', icon: Library },
         ],
       },
       {
