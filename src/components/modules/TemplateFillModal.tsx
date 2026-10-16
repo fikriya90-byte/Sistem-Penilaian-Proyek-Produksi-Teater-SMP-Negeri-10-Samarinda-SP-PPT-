@@ -5,9 +5,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../common/Toast';
 import { useAuth } from '../../core/authContext';
-import {
-  doc, getDoc, setDoc, getDocs, collection, query, where,
-} from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
 import { TemplateDef, buildKopFor, TemplateContext } from '../../core/templateLibrary';
@@ -44,11 +42,9 @@ export const TemplateFillModal: React.FC<Props> = ({
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
-  // ═══ RAB ITEMS — auto-pull dari menu RAB Digital ═══
-  const [rabItems, setRabItems] = useState<any[]>([]);
-  const [rabLoading, setRabLoading] = useState(false);
+  // RAB items sudah di-pass dari HubModule
+  const rabItems = ctx.rabItems || [];
 
-  // Load draft
   useEffect(() => {
     if (!user || !activeClass) return;
     (async () => {
@@ -69,29 +65,6 @@ export const TemplateFillModal: React.FC<Props> = ({
     })();
   }, [user, activeClass, template.id]);
 
-  // Load RAB items — hanya untuk template proposal & lpj
-  useEffect(() => {
-    if (!activeClass) return;
-    if (!['proposal', 'lpj'].includes(template.id)) return;
-
-    (async () => {
-      setRabLoading(true);
-      try {
-        const q = query(
-          collection(db, 'rabItems'),
-          where('classId', '==', activeClass.id)
-        );
-        const snap = await getDocs(q);
-        setRabItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-      } catch (err) {
-        console.warn('Load RAB items error:', err);
-      } finally {
-        setRabLoading(false);
-      }
-    })();
-  }, [activeClass, template.id]);
-
-  // Progress
   const filledCount = allFields.filter(f => {
     const val = data[f.key];
     return val !== undefined && val !== null && String(val).trim() !== '';
@@ -125,7 +98,7 @@ export const TemplateFillModal: React.FC<Props> = ({
         updatedAt: new Date().toISOString(),
       }, { merge: true });
       setLastSaved(new Date().toISOString());
-      if (!silent) showToast('✅ Draft tersimpan.', 'success');
+      if (!silent) showToast('Draft tersimpan.', 'success');
     } catch (err: any) {
       showToast('Gagal simpan: ' + (err?.message || 'Unknown'), 'error');
     } finally {
@@ -133,7 +106,6 @@ export const TemplateFillModal: React.FC<Props> = ({
     }
   };
 
-  // Auto-save tiap 30 detik
   useEffect(() => {
     if (loading) return;
     const timer = setInterval(() => {
@@ -154,28 +126,14 @@ export const TemplateFillModal: React.FC<Props> = ({
     try {
       await handleSaveDraft(true);
 
-      // ✅ Merge rabItems ke context sebelum build
-      const ctxWithRab: TemplateContext = {
-        ...ctx,
-        rabItems: rabItems.map(r => ({
-          category: r.category || 'UMUM',
-          targetName: r.targetName || 'Umum',
-          itemName: r.itemName || '',
-          qty: Number(r.qty) || 0,
-          unit: r.unit || '',
-          unitPrice: Number(r.unitPrice) || 0,
-          notes: r.notes || '',
-        })),
-      };
-
-      const blocks = template.buildBlocks(ctxWithRab, data);
+      const blocks = template.buildBlocks(ctx, data);
       const safeName = template.shortTitle.replace(/[^a-zA-Z0-9]/g, '_');
       const safeClass = activeClass.name.replace(/[^a-zA-Z0-9]/g, '_');
 
       downloadDOCX(
         `${safeName}_${safeClass}_${new Date().toISOString().slice(0, 10)}.docx`,
         blocks,
-        template.withKop ? { withKop: true, kop: buildKopFor(ctxWithRab) } : {}
+        template.withKop ? { withKop: true, kop: buildKopFor(ctx) } : {}
       );
 
       await recordAuditLog({
@@ -185,7 +143,7 @@ export const TemplateFillModal: React.FC<Props> = ({
         details: `Generate DOCX: ${template.shortTitle}${rabItems.length > 0 ? ` (RAB: ${rabItems.length} item)` : ''}`,
       });
 
-      showToast('🎉 DOCX terunduh! Buka di Word untuk ganti logo & finishing.', 'success');
+      showToast('DOCX terunduh. Buka di Word untuk ganti logo dan finishing.', 'success');
       onGenerated();
     } catch (err: any) {
       showToast('Gagal generate: ' + (err?.message || 'Unknown'), 'error');
@@ -218,7 +176,7 @@ export const TemplateFillModal: React.FC<Props> = ({
       case 'select':
         return (
           <select value={value} onChange={(e) => update(f.key, e.target.value)} className={baseInput}>
-            <option value="">-- Pilih --</option>
+            <option value="">Pilih salah satu</option>
             {(f.options || []).map(o => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
@@ -235,7 +193,6 @@ export const TemplateFillModal: React.FC<Props> = ({
     }
   };
 
-  // Hanya tampilkan info RAB untuk template proposal & lpj
   const showRABInfo = ['proposal', 'lpj'].includes(template.id);
 
   return (
@@ -251,7 +208,7 @@ export const TemplateFillModal: React.FC<Props> = ({
               </span>
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-wider opacity-90">
-                  Isi Detail → Generate
+                  Isi Detail, Generate
                 </p>
                 <h3 className="text-base font-black mt-0.5 truncate">{template.title}</h3>
                 <p className="text-[11px] opacity-90 mt-0.5">
@@ -267,7 +224,7 @@ export const TemplateFillModal: React.FC<Props> = ({
           <div className="mt-4">
             <div className="flex items-center justify-between text-[10px] font-bold mb-1.5">
               <span>Progress pengisian</span>
-              <span>{filledCount}/{allFields.length} • {progressPct}%</span>
+              <span>{filledCount}/{allFields.length} - {progressPct}%</span>
             </div>
             <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
               <div
@@ -284,38 +241,30 @@ export const TemplateFillModal: React.FC<Props> = ({
         {/* BODY */}
         <div className="p-5 overflow-y-auto flex-1 space-y-5">
 
-          {/* Info RAB untuk proposal & LPJ */}
           {showRABInfo && (
             <div className={`p-3 rounded-xl border flex items-start gap-2 ${
-              rabLoading
-                ? 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
-                : rabItems.length > 0
+              rabItems.length > 0
                 ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30'
                 : 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30'
             }`}>
               <Calculator className={`w-4 h-4 shrink-0 mt-0.5 ${
-                rabLoading ? 'text-slate-500' :
                 rabItems.length > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'
               }`} />
               <div className="text-[11px] leading-relaxed">
-                {rabLoading ? (
-                  <p className="text-slate-700 dark:text-slate-300">
-                    Memuat data RAB Digital...
-                  </p>
-                ) : rabItems.length > 0 ? (
+                {rabItems.length > 0 ? (
                   <div className="text-emerald-900 dark:text-emerald-200">
                     <p className="font-bold">
-                      ✅ {rabItems.length} item RAB terdeteksi di sistem
+                      {rabItems.length} item RAB terdeteksi di sistem
                     </p>
                     <p className="mt-0.5">
-                      RAB Anda akan <strong>otomatis dimuat lengkap</strong> di dokumen — tabel per kategori, subtotal, dan grand total. Tidak perlu input manual.
+                      RAB Anda akan otomatis dimuat lengkap di dokumen, termasuk tabel per kategori, subtotal, dan grand total. Tidak perlu input manual.
                     </p>
                   </div>
                 ) : (
                   <div className="text-amber-900 dark:text-amber-200">
-                    <p className="font-bold">⚠️ RAB Digital masih kosong</p>
+                    <p className="font-bold">RAB Digital masih kosong</p>
                     <p className="mt-0.5">
-                      Sebaiknya <strong>isi dulu di menu RAB Digital</strong> supaya tabel RAB bisa dicantumkan otomatis di dokumen. Kalau sudah punya file RAB final, Anda bisa pakai field "Link RAB Final" di bawah.
+                      Sebaiknya isi dulu di menu RAB Digital supaya tabel RAB bisa dicantumkan otomatis di dokumen. Kalau sudah punya file RAB final, Anda bisa pakai field "Link RAB Final" di bawah.
                     </p>
                   </div>
                 )}
@@ -323,21 +272,19 @@ export const TemplateFillModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Info tips */}
           <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
             <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
             <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-              <p className="font-bold mb-1">📌 Tips pengisian:</p>
+              <p className="font-bold mb-1">Tips pengisian:</p>
               <ul className="list-disc pl-4 space-y-0.5">
-                <li>Draft otomatis tersimpan tiap 30 detik — bisa ditinggal & dilanjutkan kapan saja</li>
-                <li>Field <span className="font-black text-rose-600">*</span> wajib diisi sebelum generate</li>
-                <li>Field <strong>(satu per baris)</strong>: setiap baris = 1 item</li>
-                <li>Field <strong>dengan " | "</strong>: pisahkan kolom dengan tanda pipe ( | )</li>
+                <li>Draft otomatis tersimpan tiap 30 detik. Bisa ditinggal dan dilanjutkan kapan saja.</li>
+                <li>Field wajib (bertanda bintang merah) harus diisi sebelum generate.</li>
+                <li>Field bertanda "satu per baris": setiap baris = 1 item.</li>
+                <li>Field dengan format "A | B": pisahkan kolom dengan tanda pipe ( | ).</li>
               </ul>
             </div>
           </div>
 
-          {/* Loading */}
           {loading ? (
             <div className="py-12 text-center">
               <RefreshCw className="w-8 h-8 mx-auto mb-3 animate-spin text-indigo-500" />
@@ -363,8 +310,9 @@ export const TemplateFillModal: React.FC<Props> = ({
                       </label>
                       {renderField(field)}
                       {field.help && (
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 italic">
-                          💡 {field.help}
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 italic flex items-start gap-1">
+                          <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                          <span>{field.help}</span>
                         </p>
                       )}
                     </div>
@@ -374,7 +322,6 @@ export const TemplateFillModal: React.FC<Props> = ({
             </>
           )}
 
-          {/* Preview ringkas */}
           {showPreview && (
             <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border-2 border-indigo-200 dark:border-indigo-500/40 space-y-2">
               <p className="text-xs font-black text-indigo-900 dark:text-indigo-200 flex items-center gap-2">
