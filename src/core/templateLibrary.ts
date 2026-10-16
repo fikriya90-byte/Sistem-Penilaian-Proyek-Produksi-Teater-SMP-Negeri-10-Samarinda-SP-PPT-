@@ -1,6 +1,5 @@
 // =====================================================
-// TEMPLATE LIBRARY v5 — AUTO-POPULATE MAKSIMAL
-// Bahasa sederhana untuk siswa
+// TEMPLATE LIBRARY v6 — AUTO-POPULATE + FACE CHART MULTI
 // =====================================================
 
 import { DOCXBlock, DOCXKopContext, todayLongID } from '../utils/exportDOCX';
@@ -342,7 +341,7 @@ function buildRABDetailBlocks(ctx: TemplateContext, data: Record<string, any>): 
     if (data?.rabUploadUrl) {
       blocks.push({ type: 'spacer' });
       blocks.push({ type: 'label', text: 'Lampiran RAB Final (telah ditandatangani):' });
-      blocks.push({ type: 'paragraph', text: data.rabUploadName ? `${data.rabUploadName} — ${data.rabUploadUrl}` : String(data.rabUploadUrl) });
+      blocks.push({ type: 'paragraph', text: data.rabUploadName ? `${data.rabUploadName} - ${data.rabUploadUrl}` : String(data.rabUploadUrl) });
     }
     return blocks;
   }
@@ -369,7 +368,7 @@ function buildRABDetailBlocks(ctx: TemplateContext, data: Record<string, any>): 
     { type: 'table', headers: ['Kategori', 'Item', 'Qty', 'Harga Satuan', 'Total'], rows: tableRows, widths: [1900, 2860, 900, 1700, 2000] },
     { type: 'spacer' },
     { type: 'label', text: 'B. Subtotal per Kategori' },
-    { type: 'bullets', items: grouped.map(g => `${g.category} — ${g.targetName}: ${fmtRp(g.subtotal)} (${g.items.length} item)`) },
+    { type: 'bullets', items: grouped.map(g => `${g.category} - ${g.targetName}: ${fmtRp(g.subtotal)} (${g.items.length} item)`) },
     { type: 'spacer' },
     { type: 'paragraph', text: `GRAND TOTAL RAB: ${fmtRp(grandTotal)}`, bold: true },
   ];
@@ -381,7 +380,7 @@ function buildRABDetailBlocks(ctx: TemplateContext, data: Record<string, any>): 
   if (data?.rabUploadUrl) {
     blocks.push({ type: 'spacer' });
     blocks.push({ type: 'label', text: 'C. Lampiran RAB Final (telah ditandatangani):' });
-    blocks.push({ type: 'paragraph', text: data.rabUploadName ? `${data.rabUploadName} — ${data.rabUploadUrl}` : String(data.rabUploadUrl) });
+    blocks.push({ type: 'paragraph', text: data.rabUploadName ? `${data.rabUploadName} - ${data.rabUploadUrl}` : String(data.rabUploadUrl) });
   }
   return blocks;
 }
@@ -421,7 +420,7 @@ function buildDaftarHadirBlock(ctx: TemplateContext): DOCXBlock[] {
 
     blocks.push({
       type: 'paragraph',
-      text: `${sess.title} (${fmtDate(sess.date)}, ${sess.activityType}): Hadir ${hadir}, Izin ${izin}, Sakit ${sakit}, Alpa ${alpa} — Total ${sessRecs.length} peserta`,
+      text: `${sess.title} (${fmtDate(sess.date)}, ${sess.activityType}): Hadir ${hadir}, Izin ${izin}, Sakit ${sakit}, Alpa ${alpa} - Total ${sessRecs.length} peserta`,
     });
   });
 
@@ -605,7 +604,7 @@ function buildDokumentasiBlock(ctx: TemplateContext): DOCXBlock[] {
     blocks.push({ type: 'subheading', text: `${cat} (${items.length})` });
     blocks.push({
       type: 'bullets',
-      items: items.map(d => `${d.title} — ${d.fileUrl}`),
+      items: items.map(d => `${d.title} - ${d.fileUrl}`),
     });
   });
 
@@ -621,7 +620,7 @@ function buildPemasukanTable(ctx: TemplateContext): (string | number)[][] {
   let total = 0;
 
   if (ctx.kas && ctx.kas.totalCollected !== undefined) {
-    rows.push(['1', `Kas Kelas — ${ctx.kas.title || 'Kas Produksi'}`, fmtRp(ctx.kas.totalCollected)]);
+    rows.push(['1', `Kas Kelas - ${ctx.kas.title || 'Kas Produksi'}`, fmtRp(ctx.kas.totalCollected)]);
     total += ctx.kas.totalCollected;
   }
 
@@ -746,7 +745,7 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'paragraph', text: 'Tim Produksi', align: 'right' },
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB I — PENDAHULUAN' },
+    { type: 'heading', text: 'BAB I - PENDAHULUAN' },
     { type: 'subheading', text: '1.1  Latar Belakang' },
     { type: 'paragraph', text: v(data, 'latarBelakang'), align: 'justify' },
     { type: 'spacer' },
@@ -757,9 +756,9 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'paragraph', text: v(data, 'manfaat'), align: 'justify' },
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB II — DESKRIPSI PRODUKSI' },
+    { type: 'heading', text: 'BAB II - DESKRIPSI PRODUKSI' },
     { type: 'subheading', text: '2.1  Nama Kegiatan' },
-    { type: 'paragraph', text: `Pementasan Teater Tradisional Kelas ${ctx.className} — "${judulPementasan}"` },
+    { type: 'paragraph', text: `Pementasan Teater Tradisional Kelas ${ctx.className} - "${judulPementasan}"` },
     { type: 'spacer' },
     { type: 'subheading', text: '2.2  Tema' },
     { type: 'paragraph', text: ctx.production?.theme || '[Tema produksi]' },
@@ -793,7 +792,7 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'table', headers: ['Tahap/Jenis', 'Kegiatan', 'Waktu', 'Tempat', 'PIC/Peserta'], rows: jadwalRows, widths: [1300, 2500, 2200, 1800, 1560] },
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB III — RENCANA ANGGARAN' },
+    { type: 'heading', text: 'BAB III - RENCANA ANGGARAN' },
     { type: 'subheading', text: '3.1  Estimasi Pemasukan' },
     { type: 'paragraph', text: 'Diambil otomatis dari Kas Produksi dan Buku Kas:', italic: true },
     { type: 'table', headers: ['No', 'Sumber Dana', 'Jumlah'], rows: pemasukanRows },
@@ -809,7 +808,7 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     ]},
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB IV — PENUTUP' },
+    { type: 'heading', text: 'BAB IV - PENUTUP' },
     { type: 'paragraph', text: v(data, 'penutup'), align: 'justify' },
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: `Samarinda, ${tglSah}`, align: 'right' },
@@ -932,7 +931,7 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
         const real = Number(r[2]) || 0;
         return [i + 1, r[0], fmtRp(renc), fmtRp(real), fmtRp(real - renc), ''];
       })
-    : rabGrouped.map((g, i) => [i + 1, `${g.category} — ${g.targetName}`, fmtRp(g.subtotal), '-', '-', '']);
+    : rabGrouped.map((g, i) => [i + 1, `${g.category} - ${g.targetName}`, fmtRp(g.subtotal), '-', '-', '']);
 
   const totalPengeluaranRencana = rabGrouped.reduce((s, g) => s + g.subtotal, 0);
 
@@ -979,14 +978,14 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: 'Tim Produksi', align: 'right' },
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB I — PENDAHULUAN' },
+    { type: 'heading', text: 'BAB I - PENDAHULUAN' },
     { type: 'subheading', text: '1.1  Latar Belakang' },
     { type: 'paragraph', text: v(data, 'latarBelakang'), align: 'justify' },
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB II — PELAKSANAAN KEGIATAN' },
+    { type: 'heading', text: 'BAB II - PELAKSANAAN KEGIATAN' },
     { type: 'subheading', text: '2.1  Nama Kegiatan' },
-    { type: 'paragraph', text: `Pementasan Teater Tradisional Kelas ${ctx.className} — "${judulPementasan}"` },
+    { type: 'paragraph', text: `Pementasan Teater Tradisional Kelas ${ctx.className} - "${judulPementasan}"` },
     { type: 'spacer' },
     { type: 'subheading', text: '2.2  Waktu dan Tempat' },
     { type: 'table', headers: ['Keterangan', 'Detail'], rows: [
@@ -1018,7 +1017,7 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'table', headers: ['No', 'Kendala', 'Solusi'], rows: kendalaRows.map((r, i) => [i + 1, r[0], r[1]]) },
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB III — REALISASI ANGGARAN' },
+    { type: 'heading', text: 'BAB III - REALISASI ANGGARAN' },
     { type: 'subheading', text: '3.1  Pemasukan' },
     { type: 'paragraph', text: 'Diambil otomatis dari Kas Produksi dan Buku Kas:', italic: true },
     { type: 'table', headers: ['No', 'Sumber Dana', 'Jumlah'], rows: pemasukanRows },
@@ -1039,13 +1038,13 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     ...(data?.rabUploadUrl
       ? [
           { type: 'label' as const, text: 'Lampiran RAB Final (telah ditandatangani):' },
-          { type: 'paragraph' as const, text: data.rabUploadName ? `${data.rabUploadName} — ${data.rabUploadUrl}` : String(data.rabUploadUrl) },
+          { type: 'paragraph' as const, text: data.rabUploadName ? `${data.rabUploadName} - ${data.rabUploadUrl}` : String(data.rabUploadUrl) },
           { type: 'spacer' as const },
         ]
       : []),
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB IV — EVALUASI DAN REFLEKSI' },
+    { type: 'heading', text: 'BAB IV - EVALUASI DAN REFLEKSI' },
     { type: 'subheading', text: '4.1  Apa yang Sudah Berhasil?' },
     { type: 'paragraph', text: v(data, 'evaluasiKetercapaian'), align: 'justify' },
     { type: 'spacer' },
@@ -1056,7 +1055,7 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: v(data, 'rekomendasi', '[Rekomendasi untuk kegiatan berikutnya]'), align: 'justify' },
     { type: 'pagebreak' },
 
-    { type: 'heading', text: 'BAB V — PENUTUP' },
+    { type: 'heading', text: 'BAB V - PENUTUP' },
     { type: 'paragraph', text: v(data, 'penutup'), align: 'justify' },
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: `Samarinda, ${tglSah}`, align: 'right' },
@@ -1113,7 +1112,7 @@ const buildSketsaPanggung = (ctx: TemplateContext, data: Record<string, any>): D
 
   return [
     { type: 'title', text: 'SKETSA DAN DENAH PANGGUNG' },
-    { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
+    { type: 'subtitle', text: `Kelas ${ctx.className} - ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
     { type: 'heading', text: 'A. KONSEP TATA PANGGUNG' },
     { type: 'paragraph', text: v(data, 'konsep') },
@@ -1170,7 +1169,7 @@ const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXB
   const cueRows = vTable(data, 'cueList', 5, autoCues.length > 0 ? autoCues : [['CUE-01', '[trigger]', '[aksi]', '[audio]', '[lampu]']]);
 
   return [
-    { type: 'title', text: 'PROMPT BOOK — BUKU SUTRADARA' },
+    { type: 'title', text: 'PROMPT BOOK - BUKU SUTRADARA' },
     { type: 'subtitle', text: ctx.kerabatKerja ? `"${ctx.kerabatKerja}"` : '[Nama Produksi]' },
     { type: 'spacer', count: 2 },
     { type: 'heading', text: 'A. IDENTITAS' },
@@ -1187,7 +1186,7 @@ const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXB
     { type: 'paragraph', text: autoAdegan.length > 0 ? 'Diambil otomatis dari Prompt Book di Studio:' : 'Isi manual:', italic: true },
     { type: 'table', headers: ['No', 'Adegan', 'Durasi', 'Pemain', 'Zona'], rows: adeganRows },
     { type: 'spacer' },
-    { type: 'heading', text: 'C. CUE SHEET — AUDIO DAN LIGHTING' },
+    { type: 'heading', text: 'C. CUE SHEET - AUDIO DAN LIGHTING' },
     { type: 'paragraph', text: autoCues.length > 0 ? `Diambil otomatis dari Prompt Book dan Cue Sheet Musik (${autoCues.length} cue):` : 'Isi manual:', italic: true },
     { type: 'table', headers: ['Cue', 'Trigger/Scene', 'Aksi', 'Audio', 'Timing'], rows: cueRows },
     { type: 'spacer' },
@@ -1233,8 +1232,8 @@ const buildCueSheet = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
   const opRows = vTable(data, 'operatorList', 2, autoOperators.length > 0 ? autoOperators : [['Sound Engineer', '[Nama]']]);
 
   return [
-    { type: 'title', text: 'CUE SHEET — TATA MUSIK DAN SUARA' },
-    { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
+    { type: 'title', text: 'CUE SHEET - TATA MUSIK DAN SUARA' },
+    { type: 'subtitle', text: `Kelas ${ctx.className} - ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
     { type: 'heading', text: 'A. DAFTAR CUE' },
     { type: 'paragraph', text: autoCueRows.length > 0 ? `Diambil otomatis dari menu Cue Sheet (${musicCues.length} cue):` : 'Isi manual (belum ada cue di sistem):', italic: true },
@@ -1274,7 +1273,7 @@ const buildProperti = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
 
   return [
     { type: 'title', text: 'BREAKDOWN PROPERTI PER ADEGAN' },
-    { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
+    { type: 'subtitle', text: `Kelas ${ctx.className} - ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: autoRows.length > 0 ? `Diambil otomatis dari menu Properti (${properties.length} item):` : 'Isi manual (belum ada properti di sistem):', italic: true },
     { type: 'spacer' },
@@ -1291,26 +1290,28 @@ const buildProperti = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
 };
 
 // ═══════════════════════════════════════════════════════
-// 9. KOSTUM
+// 9. KOSTUM - SIMPLIFIED
 // ═══════════════════════════════════════════════════════
 const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
   const costumes = ctx.costumes || [];
   const karakter = data?.namaKarakter || '';
 
   const found = costumes.find(c => c.characterName === karakter) || costumes[0];
-  const bahanRows = vTable(data, 'bahanList', 3, [['[Bahan]', '[Jumlah]', '[Warna]']]);
+
+  const perkiraanUkuran = data?.perkiraanUkuran && String(data.perkiraanUkuran).trim() !== ''
+    ? String(data.perkiraanUkuran)
+    : null;
 
   return [
     { type: 'title', text: 'DESAIN KOSTUM PER KARAKTER' },
-    { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
+    { type: 'subtitle', text: `Kelas ${ctx.className} - ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
     { type: 'heading', text: 'A. IDENTITAS KARAKTER' },
     { type: 'table', headers: ['Field', 'Keterangan'], rows: [
       ['Nama Karakter', v(data, 'namaKarakter', found?.characterName || '-')],
       ['Nama Pemain', v(data, 'namaPemain', found?.playerName || '-')],
       ['Peran', v(data, 'peranKarakter', '-')],
-      ['Zaman/Suku', v(data, 'zaman', '-')],
-      ['Watak', v(data, 'watak', '-')],
+      ['Watak Karakter', v(data, 'watakKarakter', '-')],
     ]},
     { type: 'spacer' },
     { type: 'heading', text: 'B. KONSEP KOSTUM' },
@@ -1318,28 +1319,27 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
     { type: 'table', headers: ['Elemen', 'Deskripsi'], rows: [
       ['Warna Dominan', v(data, 'warnaDominan', found?.colors || '-')],
       ['Warna Sekunder', v(data, 'warnaSekunder', '-')],
-      ['Tekstur/Bahan', v(data, 'tekstur', found?.texture || '-')],
-      ['Siluet', v(data, 'siluet', '-')],
+      ['Bentuk/Siluet', v(data, 'siluet', '-')],
       ['Ornamen/Aksesoris', v(data, 'ornamen', found?.accessories || '-')],
     ]},
+    ...(perkiraanUkuran
+      ? [
+          { type: 'spacer' as const },
+          { type: 'label' as const, text: 'C. Perkiraan Ukuran' },
+          { type: 'paragraph' as const, text: perkiraanUkuran === 'custom' ? 'Ukuran custom / di luar standar (silakan konfirmasi ke pemain).' : `Ukuran ${perkiraanUkuran}` },
+        ]
+      : []),
     { type: 'spacer' },
-    { type: 'heading', text: 'C. UKURAN PEMAKAI (cm)' },
-    { type: 'table', headers: ['Bagian', 'Ukuran'], rows: [
-      ['Lingkar Dada (LD)', v(data, 'ld', '-')],
-      ['Lingkar Pinggang (LP)', v(data, 'lp', '-')],
-      ['Lingkar Pinggul (LPG)', v(data, 'lpg', '-')],
-      ['Panjang Baju (PB)', v(data, 'pb', '-')],
-      ['Panjang Celana atau Rok (PC)', v(data, 'pc', '-')],
-      ['Lebar Bahu', v(data, 'lebarBahu', '-')],
-      ['Panjang Lengan', v(data, 'panjangLengan', '-')],
-    ]},
-    { type: 'spacer' },
-    { type: 'heading', text: 'D. KEBUTUHAN BAHAN' },
-    { type: 'table', headers: ['Bahan', 'Jumlah', 'Warna'], rows: bahanRows },
-    { type: 'spacer' },
-    { type: 'heading', text: 'E. REFERENSI VISUAL' },
+    { type: 'heading', text: 'D. REFERENSI VISUAL' },
     { type: 'paragraph', text: `Moodboard: ${v(data, 'linkMoodboard', '-')}` },
     { type: 'paragraph', text: `Foto referensi: ${v(data, 'linkReferensi', '-')}` },
+    ...(data?.catatanKostum
+      ? [
+          { type: 'spacer' as const },
+          { type: 'label' as const, text: 'E. Catatan Kostum' },
+          { type: 'paragraph' as const, text: v(data, 'catatanKostum') },
+        ]
+      : []),
     { type: 'spacer' },
     { type: 'heading', text: 'F. STATUS PRODUKSI' },
     { type: 'paragraph', text: `Status saat ini: ${found?.status || '[Belum ada]'}`, italic: true },
@@ -1353,51 +1353,145 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
 };
 
 // ═══════════════════════════════════════════════════════
-// 10. FACE CHART
+// 10. FACE CHART - MULTI PEMAIN
 // ═══════════════════════════════════════════════════════
 const buildFaceChart = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const faceCharts = ctx.faceCharts || [];
-  const namaPemain = data?.namaPemain || '';
-  const found = faceCharts.find(f => f.playerName === namaPemain) || faceCharts[0];
+  const rawRows = parseList(data?.daftarPemain);
 
-  const paletRows = vTable(data, 'paletList', 3, [['[Area]', '[Warna]', '[Produk]']]);
+  interface FaceRow {
+    pemain: string;
+    karakter: string;
+    jenisRias: string;
+    warnaDominan: string;
+    palet: string[];
+  }
 
-  return [
-    { type: 'title', text: 'FACE CHART — DESAIN RIAS KARAKTER' },
-    { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
+  const faceRows: FaceRow[] = rawRows.map(line => {
+    const cols = line.split('|').map(c => c.trim());
+    const paletRaw = cols[4] || '';
+    const palet = paletRaw.split(';').map(p => p.trim()).filter(Boolean);
+    return {
+      pemain: cols[0] || '-',
+      karakter: cols[1] || '-',
+      jenisRias: cols[2] || '-',
+      warnaDominan: cols[3] || '-',
+      palet,
+    };
+  });
+
+  // Fallback: kalau input kosong, pakai data faceCharts dari sistem
+  if (faceRows.length === 0 && (ctx.faceCharts || []).length > 0) {
+    (ctx.faceCharts || []).forEach(fc => {
+      faceRows.push({
+        pemain: fc.playerName || '-',
+        karakter: fc.characterName || '-',
+        jenisRias: fc.riasType || '-',
+        warnaDominan: '-',
+        palet: [],
+      });
+    });
+  }
+
+  // Fallback terakhir
+  if (faceRows.length === 0) {
+    faceRows.push({
+      pemain: '[Nama Pemain]',
+      karakter: '[Nama Karakter]',
+      jenisRias: '[Korektif/Karakter/Fantasi]',
+      warnaDominan: '[Warna]',
+      palet: ['[Belum ada palet]'],
+    });
+  }
+
+  const blocks: DOCXBlock[] = [
+    { type: 'title', text: 'FACE CHART - DESAIN RIAS KARAKTER' },
+    { type: 'subtitle', text: `Kelas ${ctx.className} - ${ctx.academicYear}`, italic: true },
+    { type: 'subtitle', text: `Total ${faceRows.length} pemain`, italic: true },
     { type: 'spacer', count: 2 },
-    { type: 'heading', text: 'A. IDENTITAS' },
-    { type: 'table', headers: ['Field', 'Keterangan'], rows: [
-      ['Nama Pemain', v(data, 'namaPemain', found?.playerName || '-')],
-      ['Nama Karakter', v(data, 'namaKarakter', found?.characterName || '-')],
-      ['Jenis Rias', v(data, 'jenisRias', found?.riasType || '-')],
-      ['Tingkat Kesulitan', v(data, 'tingkatKesulitan', '-')],
-    ]},
-    { type: 'spacer' },
-    { type: 'heading', text: 'B. PALET WARNA' },
-    { type: 'table', headers: ['Area', 'Warna', 'Produk'], rows: paletRows },
-    { type: 'spacer' },
-    { type: 'heading', text: 'C. TEKNIK KHUSUS' },
-    { type: 'bullets', items: vList(data, 'teknikKhusus', ['[Teknik khusus]']) },
-    { type: 'spacer' },
-    { type: 'heading', text: 'D. URUTAN PENGERJAAN' },
-    { type: 'numbered', items: vList(data, 'urutanPengerjaan', [
-      'Bersihkan wajah dan aplikasikan primer', 'Base dan concealer', 'Kontur dan highlight',
-      'Mata', 'Alis', 'Blush on', 'Bibir', 'Setting spray', 'Touch-up terakhir',
-    ]) },
-    { type: 'spacer' },
-    { type: 'heading', text: 'E. REFERENSI VISUAL' },
-    { type: 'paragraph', text: `Moodboard: ${v(data, 'linkMoodboard', found?.moodboardUrl || '-')}` },
-    { type: 'paragraph', text: `Face chart kosong: ${v(data, 'linkFaceChart', found?.faceChartUrl || '-')}` },
-    { type: 'spacer' },
-    { type: 'heading', text: 'F. CATATAN HIGIENITAS' },
-    { type: 'bullets', items: vList(data, 'higienitas', ['Gunakan spons sekali pakai', 'Sterilkan kuas sebelum dan sesudah']) },
-    { type: 'spacer', count: 2 },
-    { type: 'signature', signatures: [
+  ];
+
+  // Section per pemain
+  faceRows.forEach((row, idx) => {
+    blocks.push({ type: 'heading', text: `#${idx + 1}  ${row.pemain} - ${row.karakter}` });
+    blocks.push({
+      type: 'table',
+      headers: ['Field', 'Keterangan'],
+      rows: [
+        ['Nama Pemain', row.pemain],
+        ['Nama Karakter', row.karakter],
+        ['Jenis Rias', row.jenisRias],
+        ['Warna Dominan', row.warnaDominan],
+      ],
+    });
+    blocks.push({ type: 'spacer' });
+
+    blocks.push({ type: 'label', text: 'Palet Warna' });
+    if (row.palet.length > 0) {
+      blocks.push({
+        type: 'bullets',
+        items: row.palet,
+      });
+    } else {
+      blocks.push({ type: 'paragraph', text: '-', italic: true });
+    }
+    blocks.push({ type: 'spacer' });
+
+    if (idx < faceRows.length - 1) {
+      blocks.push({ type: 'divider' });
+      blocks.push({ type: 'spacer' });
+    }
+  });
+
+  // Catatan teknis berlaku untuk semua
+  blocks.push({ type: 'pagebreak' });
+  blocks.push({ type: 'heading', text: 'CATATAN TEKNIS (BERLAKU UNTUK SEMUA PEMAIN)' });
+  blocks.push({ type: 'spacer' });
+
+  blocks.push({ type: 'label', text: 'Teknik Khusus' });
+  blocks.push({ type: 'bullets', items: vList(data, 'teknikKhusus', ['[Belum ada teknik khusus]']) });
+  blocks.push({ type: 'spacer' });
+
+  blocks.push({ type: 'label', text: 'Urutan Pengerjaan Rias' });
+  blocks.push({
+    type: 'numbered',
+    items: vList(data, 'urutanPengerjaan', [
+      'Bersihkan wajah dan aplikasikan primer',
+      'Base dan concealer',
+      'Kontur dan highlight',
+      'Mata (eyeshadow, eyeliner, bulu mata)',
+      'Alis',
+      'Blush on',
+      'Bibir',
+      'Setting spray',
+      'Touch-up terakhir',
+    ]),
+  });
+  blocks.push({ type: 'spacer' });
+
+  blocks.push({ type: 'label', text: 'Referensi' });
+  blocks.push({ type: 'paragraph', text: `Moodboard: ${v(data, 'linkMoodboard', '-')}` });
+  blocks.push({ type: 'spacer' });
+
+  blocks.push({ type: 'label', text: 'Catatan Higienitas' });
+  blocks.push({
+    type: 'bullets',
+    items: vList(data, 'higienitas', [
+      'Gunakan spons sekali pakai',
+      'Sterilkan kuas sebelum dan sesudah',
+      'Lakukan tes alergi sebelum hari-H',
+    ]),
+  });
+
+  blocks.push({ type: 'spacer', count: 2 });
+  blocks.push({
+    type: 'signature',
+    signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Mengetahui,\nSutradara', name: findMemberByRole(ctx.members, 'Sutradara') },
       { place: '', date: '', label: 'Koordinator Tata Rias', name: findMemberByRole(ctx.members, 'Koordinator Tata Rias') },
-    ]},
-  ];
+    ],
+  });
+
+  return blocks;
 };
 
 // ═══════════════════════════════════════════════════════
@@ -1466,7 +1560,7 @@ export const TEMPLATE_LIBRARY: TemplateDef[] = [
   },
   {
     id: 'prompt-book',
-    title: 'Prompt Book — Buku Sutradara',
+    title: 'Prompt Book - Buku Sutradara',
     shortTitle: 'Prompt Book',
     description: 'Daftar adegan otomatis dari Prompt Book di Studio. Cue list otomatis dari Cue Sheet dan Prompt Book.',
     category: 'ARTISTIK',
@@ -1478,7 +1572,7 @@ export const TEMPLATE_LIBRARY: TemplateDef[] = [
   },
   {
     id: 'cue-sheet',
-    title: 'Cue Sheet — Tata Musik dan Suara',
+    title: 'Cue Sheet - Tata Musik dan Suara',
     shortTitle: 'Cue Sheet',
     description: 'Daftar cue otomatis dari menu Cue Sheet. Operator otomatis dari divisi Tata Musik.',
     category: 'ARTISTIK',
@@ -1504,7 +1598,7 @@ export const TEMPLATE_LIBRARY: TemplateDef[] = [
     id: 'kostum-karakter',
     title: 'Desain Kostum per Karakter',
     shortTitle: 'Desain Kostum',
-    description: 'Konsep dan warna otomatis dari menu Kostum. Nama pemain diambil otomatis.',
+    description: 'Konsep dan warna otomatis dari menu Kostum. Tanpa ukuran detail, cukup perkiraan S/M/L/XL.',
     category: 'ARTISTIK',
     icon: 'Scissors',
     color: 'indigo',
@@ -1514,9 +1608,9 @@ export const TEMPLATE_LIBRARY: TemplateDef[] = [
   },
   {
     id: 'face-chart',
-    title: 'Face Chart — Desain Rias Karakter',
+    title: 'Face Chart - Desain Rias Karakter',
     shortTitle: 'Face Chart',
-    description: 'Data rias otomatis dari menu Face Chart, termasuk palet dan moodboard.',
+    description: 'Isi daftar pemain sekaligus. Sekali generate, semua face chart tercetak dalam satu dokumen.',
     category: 'ARTISTIK',
     icon: 'Palette',
     color: 'pink',
