@@ -11,6 +11,8 @@ import {
   TaskItem,
   UserProfile,
 } from './types';
+// ✅ NEW: Import admin bootstrap
+import { ensureAdminAccount, resetAdminBootstrapFlag } from './adminBootstrap';
 
 // ============================================================
 // FLAG SEED — v5
@@ -306,14 +308,31 @@ export const DEMO_USERS: UserProfile[] = [
 ];
 
 // ============================================================
-// CHECK & SEED — dengan flag anti-seed-ulang
+// CHECK & SEED — dengan admin bootstrap + flag anti-seed-ulang
 // ============================================================
 export async function checkAndSeedDatabase() {
+  // ═══════════════════════════════════════════════════════
+  // ✅ STEP 1: ADMIN BOOTSTRAP (selalu dijalankan, idempotent)
+  // ═══════════════════════════════════════════════════════
+  try {
+    const adminResult = await ensureAdminAccount();
+    if (adminResult.success) {
+      console.log('🔐 Admin Bootstrap:', adminResult.message);
+    } else {
+      console.warn('⚠️ Admin Bootstrap:', adminResult.message);
+    }
+  } catch (err) {
+    console.warn('Admin bootstrap error (non-fatal):', err);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // STEP 2: SEED BIASA (logika lama tidak berubah)
+  // ═══════════════════════════════════════════════════════
   try {
     const flagRef = doc(db, 'systemConfig', 'seedStatus');
     let alreadySeeded = false;
 
-    // 1. Cek flag di Firestore
+    // 2.1 Cek flag di Firestore
     try {
       const flagSnap = await getDoc(flagRef);
       if (flagSnap.exists() && flagSnap.data()?.seeded === true) {
@@ -323,19 +342,19 @@ export async function checkAndSeedDatabase() {
       console.warn('Gagal baca seed flag Firestore:', err);
     }
 
-    // 2. Fallback localStorage
+    // 2.2 Fallback localStorage
     if (!alreadySeeded) {
       try {
         if (localStorage.getItem(SEED_FLAG_KEY) === 'done') alreadySeeded = true;
       } catch { /* ignore */ }
     }
 
-    // 3. Kalau sudah pernah seed → LANGSUNG RETURN
+    // 2.3 Kalau sudah pernah seed → LANGSUNG RETURN
     if (alreadySeeded) {
       return;
     }
 
-    // 4. Cek apakah classes sudah ada isinya
+    // 2.4 Cek apakah classes sudah ada isinya
     const classesSnap = await getDocs(collection(db, 'classes'));
     if (classesSnap.size > 0) {
       // Sudah ada kelas → tandai sudah seed, JANGAN timpa
@@ -350,7 +369,7 @@ export async function checkAndSeedDatabase() {
       return;
     }
 
-    // 5. Benar-benar kosong & belum pernah seed → seed
+    // 2.5 Benar-benar kosong & belum pernah seed → seed
     console.log('🌱 First-time seed: membuat data awal...');
     await forceSeedDatabase();
 
@@ -673,4 +692,21 @@ export async function forceSeedDatabase() {
 
   await batch.commit();
   console.log('✅ Database seeded successfully!');
+
+  // ═══════════════════════════════════════════════════════
+  // ✅ STEP 3: Pastikan admin ada SETELAH reset database
+  // ═══════════════════════════════════════════════════════
+  try {
+    // Reset flag bootstrap → supaya ensureAdminAccount() benar-benar
+    // cek ulang Firebase Auth & re-create kalau user sudah dihapus
+    resetAdminBootstrapFlag();
+    const adminResult = await ensureAdminAccount();
+    if (adminResult.success) {
+      console.log('🔐 Admin Bootstrap (post-reset):', adminResult.message);
+    } else {
+      console.warn('⚠️ Admin Bootstrap (post-reset):', adminResult.message);
+    }
+  } catch (err) {
+    console.warn('Admin bootstrap setelah reset error (non-fatal):', err);
+  }
 }
