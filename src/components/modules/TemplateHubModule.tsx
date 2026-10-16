@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
-import { recordAuditLog } from '../../services/firestoreService';
+import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import {
   collection, query, where, onSnapshot, doc, setDoc, deleteDoc, getDocs,
 } from 'firebase/firestore';
@@ -74,6 +74,14 @@ export const TemplateHubModule: React.FC = () => {
   const [drafts, setDrafts] = useState<TemplateDraft[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // ✅ AUTO-DATA STATES
+  const [members, setMembers] = useState<any[]>([]);
+  const [productions, setProductions] = useState<any[]>([]);
+  const [schedules, setSchedules] = useState<any[]>([]);
+  const [rabItems, setRabItems] = useState<any[]>([]);
+  const [kasSettings, setKasSettings] = useState<any[]>([]);
+  const [kasPayments, setKasPayments] = useState<any[]>([]);
+
   // Fill modal
   const [fillFor, setFillFor] = useState<TemplateDef | null>(null);
 
@@ -89,16 +97,47 @@ export const TemplateHubModule: React.FC = () => {
   const isStaff = isGuruPengampu || isAdminRole;
 
   // ═══════════════════════════════════════════════════════
-  // SUBSCRIPTIONS
+  // FETCH ALL AUTO-DATA
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
     setLoading(true);
 
-    const q1 = query(
-      collection(db, 'templateSubmissions'),
-      where('classId', '==', activeClass.id)
-    );
+    // Members
+    fetchUsersByClass(activeClass.id).then(setMembers).catch(err => console.warn('Members error:', err));
+
+    // Productions
+    const qProd = query(collection(db, 'productions'), where('classId', '==', activeClass.id));
+    const unsubProd = onSnapshot(qProd, snap => {
+      setProductions(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    });
+
+    // Schedules
+    const qSch = query(collection(db, 'schedules'), where('classId', '==', activeClass.id));
+    const unsubSch = onSnapshot(qSch, snap => {
+      setSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    });
+
+    // RAB items
+    const qRab = query(collection(db, 'rabItems'), where('classId', '==', activeClass.id));
+    const unsubRab = onSnapshot(qRab, snap => {
+      setRabItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    });
+
+    // Kas settings
+    const qKas = query(collection(db, 'kasSettings'), where('classId', '==', activeClass.id));
+    const unsubKas = onSnapshot(qKas, snap => {
+      setKasSettings(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    });
+
+    // Kas payments
+    const qPay = query(collection(db, 'kasPayments'), where('classId', '==', activeClass.id));
+    const unsubPay = onSnapshot(qPay, snap => {
+      setKasPayments(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    });
+
+    // Submissions
+    const q1 = query(collection(db, 'templateSubmissions'), where('classId', '==', activeClass.id));
     const unsub1 = onSnapshot(q1, snap => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as TemplateSubmission));
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -109,7 +148,7 @@ export const TemplateHubModule: React.FC = () => {
       setLoading(false);
     });
 
-    // Load drafts untuk user ini saja
+    // Drafts (user only)
     let unsub2: (() => void) | undefined;
     if (user) {
       const q2 = query(
@@ -122,23 +161,70 @@ export const TemplateHubModule: React.FC = () => {
       }, err => console.warn('Drafts error:', err));
     }
 
-    return () => { unsub1(); if (unsub2) unsub2(); };
+    return () => {
+      unsubProd(); unsubSch(); unsubRab(); unsubKas(); unsubPay();
+      unsub1(); if (unsub2) unsub2();
+    };
   }, [activeClass, user]);
 
   // ═══════════════════════════════════════════════════════
-  // HELPERS
+  // BUILD CONTEXT — dengan semua auto-data
   // ═══════════════════════════════════════════════════════
-  const buildContext = (): TemplateContext => ({
-    className: activeClass?.name || '',
-    kerabatKerja: activeClass?.kerabatKerja,
-    academicYear: activeClass?.academicYear || '2025/2026',
-    teacherName: activeClass?.teacherName || 'Guru Pengampu',
-    totalStudents: activeClass?.totalStudents || 30,
-    schoolName: 'SMP NEGERI 10 SAMARINDA',
-    schoolAddress: 'Jl. Pendidikan No. 10, Samarinda, Kalimantan Timur 75123',
-    schoolEmail: 'info@smpn10samarinda.sch.id',
-    schoolPhone: '(0541) 123456',
-  });
+  const buildContext = (): TemplateContext => {
+    // Produksi aktif (yang pertama)
+    const prod = productions[0];
+    const production = prod
+      ? {
+          title: prod.title || '',
+          synopsis: prod.synopsis || '',
+          theme: prod.theme || '',
+          directorVision: prod.directorVision || '',
+          performanceDate: prod.performanceDate || '',
+          startDate: prod.startDate || '',
+        }
+      : undefined;
+
+    // Kas aktif
+    const kasSet = kasSettings[0];
+    let kasLite: TemplateContext['kas'] = undefined;
+    if (kasSet) {
+      const paidRecords = kasPayments.filter(p => p.kasId === kasSet.id && p.paid);
+      const totalCollected = paidRecords.length * (Number(kasSet.amount) || 0);
+      kasLite = {
+        title: kasSet.title || 'Kas Produksi',
+        amount: Number(kasSet.amount) || 0,
+        periodType: kasSet.periodType || '',
+        totalCollected,
+        amountPaid: paidRecords.length,
+      };
+    }
+
+    return {
+      className: activeClass?.name || '',
+      kerabatKerja: activeClass?.kerabatKerja,
+      academicYear: activeClass?.academicYear || '2025/2026',
+      teacherName: activeClass?.teacherName || 'Guru Pengampu',
+      totalStudents: activeClass?.totalStudents || members.length || 30,
+      schoolName: 'SMP NEGERI 10 SAMARINDA',
+      schoolAddress: 'Jl. Pendidikan No. 10, Samarinda, Kalimantan Timur 75123',
+      schoolEmail: 'info@smpn10samarinda.sch.id',
+      schoolPhone: '(0541) 123456',
+      // ✅ AUTO-SOURCES
+      members: members as any,
+      production,
+      schedules: schedules as any,
+      rabItems: rabItems.map(r => ({
+        category: r.category || 'UMUM',
+        targetName: r.targetName || 'Umum',
+        itemName: r.itemName || '',
+        qty: Number(r.qty) || 0,
+        unit: r.unit || '',
+        unitPrice: Number(r.unitPrice) || 0,
+        notes: r.notes || '',
+      })),
+      kas: kasLite,
+    };
+  };
 
   const canUploadForTemplate = (tpl: TemplateDef): boolean => {
     if (!user) return false;
@@ -151,9 +237,6 @@ export const TemplateHubModule: React.FC = () => {
   const subsForTemplate = (tpl: TemplateDef): TemplateSubmission[] =>
     submissions.filter(s => s.templateId === tpl.id);
 
-  // ═══════════════════════════════════════════════════════
-  // HANDLERS
-  // ═══════════════════════════════════════════════════════
   const openFill = (tpl: TemplateDef) => {
     if (!canUploadForTemplate(tpl)) {
       showToast(`Hanya role berikut yang bisa mengisi "${tpl.shortTitle}": ${tpl.allowedRoles.slice(0, 3).join(', ')}...`, 'warning');
@@ -246,9 +329,6 @@ export const TemplateHubModule: React.FC = () => {
     }
   };
 
-  // ═══════════════════════════════════════════════════════
-  // FILTER
-  // ═══════════════════════════════════════════════════════
   const filteredTemplates = useMemo(() => {
     return TEMPLATE_LIBRARY.filter(t => {
       if (filterCategory !== 'ALL' && t.category !== filterCategory) return false;
@@ -286,6 +366,14 @@ export const TemplateHubModule: React.FC = () => {
     myDrafts: drafts.length,
   };
 
+  // ─── Stats auto-data untuk badge
+  const autoStats = {
+    members: members.length,
+    schedules: schedules.length,
+    rabItems: rabItems.length,
+    hasKas: kasSettings.length > 0,
+  };
+
   if (!activeClass) {
     return (
       <div className="p-12 text-center bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 rounded-3xl max-w-2xl mx-auto my-8">
@@ -312,7 +400,7 @@ export const TemplateHubModule: React.FC = () => {
               Template Dokumen — {activeClass.name}
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Isi form di sistem → generate DOCX otomatis → edit di Word → upload hasil
+              Isi form → generate DOCX otomatis (data panitia, jadwal, RAB diambil dari sistem)
             </p>
           </div>
         </div>
@@ -338,18 +426,38 @@ export const TemplateHubModule: React.FC = () => {
         </div>
       </div>
 
-      {/* INFO ALUR */}
-      <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3">
-        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <p className="font-black text-sm mb-2">🎯 Alur Penggunaan (5 Langkah)</p>
-          <ol className="list-decimal pl-4 space-y-1">
-            <li>Klik <strong>"Isi & Generate"</strong> pada template → form muncul</li>
-            <li>Isi semua field yang diminta → <strong>draft tersimpan otomatis</strong> tiap 30 detik (bisa ditinggal & lanjut kapan saja)</li>
-            <li>Klik <strong>"Generate DOCX"</strong> → file .docx langsung terunduh dengan data Anda terisi</li>
-            <li>Buka di Word → <strong>ganti placeholder <code className="bg-blue-100 dark:bg-blue-500/20 px-1 rounded">[ LOGO SEKOLAH ]</code> dan <code className="bg-blue-100 dark:bg-blue-500/20 px-1 rounded">[ LOGO KERABAT ]</code> dengan gambar asli</strong>, edit finishing jika perlu</li>
-            <li>Upload hasil ke Google Drive → <strong>paste link di tombol "Unggah Hasil"</strong> → selesai! Muncul di tab Hasil Karya</li>
-          </ol>
+      {/* AUTO-DATA STATUS BANNER */}
+      <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+        <div className="flex items-start gap-3">
+          <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+          <div className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
+            <p className="font-black text-sm mb-1">✅ Data Otomatis Siap Diambil dari Sistem</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Panitia & Pemain</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.members}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">anggota terdaftar</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Jadwal & Agenda</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.schedules}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">agenda tersimpan</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">RAB Digital</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.rabItems}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">item anggaran</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Kas Produksi</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.hasKas ? '✓' : '-'}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">{autoStats.hasKas ? 'aktif' : 'belum aktif'}</p>
+              </div>
+            </div>
+            <p className="mt-2 italic text-[10px]">
+              Proposal & LPJ akan menarik data ini <strong>otomatis</strong> — Anda hanya perlu isi narasi & tanda tangan.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -412,6 +520,9 @@ export const TemplateHubModule: React.FC = () => {
                 const myDraft = draftForTemplate(tpl);
                 const mySubs = subsForTemplate(tpl);
 
+                // Badge "AUTO" kalau template menarik data dari sistem
+                const hasAuto = ['proposal', 'lpj'].includes(tpl.id);
+
                 return (
                   <div key={tpl.id}
                     className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition space-y-3">
@@ -427,6 +538,11 @@ export const TemplateHubModule: React.FC = () => {
                           {tpl.withKop && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40">
                               📄 KOP
+                            </span>
+                          )}
+                          {hasAuto && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-500/40 flex items-center gap-1">
+                              ⚡ AUTO-FILL
                             </span>
                           )}
                           {myDraft && (
@@ -510,7 +626,7 @@ export const TemplateHubModule: React.FC = () => {
               <FileCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Hasil Karya</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Isi & generate template dulu di tab Template, edit di Word, lalu unggah hasilnya di sini.
+                Isi & generate template dulu di tab Template, edit di Word, lalu unggah hasilnya.
               </p>
             </div>
           ) : (
@@ -598,7 +714,7 @@ export const TemplateHubModule: React.FC = () => {
           template={fillFor}
           ctx={buildContext()}
           onClose={() => setFillFor(null)}
-          onGenerated={() => { /* tetap buka modal, biar bisa langsung upload */ }}
+          onGenerated={() => { /* tetap buka */ }}
           onGoToUpload={() => {
             const tpl = fillFor;
             setFillFor(null);
@@ -607,7 +723,7 @@ export const TemplateHubModule: React.FC = () => {
         />
       )}
 
-      {/* UPLOAD MODAL */}
+      {/* UPLOAD MODAL (sama seperti sebelumnya) */}
       {uploadFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleSubmitUpload}
