@@ -1,11 +1,21 @@
 // =====================================================
-// TEMPLATE LIBRARY v3 — Form-driven DOCX generation
+// TEMPLATE LIBRARY v3 — Form-driven DOCX + RAB detail otomatis
 // =====================================================
 
 import { DOCXBlock, DOCXKopContext, todayLongID } from '../utils/exportDOCX';
 import { parseList, parseTable } from './templateForms';
 
 export type TemplateCategory = 'ADMINISTRASI' | 'ARTISTIK' | 'PRODUKSI';
+
+export interface RABItemLite {
+  category: 'DIVISI' | 'PERAN' | 'UMUM';
+  targetName: string;
+  itemName: string;
+  qty: number;
+  unit: string;
+  unitPrice: number;
+  notes?: string;
+}
 
 export interface TemplateContext {
   className: string;
@@ -17,6 +27,7 @@ export interface TemplateContext {
   schoolAddress: string;
   schoolEmail?: string;
   schoolPhone?: string;
+  rabItems?: RABItemLite[];
 }
 
 export interface TemplateDef {
@@ -48,20 +59,20 @@ const makeKop = (ctx: TemplateContext): DOCXKopContext => ({
 
 export const buildKopFor = makeKop;
 
-// Helper: ambil string atau fallback
+// ═══════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════
 const v = (data: Record<string, any>, key: string, fallback = '[ ... ]'): string => {
   const val = data?.[key];
   if (val === undefined || val === null || String(val).trim() === '') return fallback;
   return String(val);
 };
 
-// Helper: list atau fallback
 const vList = (data: Record<string, any>, key: string, fallback: string[]): string[] => {
   const arr = parseList(data?.[key]);
   return arr.length > 0 ? arr : fallback;
 };
 
-// Helper: table rows
 const vTable = (
   data: Record<string, any>,
   key: string,
@@ -71,6 +82,111 @@ const vTable = (
   const rows = parseTable(data?.[key], colCount);
   return rows.length > 0 ? rows : fallback;
 };
+
+const fmtRp = (n: number): string => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
+
+// ═══════════════════════════════════════════════════════
+// RAB SECTION BUILDER — Auto-pull dari rabItems
+// ═══════════════════════════════════════════════════════
+function buildRABSection(ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] {
+  const items = ctx.rabItems || [];
+
+  // ─── Fallback: kalau belum ada RAB di sistem
+  if (items.length === 0) {
+    const blocks: DOCXBlock[] = [
+      { type: 'paragraph', text: 'Detail RAB belum tersedia di sistem.' },
+      { type: 'paragraph', text: 'Silakan buka menu RAB Digital untuk mengisi item-item anggaran. Setelah terisi, RAB akan otomatis muncul di dokumen ini.' },
+    ];
+    if (data?.rabUploadUrl) {
+      blocks.push({ type: 'spacer' });
+      blocks.push({ type: 'label', text: 'Lampiran RAB Final (telah ditandatangani):' });
+      blocks.push({ type: 'paragraph', text: data.rabUploadName ? `${data.rabUploadName} — ${data.rabUploadUrl}` : String(data.rabUploadUrl) });
+    }
+    return blocks;
+  }
+
+  // ─── Group by category + targetName
+  const groups: Record<string, { category: string; targetName: string; items: RABItemLite[]; subtotal: number }> = {};
+  items.forEach(it => {
+    const key = `${it.category}__${it.targetName}`;
+    if (!groups[key]) {
+      groups[key] = {
+        category: it.category,
+        targetName: it.targetName,
+        items: [],
+        subtotal: 0,
+      };
+    }
+    groups[key].items.push(it);
+    groups[key].subtotal += (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+  });
+
+  const grouped = Object.values(groups).sort((a, b) => {
+    const order: Record<string, number> = { DIVISI: 1, PERAN: 2, UMUM: 3 };
+    return (order[a.category] || 9) - (order[b.category] || 9);
+  });
+
+  const grandTotal = grouped.reduce((s, g) => s + g.subtotal, 0);
+
+  // ─── Tabel detail
+  const tableRows: (string | number)[][] = [];
+  let counter = 1;
+  grouped.forEach(g => {
+    g.items.forEach(it => {
+      const rowTotal = (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+      tableRows.push([
+        `${g.category} - ${g.targetName}`,
+        it.itemName,
+        `${it.qty} ${it.unit}`,
+        fmtRp(it.unitPrice),
+        fmtRp(rowTotal),
+      ]);
+    });
+  });
+
+  const blocks: DOCXBlock[] = [
+    { type: 'label', text: 'A. Rincian Anggaran per Kategori' },
+    {
+      type: 'table',
+      headers: ['Kategori', 'Item', 'Qty', 'Harga Satuan', 'Total'],
+      rows: tableRows,
+      widths: [1900, 2860, 900, 1700, 2000],
+    },
+    { type: 'spacer' },
+    { type: 'label', text: 'B. Subtotal per Kategori' },
+    {
+      type: 'bullets',
+      items: grouped.map(g =>
+        `${g.category} — ${g.targetName}: ${fmtRp(g.subtotal)} (${g.items.length} item)`
+      ),
+    },
+    { type: 'spacer' },
+    { type: 'paragraph', text: `GRAND TOTAL RAB: ${fmtRp(grandTotal)}`, bold: true },
+  ];
+
+  if (data?.rabCatatan) {
+    blocks.push({ type: 'spacer' });
+    blocks.push({ type: 'paragraph', text: `Catatan: ${data.rabCatatan}`, italic: true });
+  }
+
+  if (data?.rabUploadUrl) {
+    blocks.push({ type: 'spacer' });
+    blocks.push({ type: 'label', text: 'C. Lampiran RAB Final (telah ditandatangani):' });
+    blocks.push({
+      type: 'paragraph',
+      text: data.rabUploadName
+        ? `${data.rabUploadName} — ${data.rabUploadUrl}`
+        : String(data.rabUploadUrl),
+    });
+    blocks.push({
+      type: 'paragraph',
+      text: 'File RAB final yang sudah ditandatangani Pimpinan Produksi & Bendahara dapat diakses melalui tautan di atas.',
+      italic: true,
+    });
+  }
+
+  return blocks;
+}
 
 // ═══════════════════════════════════════════════════════
 // 1. PROPOSAL
@@ -129,9 +245,9 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
   { type: 'paragraph', text: '[Lampirkan timeline lengkap dari menu Master Timeline di sistem SP-PPT.]' },
   { type: 'spacer' },
 
+  // ═══ VI. RENCANA ANGGARAN BIAYA — DETAIL DARI RAB DIGITAL ═══
   { type: 'heading', text: 'VI. RENCANA ANGGARAN BIAYA' },
-  { type: 'paragraph', text: `Total estimasi anggaran: ${v(data, 'rabTotal')}` },
-  { type: 'paragraph', text: '[Lampirkan tabel RAB dari menu RAB Digital di sistem SP-PPT.]' },
+  ...buildRABSection(ctx, data),
   { type: 'spacer' },
 
   { type: 'heading', text: 'VII. RENCANA PUBLIKASI' },
@@ -225,15 +341,39 @@ const buildSuratPermohonan = (ctx: TemplateContext, data: Record<string, any>): 
 // 4. LPJ
 // ═══════════════════════════════════════════════════════
 const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const keuanganRows = vTable(data, 'keuangan', 3, [
-    ['[Komponen]', '0', '0'],
-  ]);
-  // tabel keuangan LPJ butuh 4 kolom (Komponen, Estimasi, Realisasi, Selisih)
-  const keuanganRows4 = keuanganRows.map(r => {
-    const est = Number(r[1]) || 0;
-    const real = Number(r[2]) || 0;
-    return [r[0], est.toLocaleString('id-ID'), real.toLocaleString('id-ID'), (real - est).toLocaleString('id-ID')];
-  });
+  // Kalau user isi field keuangan manual, pakai itu. Kalau tidak, pakai data RAB.
+  const manualKeuangan = parseTable(data?.keuangan, 3);
+  const hasManualKeuangan = manualKeuangan.length > 0;
+
+  let keuanganRows4: (string | number)[][] = [];
+
+  if (hasManualKeuangan) {
+    keuanganRows4 = manualKeuangan.map(r => {
+      const est = Number(r[1]) || 0;
+      const real = Number(r[2]) || 0;
+      return [r[0], fmtRp(est), fmtRp(real), fmtRp(real - est)];
+    });
+  } else if (ctx.rabItems && ctx.rabItems.length > 0) {
+    // Auto-generate dari RAB Digital
+    const groups: Record<string, { category: string; targetName: string; subtotal: number }> = {};
+    ctx.rabItems.forEach(it => {
+      const key = `${it.category}__${it.targetName}`;
+      if (!groups[key]) {
+        groups[key] = { category: it.category, targetName: it.targetName, subtotal: 0 };
+      }
+      groups[key].subtotal += (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
+    });
+    keuanganRows4 = Object.values(groups).map(g => [
+      `${g.category} - ${g.targetName}`,
+      fmtRp(g.subtotal),
+      '-',
+      '-',
+    ]);
+    const totalAll = Object.values(groups).reduce((s, g) => s + g.subtotal, 0);
+    keuanganRows4.push(['TOTAL ESTIMASI RAB', fmtRp(totalAll), '-', '-']);
+  } else {
+    keuanganRows4 = [['[Komponen]', 'Rp 0', 'Rp 0', 'Rp 0']];
+  }
 
   return [
     { type: 'title', text: 'LAPORAN PERTANGGUNGJAWABAN (LPJ)' },
@@ -264,8 +404,49 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     ]) },
     { type: 'spacer' },
 
+    // ═══ C. LAPORAN KEUANGAN — DETAIL DARI RAB DIGITAL ═══
     { type: 'heading', text: 'C. LAPORAN KEUANGAN' },
-    { type: 'table', headers: ['Komponen', 'Estimasi (Rp)', 'Realisasi (Rp)', 'Selisih (Rp)'], rows: keuanganRows4 },
+    ...(hasManualKeuangan
+      ? [
+          { type: 'paragraph' as const, text: 'Realisasi anggaran berdasarkan data yang diinput:', italic: true },
+          { type: 'spacer' as const },
+          { type: 'table' as const, headers: ['Komponen', 'Estimasi', 'Realisasi', 'Selisih'], rows: keuanganRows4 },
+        ]
+      : ctx.rabItems && ctx.rabItems.length > 0
+      ? [
+          { type: 'paragraph' as const, text: 'Rincian anggaran (otomatis dari RAB Digital):', italic: true },
+          { type: 'spacer' as const },
+          { type: 'table' as const, headers: ['Kategori', 'Total Anggaran', 'Realisasi', 'Selisih'], rows: keuanganRows4 },
+          { type: 'spacer' as const },
+          { type: 'label' as const, text: 'Rincian Item RAB:' },
+          { type: 'table' as const,
+            headers: ['Kategori', 'Item', 'Qty', 'Harga Satuan', 'Total'],
+            rows: (ctx.rabItems || []).map((it: RABItemLite) => [
+              `${it.category} - ${it.targetName}`,
+              it.itemName,
+              `${it.qty} ${it.unit}`,
+              fmtRp(it.unitPrice),
+              fmtRp((Number(it.qty) || 0) * (Number(it.unitPrice) || 0)),
+            ]),
+            widths: [1900, 2860, 900, 1700, 2000],
+          },
+        ]
+      : [
+          { type: 'paragraph' as const, text: 'Realisasi anggaran: [belum ada data RAB di sistem]' },
+        ]
+    ),
+    ...(data?.rabUploadUrl
+      ? [
+          { type: 'spacer' as const },
+          { type: 'label' as const, text: 'Lampiran RAB Final (telah ditandatangani):' },
+          {
+            type: 'paragraph' as const,
+            text: data.rabUploadName
+              ? `${data.rabUploadName} — ${data.rabUploadUrl}`
+              : String(data.rabUploadUrl),
+          },
+        ]
+      : []),
     { type: 'spacer' },
 
     { type: 'heading', text: 'D. EVALUASI & PEMBELAJARAN' },
@@ -300,47 +481,31 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
 // ═══════════════════════════════════════════════════════
 const buildSketsaPanggung = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
   const zonaRows = vTable(data, 'denahZona', 2, [
-    ['UL', '[Upstage Left]'],
-    ['UC', '[Upstage Center]'],
-    ['UR', '[Upstage Right]'],
-    ['CL', '[Center Left]'],
-    ['C',  '[Center]'],
-    ['CR', '[Center Right]'],
-    ['DL', '[Downstage Left]'],
-    ['DC', '[Downstage Center]'],
-    ['DR', '[Downstage Right]'],
+    ['UL', '[Upstage Left]'], ['UC', '[Upstage Center]'], ['UR', '[Upstage Right]'],
+    ['CL', '[Center Left]'], ['C', '[Center]'], ['CR', '[Center Right]'],
+    ['DL', '[Downstage Left]'], ['DC', '[Downstage Center]'], ['DR', '[Downstage Right]'],
   ]);
-  const cueRows = vTable(data, 'cueLampu', 4, [
-    ['CUE-01', '[posisi]', '[warna]', '[adegan]'],
-  ]);
+  const cueRows = vTable(data, 'cueLampu', 4, [['CUE-01', '[posisi]', '[warna]', '[adegan]']]);
 
   return [
     { type: 'title', text: 'SKETSA & DENAH PANGGUNG' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
-
     { type: 'heading', text: 'A. KONSEP TATA PANGGUNG' },
     { type: 'paragraph', text: v(data, 'konsep') },
     { type: 'spacer' },
-
     { type: 'heading', text: 'B. DENAH 9 ZONA PANGGUNG' },
     { type: 'table', headers: ['Kode', 'Deskripsi Penggunaan'], rows: zonaRows },
     { type: 'spacer' },
-
     { type: 'heading', text: 'C. SKETSA VISUAL PANGGUNG' },
     { type: 'paragraph', text: 'Lampirkan gambar sketsa panggung pada link berikut:' },
     { type: 'paragraph', text: v(data, 'sketsaLink', 'Link sketsa: _________________________') },
     { type: 'spacer' },
-
     { type: 'heading', text: 'D. TATA CAHAYA' },
     { type: 'table', headers: ['Cue', 'Posisi', 'Warna', 'Adegan'], rows: cueRows },
     { type: 'spacer' },
-
     { type: 'heading', text: 'E. URUTAN PEMASANGAN & PEMBONGKARAN' },
-    { type: 'bullets', items: vList(data, 'urutanPasang', [
-      'Target pasang set: < 10 menit',
-      'Target strike: < 5 menit',
-    ]) },
+    { type: 'bullets', items: vList(data, 'urutanPasang', ['Target pasang set: < 10 menit', 'Target strike: < 5 menit']) },
     { type: 'spacer', count: 2 },
     { type: 'signature', signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Mengetahui,\nSutradara', name: '...........................' },
@@ -353,18 +518,13 @@ const buildSketsaPanggung = (ctx: TemplateContext, data: Record<string, any>): D
 // 6. PROMPT BOOK
 // ═══════════════════════════════════════════════════════
 const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const adeganRows = vTable(data, 'daftarAdegan', 5, [
-    ['1', '[Adegan]', '[Durasi]', '[Pemain]', '[Zona]'],
-  ]);
-  const cueRows = vTable(data, 'cueList', 5, [
-    ['CUE-01', '[trigger]', '[aksi]', '[audio]', '[lampu]'],
-  ]);
+  const adeganRows = vTable(data, 'daftarAdegan', 5, [['1', '[Adegan]', '[Durasi]', '[Pemain]', '[Zona]']]);
+  const cueRows = vTable(data, 'cueList', 5, [['CUE-01', '[trigger]', '[aksi]', '[audio]', '[lampu]']]);
 
   return [
     { type: 'title', text: 'PROMPT BOOK — BUKU SUTRADARA' },
     { type: 'subtitle', text: ctx.kerabatKerja ? `"${ctx.kerabatKerja}"` : '[Nama Produksi]' },
     { type: 'spacer', count: 2 },
-
     { type: 'heading', text: 'A. IDENTITAS' },
     { type: 'table', headers: ['Keterangan', 'Detail'], rows: [
       ['Produksi', ctx.kerabatKerja || '[Nama Produksi]'],
@@ -375,24 +535,17 @@ const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXB
       ['Durasi Target', '30 menit'],
     ]},
     { type: 'spacer' },
-
     { type: 'heading', text: 'B. DAFTAR ADEGAN' },
     { type: 'table', headers: ['No', 'Adegan', 'Durasi', 'Pemain', 'Zona'], rows: adeganRows },
     { type: 'spacer' },
-
     { type: 'heading', text: 'C. CUE SHEET — AUDIO & LIGHTING' },
     { type: 'table', headers: ['Cue', 'Trigger', 'Aksi', 'Audio', 'Lampu'], rows: cueRows },
     { type: 'spacer' },
-
     { type: 'heading', text: 'D. CATATAN BLOCKING PENTING' },
     { type: 'paragraph', text: v(data, 'catatanBlocking') },
     { type: 'spacer' },
-
     { type: 'heading', text: 'E. CATATAN TEKNIS' },
-    { type: 'bullets', items: vList(data, 'catatanTeknis', [
-      'Standby ASM di sisi panggung kiri',
-      'Sound check 30 menit sebelum opening',
-    ]) },
+    { type: 'bullets', items: vList(data, 'catatanTeknis', ['Standby ASM di sisi panggung kiri', 'Sound check 30 menit sebelum opening']) },
     { type: 'spacer', count: 2 },
     { type: 'signature', signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Sutradara', name: '...........................' },
@@ -405,18 +558,13 @@ const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXB
 // 7. CUE SHEET
 // ═══════════════════════════════════════════════════════
 const buildCueSheet = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const cueRows = vTable(data, 'cueList', 7, [
-    ['CUE-01', '[adegan]', '[track]', '[in/out]', '[durasi]', '[volume]', '[link]'],
-  ]);
-  const opRows = vTable(data, 'operatorList', 2, [
-    ['Sound Engineer', '[Nama]'],
-  ]);
+  const cueRows = vTable(data, 'cueList', 7, [['CUE-01', '[adegan]', '[track]', '[in/out]', '[durasi]', '[volume]', '[link]']]);
+  const opRows = vTable(data, 'operatorList', 2, [['Sound Engineer', '[Nama]']]);
 
   return [
     { type: 'title', text: 'CUE SHEET — TATA MUSIK & SUARA' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
-
     { type: 'heading', text: 'A. DAFTAR CUE' },
     { type: 'table',
       headers: ['Cue', 'Adegan', 'Track', 'In/Out', 'Durasi', 'Volume', 'Link'],
@@ -424,16 +572,11 @@ const buildCueSheet = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
       widths: [900, 1400, 1500, 1100, 1000, 1000, 2460],
     },
     { type: 'spacer' },
-
     { type: 'heading', text: 'B. OPERATOR' },
     { type: 'table', headers: ['Posisi', 'Nama'], rows: opRows },
     { type: 'spacer' },
-
     { type: 'heading', text: 'C. CHECKLIST SOUND CHECK' },
-    { type: 'bullets', items: vList(data, 'checklist', [
-      'Semua mic on & balance',
-      'Backing track tersedia offline',
-    ]) },
+    { type: 'bullets', items: vList(data, 'checklist', ['Semua mic on & balance', 'Backing track tersedia offline']) },
     { type: 'spacer', count: 2 },
     { type: 'signature', signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Sutradara', name: '...........................' },
@@ -446,27 +589,20 @@ const buildCueSheet = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
 // 8. PROPERTI
 // ═══════════════════════════════════════════════════════
 const buildProperti = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const rows = vTable(data, 'propertiList', 7, [
-    ['1', '[adegan]', '[nama]', '[bahan]', '1', 'BELUM', '[PIC]'],
-  ]);
+  const rows = vTable(data, 'propertiList', 7, [['1', '[adegan]', '[nama]', '[bahan]', '1', 'BELUM', '[PIC]']]);
 
   return [
     { type: 'title', text: 'BREAKDOWN PROPERTI PER ADEGAN' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
-
     { type: 'table',
       headers: ['No', 'Adegan', 'Nama Properti', 'Bahan', 'Qty', 'Status', 'PIC'],
       rows,
       widths: [500, 1600, 1800, 1600, 600, 1200, 2060],
     },
     { type: 'spacer' },
-
     { type: 'heading', text: 'CATATAN PENTING' },
-    { type: 'bullets', items: vList(data, 'catatanPenting', [
-      'Semua properti harus aman dipakai di panggung',
-      'Update status properti setiap minggu',
-    ]) },
+    { type: 'bullets', items: vList(data, 'catatanPenting', ['Semua properti harus aman dipakai di panggung', 'Update status properti setiap minggu']) },
     { type: 'spacer', count: 2 },
     { type: 'signature', signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Mengetahui,\nPimpinan Produksi', name: '...........................' },
@@ -479,15 +615,12 @@ const buildProperti = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
 // 9. KOSTUM
 // ═══════════════════════════════════════════════════════
 const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const bahanRows = vTable(data, 'bahanList', 3, [
-    ['[Bahan]', '[Jumlah]', '[Warna]'],
-  ]);
+  const bahanRows = vTable(data, 'bahanList', 3, [['[Bahan]', '[Jumlah]', '[Warna]']]);
 
   return [
     { type: 'title', text: 'DESAIN KOSTUM PER KARAKTER' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
-
     { type: 'heading', text: 'A. IDENTITAS KARAKTER' },
     { type: 'table', headers: ['Field', 'Keterangan'], rows: [
       ['Nama Karakter', v(data, 'namaKarakter')],
@@ -497,7 +630,6 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
       ['Watak', v(data, 'watak', '-')],
     ]},
     { type: 'spacer' },
-
     { type: 'heading', text: 'B. KONSEP KOSTUM' },
     { type: 'table', headers: ['Elemen', 'Deskripsi'], rows: [
       ['Warna Dominan', v(data, 'warnaDominan', '-')],
@@ -507,7 +639,6 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
       ['Ornamen/Aksesoris', v(data, 'ornamen', '-')],
     ]},
     { type: 'spacer' },
-
     { type: 'heading', text: 'C. UKURAN PEMAKAI (cm)' },
     { type: 'table', headers: ['Bagian', 'Ukuran'], rows: [
       ['Lingkar Dada (LD)', v(data, 'ld', '-')],
@@ -519,20 +650,15 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
       ['Panjang Lengan', v(data, 'panjangLengan', '-')],
     ]},
     { type: 'spacer' },
-
     { type: 'heading', text: 'D. KEBUTUHAN BAHAN' },
     { type: 'table', headers: ['Bahan', 'Jumlah', 'Warna'], rows: bahanRows },
     { type: 'spacer' },
-
     { type: 'heading', text: 'E. REFERENSI VISUAL' },
     { type: 'paragraph', text: `Moodboard: ${v(data, 'linkMoodboard', '-')}` },
     { type: 'paragraph', text: `Foto referensi: ${v(data, 'linkReferensi', '-')}` },
     { type: 'spacer' },
-
     { type: 'heading', text: 'F. STATUS PRODUKSI' },
-    { type: 'bullets', items: [
-      '☐ Desain (belum dikerjakan)', '☐ Potong', '☐ Jahit', '☐ Fitting', '☐ Selesai',
-    ]},
+    { type: 'bullets', items: ['☐ Desain (belum dikerjakan)', '☐ Potong', '☐ Jahit', '☐ Fitting', '☐ Selesai'] },
     { type: 'spacer', count: 2 },
     { type: 'signature', signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Mengetahui,\nSutradara', name: '...........................' },
@@ -545,15 +671,12 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
 // 10. FACE CHART
 // ═══════════════════════════════════════════════════════
 const buildFaceChart = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const paletRows = vTable(data, 'paletList', 3, [
-    ['[Area]', '[Warna]', '[Produk]'],
-  ]);
+  const paletRows = vTable(data, 'paletList', 3, [['[Area]', '[Warna]', '[Produk]']]);
 
   return [
     { type: 'title', text: 'FACE CHART — DESAIN RIAS KARAKTER' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
-
     { type: 'heading', text: 'A. IDENTITAS' },
     { type: 'table', headers: ['Field', 'Keterangan'], rows: [
       ['Nama Pemain', v(data, 'namaPemain')],
@@ -562,21 +685,18 @@ const buildFaceChart = (ctx: TemplateContext, data: Record<string, any>): DOCXBl
       ['Tingkat Kesulitan', v(data, 'tingkatKesulitan', '-')],
     ]},
     { type: 'spacer' },
-
     { type: 'heading', text: 'B. PALET WARNA' },
     { type: 'table', headers: ['Area', 'Warna', 'Produk'], rows: paletRows },
     { type: 'spacer' },
-
     { type: 'heading', text: 'C. TEKNIK KHUSUS' },
     { type: 'bullets', items: vList(data, 'teknikKhusus', ['[Teknik khusus]']) },
     { type: 'spacer' },
-
     { type: 'heading', text: 'D. URUTAN PENGERJAAN' },
     { type: 'numbered', items: vList(data, 'urutanPengerjaan', [
       'Bersihkan wajah & aplikasikan primer',
       'Base & concealer',
       'Kontur & highlight',
-      'Mata (eyeshadow, eyeliner, bulu mata)',
+      'Mata',
       'Alis',
       'Blush on',
       'Bibir',
@@ -584,17 +704,12 @@ const buildFaceChart = (ctx: TemplateContext, data: Record<string, any>): DOCXBl
       'Touch-up terakhir',
     ]) },
     { type: 'spacer' },
-
     { type: 'heading', text: 'E. REFERENSI VISUAL' },
     { type: 'paragraph', text: `Moodboard: ${v(data, 'linkMoodboard', '-')}` },
     { type: 'paragraph', text: `Face chart kosong: ${v(data, 'linkFaceChart', '-')}` },
     { type: 'spacer' },
-
     { type: 'heading', text: 'F. CATATAN HIGIENITAS' },
-    { type: 'bullets', items: vList(data, 'higienitas', [
-      'Gunakan spons sekali pakai',
-      'Sterilkan kuas sebelum & sesudah',
-    ]) },
+    { type: 'bullets', items: vList(data, 'higienitas', ['Gunakan spons sekali pakai', 'Sterilkan kuas sebelum & sesudah']) },
     { type: 'spacer', count: 2 },
     { type: 'signature', signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Mengetahui,\nSutradara', name: '...........................' },
@@ -611,7 +726,7 @@ export const TEMPLATE_LIBRARY: TemplateDef[] = [
     id: 'proposal',
     title: 'Proposal Produksi Seni Teater',
     shortTitle: 'Proposal',
-    description: 'Dokumen pengajuan produksi — latar belakang, visi artistik, sinopsis, struktur, timeline, RAB, penutup. Ada kop surat.',
+    description: 'Dokumen pengajuan produksi — RAB detail otomatis dari RAB Digital + lampiran opsional RAB final bertanda tangan.',
     category: 'ADMINISTRASI',
     icon: 'FileText',
     color: 'amber',
@@ -647,7 +762,7 @@ export const TEMPLATE_LIBRARY: TemplateDef[] = [
     id: 'lpj',
     title: 'Laporan Pertanggungjawaban (LPJ)',
     shortTitle: 'LPJ',
-    description: 'LPJ akhir produksi — ringkasan, laporan divisi, keuangan, evaluasi, lampiran. Ada kop surat.',
+    description: 'LPJ akhir produksi — RAB detail otomatis + tabel realisasi + lampiran RAB final.',
     category: 'ADMINISTRASI',
     icon: 'FileCheck',
     color: 'purple',
