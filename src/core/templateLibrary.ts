@@ -1,5 +1,6 @@
 // =====================================================
-// TEMPLATE LIBRARY v4 — Auto-populate dari sistem
+// TEMPLATE LIBRARY v5 — AUTO-POPULATE MAKSIMAL
+// Semua yang bisa diambil dari sistem → otomatis
 // =====================================================
 
 import { DOCXBlock, DOCXKopContext, todayLongID } from '../utils/exportDOCX';
@@ -8,8 +9,11 @@ import { UserProfile } from './types';
 
 export type TemplateCategory = 'ADMINISTRASI' | 'ARTISTIK' | 'PRODUKSI';
 
+// ═══════════════════════════════════════════════════════
+// TYPES
+// ═══════════════════════════════════════════════════════
 export interface RABItemLite {
-  category: 'DIVISI' | 'PERAN' | 'UMUM';
+  category: string;
   targetName: string;
   itemName: string;
   qty: number;
@@ -41,10 +45,109 @@ export interface ScheduleLite {
 export interface KasLite {
   title?: string;
   amount?: number;
-  periodType?: string;
-  amountPaid?: number;   // jumlah uang dari kas siswa
   totalCollected?: number;
-  unpaidCount?: number;
+  amountPaid?: number;
+}
+
+export interface CashEntryLite {
+  id: string;
+  type: 'INCOME' | 'EXPENSE';
+  category: string;
+  targetName: string;
+  itemName: string;
+  qty: number;
+  unit: string;
+  amount: number;
+  notes?: string;
+  date: string;
+  creatorName?: string;
+}
+
+export interface AttendanceSessionLite {
+  id: string;
+  title: string;
+  date: string;
+  activityType: string;
+  targetScope: string;
+}
+
+export interface AttendanceRecordLite {
+  sessionId: string;
+  studentId: string;
+  studentName: string;
+  role: string;
+  status: string;
+  timestamp?: string;
+  note?: string;
+}
+
+export interface PropertyLite {
+  id: string;
+  name: string;
+  scene?: string;
+  material?: string;
+  status?: string;
+  condition?: string;
+  pic?: string;
+  notes?: string;
+}
+
+export interface CostumeLite {
+  id: string;
+  characterName: string;
+  playerName: string;
+  costumeType: string;
+  colors?: string;
+  texture?: string;
+  accessories?: string;
+  status?: string;
+  notes?: string;
+}
+
+export interface FaceChartLite {
+  id: string;
+  playerName: string;
+  characterName: string;
+  riasType: string;
+  notes?: string;
+  moodboardUrl?: string;
+  faceChartUrl?: string;
+}
+
+export interface MusicCueLite {
+  id: string;
+  scene: string;
+  cueType: string;
+  title: string;
+  audioUrl?: string;
+  volume?: number;
+  duration?: string;
+  notes?: string;
+}
+
+export interface PromptBookLite {
+  id: string;
+  scene: string;
+  gridPositions?: Record<string, string>;
+  notes?: string;
+  cues?: Array<{ code: string; action: string; timing: string; soundLight?: string }>;
+}
+
+export interface NotulensiLite {
+  id: string;
+  title: string;
+  date: string;
+  location?: string;
+  agenda?: string;
+}
+
+export interface DocumentLite {
+  id: string;
+  title: string;
+  category: string;
+  fileUrl: string;
+  uploaderName?: string;
+  createdAt: string;
 }
 
 export interface TemplateContext {
@@ -57,12 +160,22 @@ export interface TemplateContext {
   schoolAddress: string;
   schoolEmail?: string;
   schoolPhone?: string;
-  // ✅ AUTO-SOURCES
+  // AUTO-SOURCES
   rabItems?: RABItemLite[];
   members?: UserProfile[];
   production?: ProductionLite;
   schedules?: ScheduleLite[];
   kas?: KasLite;
+  cashEntries?: CashEntryLite[];
+  attendanceSessions?: AttendanceSessionLite[];
+  attendanceRecords?: AttendanceRecordLite[];
+  properties?: PropertyLite[];
+  costumes?: CostumeLite[];
+  faceCharts?: FaceChartLite[];
+  musicCues?: MusicCueLite[];
+  promptBooks?: PromptBookLite[];
+  notulensi?: NotulensiLite[];
+  documents?: DocumentLite[];
 }
 
 export interface TemplateDef {
@@ -119,6 +232,14 @@ const vTable = (
 };
 
 const fmtRp = (n: number): string => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
+const fmtDate = (iso: string): string => {
+  try { return new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }); }
+  catch { return '-'; }
+};
+const fmtDateTime = (iso: string): string => {
+  try { return new Date(iso).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+  catch { return '-'; }
+};
 
 const findMemberByRole = (members: UserProfile[] | undefined, ...roles: string[]): string => {
   if (!members) return '...........................';
@@ -130,7 +251,7 @@ const findMemberByRole = (members: UserProfile[] | undefined, ...roles: string[]
 };
 
 // ═══════════════════════════════════════════════════════
-// AUTO-BUILD: Susunan Panitia (dari members)
+// AUTO: SUSUNAN PANITIA
 // ═══════════════════════════════════════════════════════
 const JABATAN_MAP: Array<{ role: string; jabatan: string; tugas: string }> = [
   { role: 'Pimpinan Produksi', jabatan: 'Ketua Panitia / Pimpinan Produksi', tugas: 'Memimpin & mengoordinasikan seluruh produksi' },
@@ -150,7 +271,6 @@ function buildSusunanPanitia(members: UserProfile[] | undefined, guruName: strin
   const rows: (string | number)[][] = [];
   let n = 1;
 
-  // Guru pendamping duluan
   rows.push([
     n++,
     'Penanggung Jawab / Guru Pendamping',
@@ -169,22 +289,17 @@ function buildSusunanPanitia(members: UserProfile[] | undefined, guruName: strin
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTO-BUILD: Daftar Pemain (dari members)
+// AUTO: DAFTAR PEMAIN
 // ═══════════════════════════════════════════════════════
 function buildDaftarPemain(members: UserProfile[] | undefined): (string | number)[][] {
   if (!members) return [['1', '[Nama]', '-', '[Peran]']];
   const pemeran = members.filter(m => m.role === 'Pemeran');
   if (pemeran.length === 0) return [['1', '[Belum ada pemain terdaftar]', '-', '-']];
-  return pemeran.map((p, i) => [
-    i + 1,
-    p.displayName,
-    p.className || '-',
-    'Pemeran',
-  ]);
+  return pemeran.map((p, i) => [i + 1, p.displayName, p.className || '-', 'Pemeran']);
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTO-BUILD: Jadwal Produksi (dari schedules)
+// AUTO: JADWAL PRODUKSI
 // ═══════════════════════════════════════════════════════
 function buildJadwalProduksi(schedules: ScheduleLite[] | undefined): (string | number)[][] {
   if (!schedules || schedules.length === 0) {
@@ -195,35 +310,24 @@ function buildJadwalProduksi(schedules: ScheduleLite[] | undefined): (string | n
       ['Pementasan', '[Kegiatan]', '[Waktu]', '[Tempat]', '[PIC]'],
     ];
   }
-
-  const sorted = [...schedules].sort((a, b) =>
-    new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
-  );
-
-  return sorted.map(s => {
-    const d = new Date(s.startAt);
-    const dateStr = d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
-    const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-    return [
-      s.type || '-',
-      s.title,
-      `${dateStr}, ${timeStr}`,
-      s.location || '-',
-      s.participants || '-',
-    ];
-  });
+  const sorted = [...schedules].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+  return sorted.map(s => [
+    s.type || '-',
+    s.title,
+    `${fmtDate(s.startAt)}, ${new Date(s.startAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}`,
+    s.location || '-',
+    s.participants || '-',
+  ]);
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTO-BUILD: RAB Section (dari rabItems)
+// AUTO: RAB
 // ═══════════════════════════════════════════════════════
-function groupRAB(items: RABItemLite[]): Array<{ category: string; targetName: string; items: RABItemLite[]; subtotal: number }> {
+function groupRAB(items: RABItemLite[]) {
   const groups: Record<string, { category: string; targetName: string; items: RABItemLite[]; subtotal: number }> = {};
   items.forEach(it => {
     const key = `${it.category}__${it.targetName}`;
-    if (!groups[key]) {
-      groups[key] = { category: it.category, targetName: it.targetName, items: [], subtotal: 0 };
-    }
+    if (!groups[key]) groups[key] = { category: it.category, targetName: it.targetName, items: [], subtotal: 0 };
     groups[key].items.push(it);
     groups[key].subtotal += (Number(it.qty) || 0) * (Number(it.unitPrice) || 0);
   });
@@ -235,7 +339,6 @@ function groupRAB(items: RABItemLite[]): Array<{ category: string; targetName: s
 
 function buildRABDetailBlocks(ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] {
   const items = ctx.rabItems || [];
-
   if (items.length === 0) {
     const blocks: DOCXBlock[] = [
       { type: 'paragraph', text: 'Detail RAB belum tersedia di sistem.' },
@@ -252,7 +355,6 @@ function buildRABDetailBlocks(ctx: TemplateContext, data: Record<string, any>): 
   const grouped = groupRAB(items);
   const grandTotal = grouped.reduce((s, g) => s + g.subtotal, 0);
 
-  // Tabel detail
   const tableRows: (string | number)[][] = [];
   grouped.forEach(g => {
     g.items.forEach(it => {
@@ -269,20 +371,10 @@ function buildRABDetailBlocks(ctx: TemplateContext, data: Record<string, any>): 
 
   const blocks: DOCXBlock[] = [
     { type: 'label', text: 'A. Rincian Anggaran per Kategori' },
-    {
-      type: 'table',
-      headers: ['Kategori', 'Item', 'Qty', 'Harga Satuan', 'Total'],
-      rows: tableRows,
-      widths: [1900, 2860, 900, 1700, 2000],
-    },
+    { type: 'table', headers: ['Kategori', 'Item', 'Qty', 'Harga Satuan', 'Total'], rows: tableRows, widths: [1900, 2860, 900, 1700, 2000] },
     { type: 'spacer' },
     { type: 'label', text: 'B. Subtotal per Kategori' },
-    {
-      type: 'bullets',
-      items: grouped.map(g =>
-        `${g.category} — ${g.targetName}: ${fmtRp(g.subtotal)} (${g.items.length} item)`
-      ),
-    },
+    { type: 'bullets', items: grouped.map(g => `${g.category} — ${g.targetName}: ${fmtRp(g.subtotal)} (${g.items.length} item)`) },
     { type: 'spacer' },
     { type: 'paragraph', text: `GRAND TOTAL RAB: ${fmtRp(grandTotal)}`, bold: true },
   ];
@@ -291,23 +383,246 @@ function buildRABDetailBlocks(ctx: TemplateContext, data: Record<string, any>): 
     blocks.push({ type: 'spacer' });
     blocks.push({ type: 'paragraph', text: `Catatan: ${data.rabCatatan}`, italic: true });
   }
-
   if (data?.rabUploadUrl) {
     blocks.push({ type: 'spacer' });
     blocks.push({ type: 'label', text: 'C. Lampiran RAB Final (telah ditandatangani):' });
-    blocks.push({
-      type: 'paragraph',
-      text: data.rabUploadName
-        ? `${data.rabUploadName} — ${data.rabUploadUrl}`
-        : String(data.rabUploadUrl),
-    });
+    blocks.push({ type: 'paragraph', text: data.rabUploadName ? `${data.rabUploadName} — ${data.rabUploadUrl}` : String(data.rabUploadUrl) });
   }
-
   return blocks;
 }
 
 // ═══════════════════════════════════════════════════════
-// AUTO-BUILD: Estimasi Pemasukan (dari Kas)
+// AUTO: DAFTAR HADIR (dari attendanceRecords)
+// ═══════════════════════════════════════════════════════
+function buildDaftarHadirBlock(ctx: TemplateContext): DOCXBlock[] {
+  const sessions = ctx.attendanceSessions || [];
+  const records = ctx.attendanceRecords || [];
+
+  if (sessions.length === 0 || records.length === 0) {
+    return [
+      { type: 'label', text: 'Daftar Hadir Panitia & Pemain' },
+      { type: 'paragraph', text: 'Belum ada data presensi di sistem. Silakan buka menu Presensi untuk mencatat kehadiran.' },
+      { type: 'spacer' },
+    ];
+  }
+
+  // Group by session
+  const blocks: DOCXBlock[] = [
+    { type: 'label', text: `Rekap Kehadiran (${sessions.length} sesi, ${records.length} entri)` },
+    { type: 'spacer' },
+  ];
+
+  // Ambil 5 sesi terakhir
+  const recentSessions = [...sessions]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
+
+  recentSessions.forEach(sess => {
+    const sessRecs = records.filter(r => r.sessionId === sess.id);
+    if (sessRecs.length === 0) return;
+
+    const hadir = sessRecs.filter(r => r.status === 'Hadir').length;
+    const izin = sessRecs.filter(r => r.status === 'Izin').length;
+    const sakit = sessRecs.filter(r => r.status === 'Sakit').length;
+    const alpa = sessRecs.filter(r => r.status === 'Alpa').length;
+
+    blocks.push({
+      type: 'paragraph',
+      text: `${sess.title} (${fmtDate(sess.date)}, ${sess.activityType}): Hadir ${hadir}, Izin ${izin}, Sakit ${sakit}, Alpa ${alpa} — Total ${sessRecs.length} peserta`,
+    });
+  });
+
+  // Rekap total per siswa
+  blocks.push({ type: 'spacer' });
+  blocks.push({ type: 'label', text: 'Rekap Kehadiran per Siswa' });
+
+  const byStudent: Record<string, { name: string; role: string; hadir: number; izin: number; sakit: number; alpa: number }> = {};
+  records.forEach(r => {
+    if (!byStudent[r.studentId]) {
+      byStudent[r.studentId] = { name: r.studentName, role: r.role, hadir: 0, izin: 0, sakit: 0, alpa: 0 };
+    }
+    if (r.status === 'Hadir') byStudent[r.studentId].hadir++;
+    else if (r.status === 'Izin') byStudent[r.studentId].izin++;
+    else if (r.status === 'Sakit') byStudent[r.studentId].sakit++;
+    else if (r.status === 'Alpa') byStudent[r.studentId].alpa++;
+  });
+
+  const rekapRows = Object.values(byStudent).map((s, i) => {
+    const total = s.hadir + s.izin + s.sakit + s.alpa;
+    const pct = total > 0 ? Math.round((s.hadir / total) * 100) : 0;
+    return [i + 1, s.name, s.role, s.hadir, s.izin, s.sakit, s.alpa, `${pct}%`];
+  });
+
+  if (rekapRows.length > 0) {
+    blocks.push({
+      type: 'table',
+      headers: ['No', 'Nama', 'Peran', 'Hadir', 'Izin', 'Sakit', 'Alpa', '%'],
+      rows: rekapRows,
+      widths: [400, 2400, 1600, 800, 800, 800, 800, 760],
+    });
+  }
+
+  blocks.push({ type: 'spacer' });
+  return blocks;
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTO: BUKTI PENGELUARAN (dari cashEntries)
+// ═══════════════════════════════════════════════════════
+function buildBuktiPengeluaranBlock(ctx: TemplateContext): DOCXBlock[] {
+  const entries = ctx.cashEntries || [];
+  if (entries.length === 0) {
+    return [
+      { type: 'paragraph', text: 'Belum ada entri Buku Kas di sistem. Bukti pengeluaran akan otomatis muncul setelah Bendahara mencatat transaksi di menu Kas & Buku Kas.', italic: true },
+      { type: 'spacer' },
+    ];
+  }
+
+  const sorted = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const rows = sorted.map((e, i) => {
+    const total = (Number(e.qty) || 0) * (Number(e.amount) || 0);
+    return [
+      i + 1,
+      fmtDate(e.date),
+      e.type === 'INCOME' ? 'Masuk' : 'Keluar',
+      e.itemName,
+      `${e.qty} ${e.unit}`,
+      fmtRp(total),
+      e.notes || '-',
+    ];
+  });
+
+  const totalMasuk = entries.filter(e => e.type === 'INCOME').reduce((s, e) => s + (Number(e.qty) || 0) * (Number(e.amount) || 0), 0);
+  const totalKeluar = entries.filter(e => e.type === 'EXPENSE').reduce((s, e) => s + (Number(e.qty) || 0) * (Number(e.amount) || 0), 0);
+  const saldo = totalMasuk - totalKeluar;
+
+  return [
+    { type: 'label', text: `Buku Kas (${entries.length} transaksi tercatat)` },
+    { type: 'spacer' },
+    {
+      type: 'table',
+      headers: ['No', 'Tanggal', 'Jenis', 'Item', 'Qty', 'Nominal', 'Catatan'],
+      rows,
+      widths: [400, 1400, 900, 2400, 1000, 1660, 1600],
+    },
+    { type: 'spacer' },
+    { type: 'bullets', items: [
+      `Total Pemasukan: ${fmtRp(totalMasuk)}`,
+      `Total Pengeluaran: ${fmtRp(totalKeluar)}`,
+      `Saldo: ${fmtRp(saldo)}`,
+    ]},
+    { type: 'spacer' },
+  ];
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTO: INVENTARIS PROPERTI (dari properties)
+// ═══════════════════════════════════════════════════════
+function buildInventarisBlock(ctx: TemplateContext): DOCXBlock[] {
+  const props = ctx.properties || [];
+  if (props.length === 0) {
+    return [
+      { type: 'paragraph', text: 'Belum ada data inventaris properti di sistem. Silakan isi di menu Properti.', italic: true },
+      { type: 'spacer' },
+    ];
+  }
+
+  const rows = props.map((p, i) => [
+    i + 1,
+    p.name,
+    p.scene || '-',
+    p.material || '-',
+    p.status || '-',
+    p.condition || '-',
+    p.pic || '-',
+  ]);
+
+  return [
+    { type: 'label', text: `Daftar Inventaris Properti (${props.length} item)` },
+    { type: 'spacer' },
+    {
+      type: 'table',
+      headers: ['No', 'Nama Properti', 'Adegan', 'Bahan', 'Status', 'Kondisi', 'PIC'],
+      rows,
+      widths: [400, 2000, 1500, 1400, 1200, 1200, 1660],
+    },
+    { type: 'spacer' },
+  ];
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTO: NOTULA RAPAT (dari notulensi)
+// ═══════════════════════════════════════════════════════
+function buildNotulaListBlock(ctx: TemplateContext): DOCXBlock[] {
+  const items = ctx.notulensi || [];
+  if (items.length === 0) {
+    return [
+      { type: 'paragraph', text: 'Belum ada notula rapat tersimpan di sistem.', italic: true },
+      { type: 'spacer' },
+    ];
+  }
+
+  const sorted = [...items].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const rows = sorted.map((n, i) => [
+    i + 1,
+    fmtDate(n.date),
+    n.title,
+    n.location || '-',
+    (n.agenda || '-').slice(0, 80),
+  ]);
+
+  return [
+    { type: 'label', text: `Daftar Notula Rapat (${items.length} rapat)` },
+    { type: 'spacer' },
+    {
+      type: 'table',
+      headers: ['No', 'Tanggal', 'Judul Rapat', 'Lokasi', 'Agenda'],
+      rows,
+      widths: [400, 1400, 2600, 1600, 3360],
+    },
+    { type: 'spacer' },
+  ];
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTO: DOKUMENTASI (dari documents)
+// ═══════════════════════════════════════════════════════
+function buildDokumentasiBlock(ctx: TemplateContext): DOCXBlock[] {
+  const docs = ctx.documents || [];
+  if (docs.length === 0) {
+    return [
+      { type: 'paragraph', text: 'Belum ada dokumen tersimpan di sistem.', italic: true },
+      { type: 'spacer' },
+    ];
+  }
+
+  const byCategory: Record<string, DocumentLite[]> = {};
+  docs.forEach(d => {
+    if (!byCategory[d.category]) byCategory[d.category] = [];
+    byCategory[d.category].push(d);
+  });
+
+  const blocks: DOCXBlock[] = [
+    { type: 'label', text: `Arsip Dokumen (${docs.length} file)` },
+    { type: 'spacer' },
+  ];
+
+  Object.entries(byCategory).forEach(([cat, items]) => {
+    blocks.push({ type: 'subheading', text: `${cat} (${items.length})` });
+    blocks.push({
+      type: 'bullets',
+      items: items.map(d => `${d.title} — ${d.fileUrl}`),
+    });
+  });
+
+  blocks.push({ type: 'spacer' });
+  return blocks;
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTO: ESTIMASI PEMASUKAN (dari kas)
 // ═══════════════════════════════════════════════════════
 function buildPemasukanTable(ctx: TemplateContext): (string | number)[][] {
   const rows: (string | number)[][] = [];
@@ -318,17 +633,24 @@ function buildPemasukanTable(ctx: TemplateContext): (string | number)[][] {
     total += ctx.kas.totalCollected;
   }
 
-  rows.push(['2', 'Iuran Siswa (di luar kas)', '[....]']);
-  rows.push(['3', 'Sponsor / Donatur', '[....]']);
-  rows.push(['4', 'Tiket / Undangan', '[....]']);
-  rows.push(['5', 'Sumber lain', '[....]']);
+  // Pemasukan dari cashEntries type INCOME
+  const incomeEntries = (ctx.cashEntries || []).filter(e => e.type === 'INCOME');
+  incomeEntries.forEach((e, i) => {
+    const amount = (Number(e.qty) || 0) * (Number(e.amount) || 0);
+    rows.push([String(rows.length + 1), `${e.itemName} (${e.targetName})`, fmtRp(amount)]);
+    total += amount;
+  });
+
+  rows.push([String(rows.length + 1), 'Iuran Siswa (di luar kas)', '[....]']);
+  rows.push([String(rows.length + 1), 'Sponsor / Donatur', '[....]']);
+  rows.push([String(rows.length + 1), 'Tiket / Undangan', '[....]']);
   rows.push(['', 'Total Estimasi Pemasukan', total > 0 ? fmtRp(total) + ' + sumber lain' : '[....]']);
 
   return rows;
 }
 
 // ═══════════════════════════════════════════════════════
-// 1. PROPOSAL — FULL AUTO
+// 1. PROPOSAL
 // ═══════════════════════════════════════════════════════
 const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
   const judulPementasan = data?.judulPementasan || ctx.production?.title || ctx.kerabatKerja || '[JUDUL PEMENTASAN]';
@@ -339,35 +661,19 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
   const tglSah = v(data, 'tanggalPengesahan', todayLongID());
 
   const susunanPanitia = buildSusunanPanitia(ctx.members, ctx.teacherName);
-
-  // Konsep artistik dari input user (list "Aspek | Deskripsi")
   const konsepArtistikRows = vTable(data, 'konsepArtistik', 2, [
-    ['Tata Panggung', '[....]'],
-    ['Tata Cahaya', '[....]'],
-    ['Tata Suara', '[....]'],
-    ['Musik Pengiring', '[....]'],
-    ['Kostum', '[....]'],
-    ['Rias', '[....]'],
-    ['Properti', '[....]'],
-    ['Tari/Gerak', '[....]'],
-    ['Bahasa/Dialek', '[....]'],
+    ['Tata Panggung', '[....]'], ['Tata Cahaya', '[....]'], ['Tata Suara', '[....]'],
+    ['Musik Pengiring', '[....]'], ['Kostum', '[....]'], ['Rias', '[....]'],
+    ['Properti', '[....]'], ['Tari/Gerak', '[....]'], ['Bahasa/Dialek', '[....]'],
   ]);
-
-  // Jadwal produksi
   const jadwalRows = buildJadwalProduksi(ctx.schedules);
-
-  // RAB
   const rabBlocks = buildRABDetailBlocks(ctx, data);
-
-  // Pemasukan
   const pemasukanRows = buildPemasukanTable(ctx);
-
-  // Total pengeluaran dari RAB
   const grouped = groupRAB(ctx.rabItems || []);
   const grandTotalRAB = grouped.reduce((s, g) => s + g.subtotal, 0);
 
   return [
-    // ═══ COVER ═══
+    // COVER
     { type: 'title', text: 'PROPOSAL PRODUKSI TEATER TRADISIONAL' },
     { type: 'subtitle', text: `"${judulPementasan}"`, italic: true },
     { type: 'spacer', count: 2 },
@@ -379,38 +685,32 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'paragraph', text: `Jenis Teater: ${jenisTeater}`, align: 'center', italic: true },
     { type: 'pagebreak' },
 
-    // ═══ LEMBAR PENGESAHAN ═══
+    // PENGESAHAN
     { type: 'title', text: 'LEMBAR PENGESAHAN' },
     { type: 'spacer' },
     { type: 'paragraph', text: `Proposal kegiatan produksi teater tradisional dengan judul "${judulPementasan}" telah disetujui dan disahkan untuk dilaksanakan oleh Tim Produksi Kelas ${ctx.className} ${ctx.schoolName} pada Tahun Pelajaran ${ctx.academicYear}.`, align: 'justify' },
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: `Samarinda, ${tglSah}`, align: 'right' },
     { type: 'spacer' },
-    {
-      type: 'signature',
-      signatures: [
-        { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
-        { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
-      ],
-    },
+    { type: 'signature', signatures: [
+      { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
+      { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
+    ]},
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: 'Mengetahui / Menyetujui:', align: 'center' },
     { type: 'spacer' },
-    {
-      type: 'signature',
-      signatures: [
-        { place: '', date: '', label: `Wali Kelas ${ctx.className},`, name: waliKelas },
-        { place: '', date: '', label: 'Guru Mata Pelajaran Seni Budaya,', name: ctx.teacherName },
-      ],
-    },
+    { type: 'signature', signatures: [
+      { place: '', date: '', label: `Wali Kelas ${ctx.className},`, name: waliKelas },
+      { place: '', date: '', label: 'Guru Mata Pelajaran Seni Budaya,', name: ctx.teacherName },
+    ]},
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: 'Menyetujui,', align: 'center' },
     { type: 'paragraph', text: 'Kepala SMP Negeri 10 Samarinda', align: 'center' },
     { type: 'spacer', count: 3 },
-    { type: 'paragraph', text: kepalaSekolah, align: 'center', bold: true, italic: false },
+    { type: 'paragraph', text: kepalaSekolah, align: 'center', bold: true },
     { type: 'pagebreak' },
 
-    // ═══ KATA PENGANTAR ═══
+    // KATA PENGANTAR
     { type: 'title', text: 'KATA PENGANTAR' },
     { type: 'paragraph', text: v(data, 'kataPengantar'), align: 'justify' },
     { type: 'spacer' },
@@ -418,7 +718,7 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'paragraph', text: 'Tim Produksi', align: 'right' },
     { type: 'pagebreak' },
 
-    // ═══ BAB I — PENDAHULUAN ═══
+    // BAB I
     { type: 'heading', text: 'BAB I — PENDAHULUAN' },
     { type: 'subheading', text: '1.1  Latar Belakang' },
     { type: 'paragraph', text: v(data, 'latarBelakang'), align: 'justify' },
@@ -440,7 +740,7 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'paragraph', text: v(data, 'ruangLingkup', 'Kegiatan mencakup tahap praproduksi, produksi, pementasan, dan pascaproduksi.'), align: 'justify' },
     { type: 'pagebreak' },
 
-    // ═══ BAB II — DESKRIPSI PRODUKSI ═══
+    // BAB II
     { type: 'heading', text: 'BAB II — DESKRIPSI PRODUKSI' },
     { type: 'subheading', text: '2.1  Nama Kegiatan' },
     { type: 'paragraph', text: `Pementasan Teater Tradisional Kelas ${ctx.className} — "${judulPementasan}"` },
@@ -458,12 +758,8 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'paragraph', text: sinopsis, align: 'justify' },
     { type: 'spacer' },
     { type: 'subheading', text: '2.6  Tokoh dan Penokohan' },
-    { type: 'paragraph', text: 'Daftar pemain diambil otomatis dari data kelas:' },
-    {
-      type: 'table',
-      headers: ['No', 'Nama', 'Kelas', 'Peran'],
-      rows: buildDaftarPemain(ctx.members),
-    },
+    { type: 'paragraph', text: 'Daftar pemain diambil otomatis dari data kelas:', italic: true },
+    { type: 'table', headers: ['No', 'Nama', 'Kelas', 'Peran'], rows: buildDaftarPemain(ctx.members) },
     { type: 'spacer' },
     { type: 'subheading', text: '2.7  Struktur Dramatik' },
     { type: 'paragraph', text: v(data, 'strukturDramatik', '[Eksposisi, konflik, klimaks, antiklimaks, resolusi]'), align: 'justify' },
@@ -484,43 +780,26 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     { type: 'spacer' },
     { type: 'subheading', text: '2.11  Susunan Panitia' },
     { type: 'paragraph', text: 'Disusun otomatis dari struktur kepanitiaan yang terdaftar di sistem:', italic: true },
-    {
-      type: 'table',
-      headers: ['No', 'Jabatan', 'Nama', 'Tugas'],
-      rows: susunanPanitia,
-      widths: [500, 2400, 2500, 3960],
-    },
+    { type: 'table', headers: ['No', 'Jabatan', 'Nama', 'Tugas'], rows: susunanPanitia, widths: [500, 2400, 2500, 3960] },
     { type: 'spacer' },
     { type: 'subheading', text: '2.12  Jadwal Produksi' },
     { type: 'paragraph', text: 'Diambil otomatis dari menu Jadwal & Agenda:', italic: true },
-    {
-      type: 'table',
-      headers: ['Tahap/Jenis', 'Kegiatan', 'Waktu', 'Tempat', 'PIC/Peserta'],
-      rows: jadwalRows,
-      widths: [1300, 2500, 2200, 1800, 1560],
-    },
+    { type: 'table', headers: ['Tahap/Jenis', 'Kegiatan', 'Waktu', 'Tempat', 'PIC/Peserta'], rows: jadwalRows, widths: [1300, 2500, 2200, 1800, 1560] },
     { type: 'spacer' },
     { type: 'subheading', text: '2.13  Tempat dan Waktu Pelaksanaan' },
     { type: 'table', headers: ['Keterangan', 'Detail'], rows: [
       ['Tempat', ctx.schedules?.find(s => s.type === 'Pementasan')?.location || '[Tempat pementasan]'],
-      ['Hari/Tanggal', ctx.production?.performanceDate
-        ? new Date(ctx.production.performanceDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-        : '[Hari, tanggal]'],
-      ['Waktu', ctx.schedules?.find(s => s.type === 'Pementasan')
-        ? `${new Date(ctx.schedules.find(s => s.type === 'Pementasan')!.startAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA`
-        : '[Waktu]'],
+      ['Hari/Tanggal', ctx.production?.performanceDate ? fmtDate(ctx.production.performanceDate) : '[Hari, tanggal]'],
+      ['Waktu', ctx.schedules?.find(s => s.type === 'Pementasan') ? new Date(ctx.schedules.find(s => s.type === 'Pementasan')!.startAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA' : '[Waktu]'],
       ['Sasaran Penonton', v(data, 'sasaranPenonton', '[Sasaran penonton]')],
     ]},
     { type: 'pagebreak' },
 
-    // ═══ BAB III — RAB ═══
+    // BAB III
     { type: 'heading', text: 'BAB III — RENCANA ANGGARAN' },
     { type: 'subheading', text: '3.1  Estimasi Pemasukan' },
-    {
-      type: 'table',
-      headers: ['No', 'Sumber Dana', 'Jumlah'],
-      rows: pemasukanRows,
-    },
+    { type: 'paragraph', text: 'Diambil otomatis dari Kas Produksi & Buku Kas:', italic: true },
+    { type: 'table', headers: ['No', 'Sumber Dana', 'Jumlah'], rows: pemasukanRows },
     { type: 'spacer' },
     { type: 'subheading', text: '3.2  Estimasi Pengeluaran' },
     ...rabBlocks,
@@ -533,21 +812,18 @@ const buildProposal = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
     ]},
     { type: 'pagebreak' },
 
-    // ═══ BAB IV — PENUTUP ═══
+    // BAB IV
     { type: 'heading', text: 'BAB IV — PENUTUP' },
     { type: 'paragraph', text: v(data, 'penutup'), align: 'justify' },
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: `Samarinda, ${tglSah}`, align: 'right' },
-    {
-      type: 'signature',
-      signatures: [
-        { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
-        { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
-      ],
-    },
+    { type: 'signature', signatures: [
+      { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
+      { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
+    ]},
     { type: 'pagebreak' },
 
-    // ═══ LAMPIRAN ═══
+    // LAMPIRAN
     { type: 'heading', text: 'LAMPIRAN PROPOSAL' },
     { type: 'numbered', items: [
       'Susunan acara', 'Naskah / skenario', 'Desain panggung',
@@ -597,7 +873,6 @@ const buildSuratIzin = (ctx: TemplateContext, data: Record<string, any>): DOCXBl
 // ═══════════════════════════════════════════════════════
 const buildSuratPermohonan = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
   const bantuanRows = vTable(data, 'jenisBantuan', 3, [['[Jenis bantuan]', '[Jumlah]', '[Keterangan]']]);
-
   return [
     { type: 'paragraph', text: `Samarinda, ${todayLongID()}`, align: 'right' },
     { type: 'spacer' },
@@ -639,63 +914,36 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
   const daftarPemain = buildDaftarPemain(ctx.members);
   const jadwalRows = buildJadwalProduksi(ctx.schedules);
 
-  // Kendala & solusi dari input
   const kendalaRows = vTable(data, 'kendalaSolusi', 2, [
-    ['[Kendala 1]', '[Solusi 1]'],
-    ['[Kendala 2]', '[Solusi 2]'],
+    ['[Kendala 1]', '[Solusi 1]'], ['[Kendala 2]', '[Solusi 2]'],
   ]);
 
-  // Pementasan date & place
   const pementasanSched = ctx.schedules?.find(s => s.type === 'Pementasan');
   const hariTanggal = ctx.production?.performanceDate
-    ? new Date(ctx.production.performanceDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-    : pementasanSched
-    ? new Date(pementasanSched.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-    : '[Hari, tanggal]';
+    ? fmtDate(ctx.production.performanceDate)
+    : pementasanSched ? fmtDate(pementasanSched.startAt) : '[Hari, tanggal]';
   const waktu = pementasanSched
     ? `${new Date(pementasanSched.startAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} – ${new Date(pementasanSched.endAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA`
     : '[Waktu]';
   const tempat = pementasanSched?.location || '[Tempat]';
 
-  // Keuangan
-  const manualPemasukan = parseTable(data?.realisasiPemasukan, 3);
+  // AUTO PEMASUKAN & PENGELUARAN
+  const pemasukanRows = buildPemasukanTable(ctx);
   const manualPengeluaran = parseTable(data?.realisasiPengeluaran, 3);
-
-  // Pemasukan: manual atau auto dari kas
-  const pemasukanRows: (string | number)[][] = manualPemasukan.length > 0
-    ? manualPemasukan.map((r, i) => {
-        const renc = Number(r[1]) || 0;
-        const real = Number(r[2]) || 0;
-        return [i + 1, r[0], fmtRp(renc), fmtRp(real), fmtRp(real - renc)];
-      })
-    : [
-        ['1', `Kas Kelas — ${ctx.kas?.title || 'Kas Produksi'}`, fmtRp(0), fmtRp(ctx.kas?.totalCollected || 0), fmtRp(ctx.kas?.totalCollected || 0)],
-        ['2', 'Iuran Siswa', '[....]', '[....]', '[....]'],
-        ['3', 'Sponsor / Donatur', '[....]', '[....]', '[....]'],
-        ['4', 'Tiket / Undangan', '[....]', '[....]', '[....]'],
-      ];
-
-  // Pengeluaran: manual atau auto dari RAB
   const rabGrouped = groupRAB(ctx.rabItems || []);
+
   const pengeluaranRows: (string | number)[][] = manualPengeluaran.length > 0
     ? manualPengeluaran.map((r, i) => {
         const renc = Number(r[1]) || 0;
         const real = Number(r[2]) || 0;
         return [i + 1, r[0], fmtRp(renc), fmtRp(real), fmtRp(real - renc), ''];
       })
-    : rabGrouped.map((g, i) => [
-        i + 1,
-        `${g.category} — ${g.targetName}`,
-        fmtRp(g.subtotal),
-        '-',
-        '-',
-        '',
-      ]);
+    : rabGrouped.map((g, i) => [i + 1, `${g.category} — ${g.targetName}`, fmtRp(g.subtotal), '-', '-', '']);
 
   const totalPengeluaranRencana = rabGrouped.reduce((s, g) => s + g.subtotal, 0);
 
   return [
-    // ═══ COVER ═══
+    // COVER
     { type: 'title', text: 'LAPORAN PERTANGGUNGJAWABAN (LPJ)' },
     { type: 'subtitle', text: 'PRODUKSI TEATER TRADISIONAL' },
     { type: 'subtitle', text: `"${judulPementasan}"`, italic: true },
@@ -707,30 +955,24 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: `Tahun Pelajaran ${ctx.academicYear}`, align: 'center' },
     { type: 'pagebreak' },
 
-    // ═══ LEMBAR PENGESAHAN ═══
+    // PENGESAHAN
     { type: 'title', text: 'LEMBAR PENGESAHAN' },
     { type: 'spacer' },
     { type: 'paragraph', text: `Laporan Pertanggungjawaban kegiatan produksi teater tradisional dengan judul "${judulPementasan}" telah diterima dan disahkan oleh Tim Produksi Kelas ${ctx.className} ${ctx.schoolName} pada Tahun Pelajaran ${ctx.academicYear}.`, align: 'justify' },
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: `Samarinda, ${tglSah}`, align: 'right' },
     { type: 'spacer' },
-    {
-      type: 'signature',
-      signatures: [
-        { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
-        { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
-      ],
-    },
+    { type: 'signature', signatures: [
+      { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
+      { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
+    ]},
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: 'Mengetahui / Menyetujui:', align: 'center' },
     { type: 'spacer' },
-    {
-      type: 'signature',
-      signatures: [
-        { place: '', date: '', label: `Wali Kelas ${ctx.className},`, name: waliKelas },
-        { place: '', date: '', label: 'Guru Mata Pelajaran Seni Budaya,', name: ctx.teacherName },
-      ],
-    },
+    { type: 'signature', signatures: [
+      { place: '', date: '', label: `Wali Kelas ${ctx.className},`, name: waliKelas },
+      { place: '', date: '', label: 'Guru Mata Pelajaran Seni Budaya,', name: ctx.teacherName },
+    ]},
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: 'Menyetujui,', align: 'center' },
     { type: 'paragraph', text: 'Kepala SMP Negeri 10 Samarinda', align: 'center' },
@@ -738,7 +980,7 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: kepalaSekolah, align: 'center', bold: true },
     { type: 'pagebreak' },
 
-    // ═══ KATA PENGANTAR ═══
+    // KATA PENGANTAR
     { type: 'title', text: 'KATA PENGANTAR' },
     { type: 'paragraph', text: v(data, 'kataPengantar'), align: 'justify' },
     { type: 'spacer' },
@@ -746,7 +988,7 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: 'Tim Produksi', align: 'right' },
     { type: 'pagebreak' },
 
-    // ═══ BAB I — PENDAHULUAN ═══
+    // BAB I
     { type: 'heading', text: 'BAB I — PENDAHULUAN' },
     { type: 'subheading', text: '1.1  Latar Belakang' },
     { type: 'paragraph', text: v(data, 'latarBelakang'), align: 'justify' },
@@ -761,7 +1003,7 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: v(data, 'ruangLingkup', 'Laporan mencakup tahap praproduksi, latihan, gladi resik, pementasan, dan evaluasi.'), align: 'justify' },
     { type: 'pagebreak' },
 
-    // ═══ BAB II — PELAKSANAAN ═══
+    // BAB II
     { type: 'heading', text: 'BAB II — PELAKSANAAN KEGIATAN' },
     { type: 'subheading', text: '2.1  Nama Kegiatan' },
     { type: 'paragraph', text: `Pementasan Teater Tradisional Kelas ${ctx.className} — "${judulPementasan}"` },
@@ -777,22 +1019,16 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: jenisTeater },
     { type: 'spacer' },
     { type: 'subheading', text: '2.4  Susunan Panitia' },
-    {
-      type: 'table',
-      headers: ['No', 'Jabatan', 'Nama', 'Tugas'],
-      rows: susunanPanitia,
-      widths: [500, 2400, 2500, 3960],
-    },
+    { type: 'paragraph', text: 'Diambil otomatis dari struktur kepanitiaan yang terdaftar:', italic: true },
+    { type: 'table', headers: ['No', 'Jabatan', 'Nama', 'Tugas'], rows: susunanPanitia, widths: [500, 2400, 2500, 3960] },
     { type: 'spacer' },
     { type: 'subheading', text: '2.5  Peserta' },
-    {
-      type: 'table',
-      headers: ['No', 'Nama', 'Kelas', 'Peran'],
-      rows: daftarPemain,
-    },
+    { type: 'paragraph', text: 'Diambil otomatis dari data kelas:', italic: true },
+    { type: 'table', headers: ['No', 'Nama', 'Kelas', 'Peran'], rows: daftarPemain },
     { type: 'spacer' },
     { type: 'subheading', text: '2.6  Tahapan Pelaksanaan' },
-    { type: 'table', headers: ['Tahap', 'Kegiatan', 'Waktu', 'Tempat'], rows: jadwalRows.slice(0, 4).map(r => [r[0], r[1], r[2], r[3]]) },
+    { type: 'paragraph', text: 'Diambil otomatis dari Jadwal & Agenda:', italic: true },
+    { type: 'table', headers: ['Tahap/Jenis', 'Kegiatan', 'Waktu', 'Tempat', 'PIC'], rows: jadwalRows, widths: [1300, 2500, 2200, 1800, 1560] },
     { type: 'spacer' },
     { type: 'subheading', text: '2.7  Hasil Pementasan' },
     { type: 'paragraph', text: v(data, 'hasilPementasan'), align: 'justify' },
@@ -801,13 +1037,15 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'table', headers: ['No', 'Kendala', 'Solusi'], rows: kendalaRows.map((r, i) => [i + 1, r[0], r[1]]) },
     { type: 'pagebreak' },
 
-    // ═══ BAB III — REALISASI ANGGARAN ═══
+    // BAB III
     { type: 'heading', text: 'BAB III — REALISASI ANGGARAN' },
     { type: 'subheading', text: '3.1  Pemasukan' },
-    { type: 'table', headers: ['No', 'Sumber Dana', 'Rencana', 'Realisasi', 'Selisih'], rows: pemasukanRows },
+    { type: 'paragraph', text: 'Diambil otomatis dari Kas Produksi & Buku Kas:', italic: true },
+    { type: 'table', headers: ['No', 'Sumber Dana', 'Jumlah'], rows: pemasukanRows },
     { type: 'spacer' },
     { type: 'subheading', text: '3.2  Pengeluaran' },
-    { type: 'table', headers: ['No', 'Kebutuhan', 'Rencana', 'Realisasi', 'Selisih', 'Keterangan'], rows: pengeluaranRows },
+    { type: 'paragraph', text: 'Diambil otomatis dari RAB Digital:', italic: true },
+    { type: 'table', headers: ['No', 'Kebutuhan', 'Rencana', 'Realisasi', 'Selisih', 'Ket.'], rows: pengeluaranRows },
     { type: 'spacer' },
     { type: 'subheading', text: '3.3  Rekapitulasi' },
     { type: 'table', headers: ['Uraian', 'Jumlah'], rows: [
@@ -816,23 +1054,20 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
       ['Saldo Rencana', fmtRp((ctx.kas?.totalCollected || 0) - totalPengeluaranRencana)],
     ]},
     { type: 'spacer' },
+
+    // 3.4 BUKTI PENGELUARAN (AUTO)
     { type: 'subheading', text: '3.4  Bukti Pengeluaran' },
-    { type: 'paragraph', text: 'Lampirkan bukti pengeluaran pada bagian lampiran LPJ.', italic: true },
+    ...buildBuktiPengeluaranBlock(ctx),
     ...(data?.rabUploadUrl
       ? [
-          { type: 'spacer' as const },
           { type: 'label' as const, text: 'Lampiran RAB Final (telah ditandatangani):' },
-          {
-            type: 'paragraph' as const,
-            text: data.rabUploadName
-              ? `${data.rabUploadName} — ${data.rabUploadUrl}`
-              : String(data.rabUploadUrl),
-          },
+          { type: 'paragraph' as const, text: data.rabUploadName ? `${data.rabUploadName} — ${data.rabUploadUrl}` : String(data.rabUploadUrl) },
+          { type: 'spacer' as const },
         ]
       : []),
     { type: 'pagebreak' },
 
-    // ═══ BAB IV — EVALUASI & REFLEKSI ═══
+    // BAB IV
     { type: 'heading', text: 'BAB IV — EVALUASI DAN REFLEKSI' },
     { type: 'subheading', text: '4.1  Evaluasi Ketercapaian' },
     { type: 'paragraph', text: v(data, 'evaluasiKetercapaian'), align: 'justify' },
@@ -844,42 +1079,69 @@ const buildLPJ = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] 
     { type: 'paragraph', text: v(data, 'rekomendasi', '[Rekomendasi untuk kegiatan berikutnya]'), align: 'justify' },
     { type: 'pagebreak' },
 
-    // ═══ BAB V — PENUTUP ═══
+    // BAB V
     { type: 'heading', text: 'BAB V — PENUTUP' },
     { type: 'paragraph', text: v(data, 'penutup'), align: 'justify' },
     { type: 'spacer', count: 2 },
     { type: 'paragraph', text: `Samarinda, ${tglSah}`, align: 'right' },
-    {
-      type: 'signature',
-      signatures: [
-        { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
-        { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
-      ],
-    },
+    { type: 'signature', signatures: [
+      { place: '', date: '', label: 'Ketua Panitia,', name: findMemberByRole(ctx.members, 'Pimpinan Produksi') },
+      { place: '', date: '', label: 'Sekretaris,', name: findMemberByRole(ctx.members, 'Sekretaris') },
+    ]},
     { type: 'pagebreak' },
 
-    // ═══ LAMPIRAN ═══
+    // LAMPIRAN (AUTO-GENERATED DENGAN DATA)
     { type: 'heading', text: 'LAMPIRAN LPJ' },
-    { type: 'numbered', items: vList(data, 'lampiran', [
-      'Daftar hadir panitia', 'Daftar hadir pemain', 'Daftar hadir latihan',
-      'Notula rapat', 'Jadwal kegiatan', 'Dokumentasi pementasan',
-      'Bukti pengeluaran', 'Surat menyurat', 'Lembar penilaian',
-      'Daftar inventaris', 'Susunan acara', 'Naskah / skenario',
-      'Desain artistik', 'Form evaluasi', 'Lain-lain',
-    ]) },
+    { type: 'spacer' },
+
+    // Lampiran 1: Daftar Hadir (AUTO)
+    { type: 'subheading', text: 'Lampiran 1: Daftar Hadir Panitia & Pemain' },
+    ...buildDaftarHadirBlock(ctx),
+    { type: 'spacer' },
+
+    // Lampiran 2: Notula Rapat (AUTO)
+    { type: 'subheading', text: 'Lampiran 2: Daftar Notula Rapat' },
+    ...buildNotulaListBlock(ctx),
+    { type: 'spacer' },
+
+    // Lampiran 3: Bukti Pengeluaran (AUTO)
+    { type: 'subheading', text: 'Lampiran 3: Bukti Pengeluaran' },
+    ...buildBuktiPengeluaranBlock(ctx),
+    { type: 'spacer' },
+
+    // Lampiran 4: Inventaris (AUTO)
+    { type: 'subheading', text: 'Lampiran 4: Daftar Inventaris' },
+    ...buildInventarisBlock(ctx),
+    { type: 'spacer' },
+
+    // Lampiran 5: Dokumentasi (AUTO)
+    { type: 'subheading', text: 'Lampiran 5: Dokumentasi & Arsip' },
+    ...buildDokumentasiBlock(ctx),
   ];
 };
 
 // ═══════════════════════════════════════════════════════
-// 5-10. Template lain (tidak berubah)
+// 5. SKETSA PANGGUNG — denah auto dari promptBooks
 // ═══════════════════════════════════════════════════════
 const buildSketsaPanggung = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const zonaRows = vTable(data, 'denahZona', 2, [
+  // Coba auto dari promptBooks gridPositions
+  const pb = (ctx.promptBooks || [])[0];
+  const autoDenah = pb?.gridPositions
+    ? Object.entries(pb.gridPositions).map(([actorId, zone]) => {
+        const m = ctx.members?.find(x => x.uid === actorId);
+        return [String(zone), m?.displayName || actorId];
+      })
+    : null;
+
+  const zonaRows = vTable(data, 'denahZona', 2, autoDenah || [
     ['UL', '[Upstage Left]'], ['UC', '[Upstage Center]'], ['UR', '[Upstage Right]'],
     ['CL', '[Center Left]'], ['C', '[Center]'], ['CR', '[Center Right]'],
     ['DL', '[Downstage Left]'], ['DC', '[Downstage Center]'], ['DR', '[Downstage Right]'],
   ]);
-  const cueRows = vTable(data, 'cueLampu', 4, [['CUE-01', '[posisi]', '[warna]', '[adegan]']]);
+
+  // Cue lampu dari promptBooks cues
+  const autoCues = pb?.cues?.map(c => [c.code || '-', c.action || '-', c.soundLight || '-', c.timing || '-']) || null;
+  const cueRows = vTable(data, 'cueLampu', 4, autoCues || [['CUE-01', '[posisi]', '[warna]', '[adegan]']]);
 
   return [
     { type: 'title', text: 'SKETSA & DENAH PANGGUNG' },
@@ -889,13 +1151,15 @@ const buildSketsaPanggung = (ctx: TemplateContext, data: Record<string, any>): D
     { type: 'paragraph', text: v(data, 'konsep') },
     { type: 'spacer' },
     { type: 'heading', text: 'B. DENAH 9 ZONA PANGGUNG' },
-    { type: 'table', headers: ['Kode', 'Deskripsi Penggunaan'], rows: zonaRows },
+    { type: 'paragraph', text: autoDenah ? 'Diambil otomatis dari Prompt Book di Studio:' : 'Isi manual (belum ada Prompt Book di sistem):', italic: true },
+    { type: 'table', headers: ['Kode', 'Aktor / Penggunaan'], rows: zonaRows },
     { type: 'spacer' },
     { type: 'heading', text: 'C. SKETSA VISUAL PANGGUNG' },
     { type: 'paragraph', text: 'Lampirkan gambar sketsa panggung pada link berikut:' },
     { type: 'paragraph', text: v(data, 'sketsaLink', 'Link sketsa: _________________________') },
     { type: 'spacer' },
     { type: 'heading', text: 'D. TATA CAHAYA' },
+    { type: 'paragraph', text: autoCues ? 'Diambil otomatis dari Prompt Book:' : 'Isi manual:', italic: true },
     { type: 'table', headers: ['Cue', 'Posisi', 'Warna', 'Adegan'], rows: cueRows },
     { type: 'spacer' },
     { type: 'heading', text: 'E. URUTAN PEMASANGAN & PEMBONGKARAN' },
@@ -908,9 +1172,37 @@ const buildSketsaPanggung = (ctx: TemplateContext, data: Record<string, any>): D
   ];
 };
 
+// ═══════════════════════════════════════════════════════
+// 6. PROMPT BOOK — auto dari promptBooks + musicCues + users
+// ═══════════════════════════════════════════════════════
 const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const adeganRows = vTable(data, 'daftarAdegan', 5, [['1', '[Adegan]', '[Durasi]', '[Pemain]', '[Zona]']]);
-  const cueRows = vTable(data, 'cueList', 5, [['CUE-01', '[trigger]', '[aksi]', '[audio]', '[lampu]']]);
+  const promptBooks = ctx.promptBooks || [];
+  const musicCues = ctx.musicCues || [];
+
+  // Daftar adegan dari promptBooks
+  const autoAdegan = promptBooks.map((pb, i) => [
+    String(i + 1),
+    pb.scene,
+    '-',
+    '-',
+    pb.gridPositions ? Object.keys(pb.gridPositions).length + ' aktor' : '-',
+  ]);
+
+  const adeganRows = vTable(data, 'daftarAdegan', 5, autoAdegan.length > 0 ? autoAdegan : [['1', '[Adegan]', '[Durasi]', '[Pemain]', '[Zona]']]);
+
+  // Cue list dari promptBooks cues
+  const autoCues: (string | number)[][] = [];
+  promptBooks.forEach(pb => {
+    (pb.cues || []).forEach(c => {
+      autoCues.push([c.code || '-', pb.scene, c.action || '-', c.soundLight || '-', c.timing || '-']);
+    });
+  });
+  // Tambah dari musicCues
+  musicCues.forEach(m => {
+    autoCues.push([m.cueType || '-', m.scene || '-', m.title, m.audioUrl || '-', m.duration || '-']);
+  });
+
+  const cueRows = vTable(data, 'cueList', 5, autoCues.length > 0 ? autoCues : [['CUE-01', '[trigger]', '[aksi]', '[audio]', '[lampu]']]);
 
   return [
     { type: 'title', text: 'PROMPT BOOK — BUKU SUTRADARA' },
@@ -919,18 +1211,20 @@ const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXB
     { type: 'heading', text: 'A. IDENTITAS' },
     { type: 'table', headers: ['Keterangan', 'Detail'], rows: [
       ['Produksi', ctx.kerabatKerja || '[Nama Produksi]'],
-      ['Sutradara', data?.sutradara || findMemberByRole(ctx.members, 'Sutradara')],
-      ['Asisten Sutradara', data?.asisten || findMemberByRole(ctx.members, 'Asisten Sutradara')],
-      ['Stage Manager', data?.stageManager || '-'],
-      ['Tanggal Mulai', v(data, 'tanggalMulai')],
+      ['Sutradara', findMemberByRole(ctx.members, 'Sutradara')],
+      ['Asisten Sutradara', findMemberByRole(ctx.members, 'Asisten Sutradara')],
+      ['Stage Manager', v(data, 'stageManager', '-')],
+      ['Tanggal Mulai', v(data, 'tanggalMulai', '-')],
       ['Durasi Target', '30 menit'],
     ]},
     { type: 'spacer' },
     { type: 'heading', text: 'B. DAFTAR ADEGAN' },
+    { type: 'paragraph', text: autoAdegan.length > 0 ? 'Diambil otomatis dari Prompt Book di Studio:' : 'Isi manual:', italic: true },
     { type: 'table', headers: ['No', 'Adegan', 'Durasi', 'Pemain', 'Zona'], rows: adeganRows },
     { type: 'spacer' },
     { type: 'heading', text: 'C. CUE SHEET — AUDIO & LIGHTING' },
-    { type: 'table', headers: ['Cue', 'Trigger', 'Aksi', 'Audio', 'Lampu'], rows: cueRows },
+    { type: 'paragraph', text: autoCues.length > 0 ? `Diambil otomatis dari Prompt Book & Cue Sheet Musik (${autoCues.length} cue):` : 'Isi manual:', italic: true },
+    { type: 'table', headers: ['Cue', 'Trigger/Scene', 'Aksi', 'Audio', 'Timing'], rows: cueRows },
     { type: 'spacer' },
     { type: 'heading', text: 'D. CATATAN BLOCKING PENTING' },
     { type: 'paragraph', text: v(data, 'catatanBlocking') },
@@ -945,18 +1239,46 @@ const buildPromptBook = (ctx: TemplateContext, data: Record<string, any>): DOCXB
   ];
 };
 
+// ═══════════════════════════════════════════════════════
+// 7. CUE SHEET — auto dari musicCues
+// ═══════════════════════════════════════════════════════
 const buildCueSheet = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const cueRows = vTable(data, 'cueList', 7, [['CUE-01', '[adegan]', '[track]', '[in/out]', '[durasi]', '[volume]', '[link]']]);
-  const opRows = vTable(data, 'operatorList', 2, [['Sound Engineer', '[Nama]']]);
+  const musicCues = ctx.musicCues || [];
+
+  // Auto cue list dari musicCues
+  const autoCueRows = musicCues.map((m, i) => [
+    `CUE-${String(i + 1).padStart(2, '0')}`,
+    m.scene || '-',
+    m.title,
+    m.cueType || '-',
+    m.duration || '-',
+    m.volume ? `${m.volume}%` : '-',
+    m.audioUrl || '-',
+  ]);
+
+  const cueRows = vTable(data, 'cueList', 7, autoCueRows.length > 0 ? autoCueRows : [['CUE-01', '[adegan]', '[track]', '[in/out]', '[durasi]', '[volume]', '[link]']]);
+
+  // Auto operator dari members
+  const autoOperators: (string | number)[][] = [];
+  const koordMusik = findMemberByRole(ctx.members, 'Koordinator Tata Musik');
+  if (koordMusik !== '...........................') autoOperators.push(['Sound Engineer', koordMusik]);
+  const anggotaMusik = (ctx.members || []).filter(m => m.role === 'Anggota Tata Musik');
+  anggotaMusik.slice(0, 2).forEach((m, i) => {
+    autoOperators.push([i === 0 ? 'Mixer Operator' : 'Backup Operator', m.displayName]);
+  });
+
+  const opRows = vTable(data, 'operatorList', 2, autoOperators.length > 0 ? autoOperators : [['Sound Engineer', '[Nama]']]);
 
   return [
     { type: 'title', text: 'CUE SHEET — TATA MUSIK & SUARA' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
     { type: 'heading', text: 'A. DAFTAR CUE' },
+    { type: 'paragraph', text: autoCueRows.length > 0 ? `Diambil otomatis dari menu Cue Sheet (${musicCues.length} cue):` : 'Isi manual (belum ada cue di sistem):', italic: true },
     { type: 'table', headers: ['Cue', 'Adegan', 'Track', 'In/Out', 'Durasi', 'Volume', 'Link'], rows: cueRows, widths: [900, 1400, 1500, 1100, 1000, 1000, 2460] },
     { type: 'spacer' },
     { type: 'heading', text: 'B. OPERATOR' },
+    { type: 'paragraph', text: 'Diambil otomatis dari struktur divisi Tata Musik:', italic: true },
     { type: 'table', headers: ['Posisi', 'Nama'], rows: opRows },
     { type: 'spacer' },
     { type: 'heading', text: 'C. CHECKLIST SOUND CHECK' },
@@ -969,12 +1291,30 @@ const buildCueSheet = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
   ];
 };
 
+// ═══════════════════════════════════════════════════════
+// 8. PROPERTI — auto dari properties collection
+// ═══════════════════════════════════════════════════════
 const buildProperti = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
-  const rows = vTable(data, 'propertiList', 7, [['1', '[adegan]', '[nama]', '[bahan]', '1', 'BELUM', '[PIC]']]);
+  const properties = ctx.properties || [];
+
+  const autoRows = properties.map((p, i) => [
+    String(i + 1),
+    p.scene || '-',
+    p.name,
+    p.material || '-',
+    '1',
+    p.status || 'BELUM',
+    p.pic || '-',
+  ]);
+
+  const rows = vTable(data, 'propertiList', 7, autoRows.length > 0 ? autoRows : [['1', '[adegan]', '[nama]', '[bahan]', '1', 'BELUM', '[PIC]']]);
+
   return [
     { type: 'title', text: 'BREAKDOWN PROPERTI PER ADEGAN' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
+    { type: 'paragraph', text: autoRows.length > 0 ? `Diambil otomatis dari menu Properti (${properties.length} item):` : 'Isi manual (belum ada properti di sistem):', italic: true },
+    { type: 'spacer' },
     { type: 'table', headers: ['No', 'Adegan', 'Nama Properti', 'Bahan', 'Qty', 'Status', 'PIC'], rows, widths: [500, 1600, 1800, 1600, 600, 1200, 2060] },
     { type: 'spacer' },
     { type: 'heading', text: 'CATATAN PENTING' },
@@ -987,28 +1327,38 @@ const buildProperti = (ctx: TemplateContext, data: Record<string, any>): DOCXBlo
   ];
 };
 
+// ═══════════════════════════════════════════════════════
+// 9. KOSTUM — auto dari costumes collection
+// ═══════════════════════════════════════════════════════
 const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
+  const costumes = ctx.costumes || [];
+  const karakter = data?.namaKarakter || '';
+
+  // Kalau ada nama karakter, cari di costumes
+  const found = costumes.find(c => c.characterName === karakter) || costumes[0];
   const bahanRows = vTable(data, 'bahanList', 3, [['[Bahan]', '[Jumlah]', '[Warna]']]);
+
   return [
     { type: 'title', text: 'DESAIN KOSTUM PER KARAKTER' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
     { type: 'heading', text: 'A. IDENTITAS KARAKTER' },
     { type: 'table', headers: ['Field', 'Keterangan'], rows: [
-      ['Nama Karakter', v(data, 'namaKarakter')],
-      ['Nama Pemain', v(data, 'namaPemain')],
-      ['Peran', v(data, 'peranKarakter')],
+      ['Nama Karakter', v(data, 'namaKarakter', found?.characterName || '-')],
+      ['Nama Pemain', v(data, 'namaPemain', found?.playerName || '-')],
+      ['Peran', v(data, 'peranKarakter', '-')],
       ['Zaman/Suku', v(data, 'zaman', '-')],
       ['Watak', v(data, 'watak', '-')],
     ]},
     { type: 'spacer' },
     { type: 'heading', text: 'B. KONSEP KOSTUM' },
+    { type: 'paragraph', text: found ? 'Diambil otomatis dari menu Kostum (kalau ada):' : 'Isi manual:', italic: true },
     { type: 'table', headers: ['Elemen', 'Deskripsi'], rows: [
-      ['Warna Dominan', v(data, 'warnaDominan', '-')],
+      ['Warna Dominan', v(data, 'warnaDominan', found?.colors || '-')],
       ['Warna Sekunder', v(data, 'warnaSekunder', '-')],
-      ['Tekstur/Bahan', v(data, 'tekstur', '-')],
+      ['Tekstur/Bahan', v(data, 'tekstur', found?.texture || '-')],
       ['Siluet', v(data, 'siluet', '-')],
-      ['Ornamen/Aksesoris', v(data, 'ornamen', '-')],
+      ['Ornamen/Aksesoris', v(data, 'ornamen', found?.accessories || '-')],
     ]},
     { type: 'spacer' },
     { type: 'heading', text: 'C. UKURAN PEMAKAI (cm)' },
@@ -1030,7 +1380,8 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
     { type: 'paragraph', text: `Foto referensi: ${v(data, 'linkReferensi', '-')}` },
     { type: 'spacer' },
     { type: 'heading', text: 'F. STATUS PRODUKSI' },
-    { type: 'bullets', items: ['☐ Desain', '☐ Potong', '☐ Jahit', '☐ Fitting', '☐ Selesai'] },
+    { type: 'paragraph', text: `Status saat ini: ${found?.status || '[Belum ada]'}`, italic: true },
+    { type: 'bullets', items: ['[ ] Desain', '[ ] Potong', '[ ] Jahit', '[ ] Fitting', '[ ] Selesai'] },
     { type: 'spacer', count: 2 },
     { type: 'signature', signatures: [
       { place: 'Samarinda', date: todayLongID(), label: 'Mengetahui,\nSutradara', name: findMemberByRole(ctx.members, 'Sutradara') },
@@ -1039,17 +1390,25 @@ const buildKostum = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock
   ];
 };
 
+// ═══════════════════════════════════════════════════════
+// 10. FACE CHART — auto dari faceCharts collection
+// ═══════════════════════════════════════════════════════
 const buildFaceChart = (ctx: TemplateContext, data: Record<string, any>): DOCXBlock[] => {
+  const faceCharts = ctx.faceCharts || [];
+  const namaPemain = data?.namaPemain || '';
+  const found = faceCharts.find(f => f.playerName === namaPemain) || faceCharts[0];
+
   const paletRows = vTable(data, 'paletList', 3, [['[Area]', '[Warna]', '[Produk]']]);
+
   return [
     { type: 'title', text: 'FACE CHART — DESAIN RIAS KARAKTER' },
     { type: 'subtitle', text: `Kelas ${ctx.className} — ${ctx.academicYear}`, italic: true },
     { type: 'spacer', count: 2 },
     { type: 'heading', text: 'A. IDENTITAS' },
     { type: 'table', headers: ['Field', 'Keterangan'], rows: [
-      ['Nama Pemain', v(data, 'namaPemain')],
-      ['Nama Karakter', v(data, 'namaKarakter')],
-      ['Jenis Rias', v(data, 'jenisRias')],
+      ['Nama Pemain', v(data, 'namaPemain', found?.playerName || '-')],
+      ['Nama Karakter', v(data, 'namaKarakter', found?.characterName || '-')],
+      ['Jenis Rias', v(data, 'jenisRias', found?.riasType || '-')],
       ['Tingkat Kesulitan', v(data, 'tingkatKesulitan', '-')],
     ]},
     { type: 'spacer' },
@@ -1061,13 +1420,13 @@ const buildFaceChart = (ctx: TemplateContext, data: Record<string, any>): DOCXBl
     { type: 'spacer' },
     { type: 'heading', text: 'D. URUTAN PENGERJAAN' },
     { type: 'numbered', items: vList(data, 'urutanPengerjaan', [
-      'Bersihkan wajah & aplikasikan primer', 'Base & concealer',
-      'Kontur & highlight', 'Mata', 'Alis', 'Blush on', 'Bibir', 'Setting spray', 'Touch-up terakhir',
+      'Bersihkan wajah & aplikasikan primer', 'Base & concealer', 'Kontur & highlight',
+      'Mata', 'Alis', 'Blush on', 'Bibir', 'Setting spray', 'Touch-up terakhir',
     ]) },
     { type: 'spacer' },
     { type: 'heading', text: 'E. REFERENSI VISUAL' },
-    { type: 'paragraph', text: `Moodboard: ${v(data, 'linkMoodboard', '-')}` },
-    { type: 'paragraph', text: `Face chart kosong: ${v(data, 'linkFaceChart', '-')}` },
+    { type: 'paragraph', text: `Moodboard: ${v(data, 'linkMoodboard', found?.moodboardUrl || '-')}` },
+    { type: 'paragraph', text: `Face chart kosong: ${v(data, 'linkFaceChart', found?.faceChartUrl || '-')}` },
     { type: 'spacer' },
     { type: 'heading', text: 'F. CATATAN HIGIENITAS' },
     { type: 'bullets', items: vList(data, 'higienitas', ['Gunakan spons sekali pakai', 'Sterilkan kuas sebelum & sesudah']) },
@@ -1083,126 +1442,56 @@ const buildFaceChart = (ctx: TemplateContext, data: Record<string, any>): DOCXBl
 // REGISTRY
 // ═══════════════════════════════════════════════════════
 export const TEMPLATE_LIBRARY: TemplateDef[] = [
-  {
-    id: 'proposal',
-    title: 'Proposal Produksi Seni Teater',
-    shortTitle: 'Proposal',
-    description: 'Proposal lengkap — susunan panitia, daftar pemain, jadwal, & RAB otomatis dari sistem. Anda hanya isi narasi & tanda tangan.',
-    category: 'ADMINISTRASI',
-    icon: 'FileText',
-    color: 'amber',
+  { id: 'proposal', title: 'Proposal Produksi Seni Teater', shortTitle: 'Proposal',
+    description: 'Proposal lengkap dengan kop surat. Susunan panitia, daftar pemain, jadwal, RAB, dan estimasi pemasukan diambil otomatis dari sistem.',
+    category: 'ADMINISTRASI', icon: 'FileText', color: 'amber',
     allowedRoles: ['Pimpinan Produksi', 'Sekretaris', 'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'],
-    withKop: true,
-    buildBlocks: buildProposal,
-  },
-  {
-    id: 'surat-izin',
-    title: 'Surat Izin Kegiatan',
-    shortTitle: 'Surat Izin',
-    description: 'Surat permohonan izin resmi ke Kepala Sekolah. Ada kop surat.',
-    category: 'ADMINISTRASI',
-    icon: 'FileText',
-    color: 'blue',
+    withKop: true, buildBlocks: buildProposal },
+  { id: 'surat-izin', title: 'Surat Izin Kegiatan', shortTitle: 'Surat Izin',
+    description: 'Surat permohonan izin resmi ke Kepala Sekolah dengan kop surat.',
+    category: 'ADMINISTRASI', icon: 'FileText', color: 'blue',
     allowedRoles: ['Sekretaris', 'Pimpinan Produksi', 'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'],
-    withKop: true,
-    buildBlocks: buildSuratIzin,
-  },
-  {
-    id: 'surat-permohonan',
-    title: 'Surat Permohonan Bantuan / Sponsorship',
-    shortTitle: 'Surat Bantuan',
-    description: 'Surat permohonan bantuan dana/barang/sponsorship ke pihak eksternal.',
-    category: 'ADMINISTRASI',
-    icon: 'FileText',
-    color: 'emerald',
+    withKop: true, buildBlocks: buildSuratIzin },
+  { id: 'surat-permohonan', title: 'Surat Permohonan Bantuan / Sponsorship', shortTitle: 'Surat Bantuan',
+    description: 'Surat permohonan bantuan dana/barang/sponsorship dengan kop surat.',
+    category: 'ADMINISTRASI', icon: 'FileText', color: 'emerald',
     allowedRoles: ['Sekretaris', 'Bendahara', 'Pimpinan Produksi', 'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'],
-    withKop: true,
-    buildBlocks: buildSuratPermohonan,
-  },
-  {
-    id: 'lpj',
-    title: 'Laporan Pertanggungjawaban (LPJ)',
-    shortTitle: 'LPJ',
-    description: 'LPJ lengkap — susunan panitia, daftar pemain, jadwal, & RAB otomatis dari sistem + tabel realisasi.',
-    category: 'ADMINISTRASI',
-    icon: 'FileCheck',
-    color: 'purple',
+    withKop: true, buildBlocks: buildSuratPermohonan },
+  { id: 'lpj', title: 'Laporan Pertanggungjawaban (LPJ)', shortTitle: 'LPJ',
+    description: 'LPJ lengkap dengan kop surat. Daftar hadir, notula rapat, bukti pengeluaran, inventaris, dan dokumentasi diambil otomatis dari sistem.',
+    category: 'ADMINISTRASI', icon: 'FileCheck', color: 'purple',
     allowedRoles: ['Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'],
-    withKop: true,
-    buildBlocks: buildLPJ,
-  },
-  {
-    id: 'sketsa-panggung',
-    title: 'Sketsa & Denah Panggung',
-    shortTitle: 'Sketsa Panggung',
-    description: 'Desain panggung — denah 9 zona, cue lampu, urutan pasang/bongkar.',
-    category: 'ARTISTIK',
-    icon: 'Layers',
-    color: 'purple',
+    withKop: true, buildBlocks: buildLPJ },
+  { id: 'sketsa-panggung', title: 'Sketsa & Denah Panggung', shortTitle: 'Sketsa Panggung',
+    description: 'Denah 9 zona otomatis dari Prompt Book. Cue lampu otomatis dari Cue Sheet.',
+    category: 'ARTISTIK', icon: 'Layers', color: 'purple',
     allowedRoles: ['Koordinator Tata Panggung', 'Anggota Tata Panggung', 'Pimpinan Produksi', 'Guru Pengampu', 'Admin', 'Super Admin'],
-    withKop: false,
-    buildBlocks: buildSketsaPanggung,
-  },
-  {
-    id: 'prompt-book',
-    title: 'Prompt Book — Buku Sutradara',
-    shortTitle: 'Prompt Book',
-    description: 'Buku sutradara — daftar adegan, cue sheet, catatan blocking.',
-    category: 'ARTISTIK',
-    icon: 'BookOpen',
-    color: 'rose',
+    withKop: false, buildBlocks: buildSketsaPanggung },
+  { id: 'prompt-book', title: 'Prompt Book — Buku Sutradara', shortTitle: 'Prompt Book',
+    description: 'Daftar adegan otomatis dari Prompt Book di Studio. Cue list otomatis dari Cue Sheet & Prompt Book.',
+    category: 'ARTISTIK', icon: 'BookOpen', color: 'rose',
     allowedRoles: ['Sutradara', 'Asisten Sutradara', 'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'],
-    withKop: false,
-    buildBlocks: buildPromptBook,
-  },
-  {
-    id: 'cue-sheet',
-    title: 'Cue Sheet — Tata Musik & Suara',
-    shortTitle: 'Cue Sheet',
-    description: 'Daftar cue audio, operator, dan checklist sound check.',
-    category: 'ARTISTIK',
-    icon: 'Music',
-    color: 'cyan',
+    withKop: false, buildBlocks: buildPromptBook },
+  { id: 'cue-sheet', title: 'Cue Sheet — Tata Musik & Suara', shortTitle: 'Cue Sheet',
+    description: 'Daftar cue otomatis dari menu Cue Sheet. Operator otomatis dari divisi Tata Musik.',
+    category: 'ARTISTIK', icon: 'Music', color: 'cyan',
     allowedRoles: ['Koordinator Tata Musik', 'Anggota Tata Musik', 'Asisten Sutradara', 'Sutradara', 'Guru Pengampu', 'Admin', 'Super Admin'],
-    withKop: false,
-    buildBlocks: buildCueSheet,
-  },
-  {
-    id: 'properti-breakdown',
-    title: 'Breakdown Properti per Adegan',
-    shortTitle: 'Breakdown Properti',
-    description: 'Daftar properti per adegan — bahan, qty, status, PIC.',
-    category: 'PRODUKSI',
-    icon: 'Package',
-    color: 'blue',
+    withKop: false, buildBlocks: buildCueSheet },
+  { id: 'properti-breakdown', title: 'Breakdown Properti per Adegan', shortTitle: 'Breakdown Properti',
+    description: 'Daftar properti otomatis dari menu Properti lengkap dengan status & PIC.',
+    category: 'PRODUKSI', icon: 'Package', color: 'blue',
     allowedRoles: ['Koordinator Perlengkapan', 'Anggota Perlengkapan', 'Pimpinan Produksi', 'Guru Pengampu', 'Admin', 'Super Admin'],
-    withKop: false,
-    buildBlocks: buildProperti,
-  },
-  {
-    id: 'kostum-karakter',
-    title: 'Desain Kostum per Karakter',
-    shortTitle: 'Desain Kostum',
-    description: 'Desain kostum — identitas karakter, ukuran, bahan, referensi.',
-    category: 'ARTISTIK',
-    icon: 'Scissors',
-    color: 'indigo',
+    withKop: false, buildBlocks: buildProperti },
+  { id: 'kostum-karakter', title: 'Desain Kostum per Karakter', shortTitle: 'Desain Kostum',
+    description: 'Konsep & warna otomatis dari menu Kostum. Nama pemain diambil otomatis.',
+    category: 'ARTISTIK', icon: 'Scissors', color: 'indigo',
     allowedRoles: ['Koordinator Tata Busana', 'Anggota Tata Busana', 'Pimpinan Produksi', 'Guru Pengampu', 'Admin', 'Super Admin'],
-    withKop: false,
-    buildBlocks: buildKostum,
-  },
-  {
-    id: 'face-chart',
-    title: 'Face Chart — Desain Rias Karakter',
-    shortTitle: 'Face Chart',
-    description: 'Desain rias — palet warna, teknik khusus, urutan pengerjaan.',
-    category: 'ARTISTIK',
-    icon: 'Palette',
-    color: 'pink',
+    withKop: false, buildBlocks: buildKostum },
+  { id: 'face-chart', title: 'Face Chart — Desain Rias Karakter', shortTitle: 'Face Chart',
+    description: 'Data rias otomatis dari menu Face Chart, termasuk palet & moodboard.',
+    category: 'ARTISTIK', icon: 'Palette', color: 'pink',
     allowedRoles: ['Koordinator Tata Rias', 'Anggota Tata Rias', 'Pimpinan Produksi', 'Guru Pengampu', 'Admin', 'Super Admin'],
-    withKop: false,
-    buildBlocks: buildFaceChart,
-  },
+    withKop: false, buildBlocks: buildFaceChart },
 ];
 
 export const TEMPLATE_CATEGORIES: { id: TemplateCategory; label: string; color: string }[] = [
