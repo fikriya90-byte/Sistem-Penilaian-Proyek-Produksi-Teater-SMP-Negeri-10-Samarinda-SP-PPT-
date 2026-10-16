@@ -1,6 +1,5 @@
 // =====================================================
-// FORM DEFINITIONS per template
-// Setiap template punya field yang siswa isi dulu di sistem
+// FORM DEFINITIONS — hanya field yang TIDAK bisa auto
 // =====================================================
 
 export type FieldType = 'text' | 'textarea' | 'date' | 'time' | 'number' | 'select' | 'list';
@@ -21,21 +20,11 @@ export interface FormSection {
   fields: FormField[];
 }
 
-// ═══════════════════════════════════════════════════════
-// HELPERS — parse "list" jadi array / tabel
-// ═══════════════════════════════════════════════════════
 export function parseList(value: any): string[] {
   if (!value) return [];
   return String(value).split('\n').map(l => l.trim()).filter(Boolean);
 }
 
-/**
- * Parse list menjadi tabel (rows × cols).
- * Setiap baris di-split dengan " | ".
- * Contoh input:
- *   Dana Tunai | Rp 500.000 | Untuk properti
- *   Bahan kostum | 5 meter | Kain satin
- */
 export function parseTable(value: any, colCount: number): string[][] {
   if (!value) return [];
   return String(value)
@@ -49,43 +38,214 @@ export function parseTable(value: any, colCount: number): string[][] {
     });
 }
 
-// ═══════════════════════════════════════════════════════
-// DEFINISI FORM PER TEMPLATE
-// ═══════════════════════════════════════════════════════
 export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
 
-  // ─── 1. PROPOSAL ─────────────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 1. PROPOSAL — disederhanakan, hanya yang perlu narasi
+  // ═══════════════════════════════════════════════════
   proposal: [
     {
-      title: 'Bagian Naratif',
+      title: 'Identitas Pementasan (Cover & Pengesahan)',
       fields: [
-        { key: 'latarBelakang', label: 'Latar Belakang', type: 'textarea', required: true, rows: 5,
-          placeholder: 'Contoh: Teater sebagai media pembelajaran karakter...',
-          help: 'Jelaskan mengapa produksi ini penting & relevan dengan pembelajaran.' },
-        { key: 'tujuan', label: 'Tujuan (satu per baris)', type: 'list', required: true, rows: 4,
-          placeholder: 'Mengasah kemampuan akting siswa\nMemperkenalkan folklor Kalimantan Timur\nMembangun kerja sama tim',
-          help: 'Isi minimal 3 tujuan. Setiap baris = 1 tujuan.' },
-        { key: 'visiMisi', label: 'Visi & Misi Artistik', type: 'textarea', required: true, rows: 4,
-          placeholder: 'Contoh: Penyutradaraan bertumpu pada perpaduan tari tradisi Kutai dengan pencahayaan dramatik...' },
-        { key: 'sinopsis', label: 'Sinopsis Lakon', type: 'textarea', required: true, rows: 6,
-          placeholder: 'Ringkasan cerita lakon 2-3 paragraf...' },
+        {
+          key: 'judulPementasan',
+          label: 'Judul Pementasan',
+          type: 'text',
+          required: true,
+          placeholder: 'Contoh: Mamanda — Petualangan Anak Samarinda',
+          help: 'Akan muncul di halaman judul, kop, & lembar pengesahan.',
+        },
+        {
+          key: 'jenisTeaterTradisional',
+          label: 'Jenis Teater Tradisional',
+          type: 'text',
+          required: true,
+          placeholder: 'Mamanda / Ketoprak / Lenong / Ludruk / Randai / Dulmuluk / dll.',
+        },
+        {
+          key: 'waliKelasName',
+          label: 'Nama Wali Kelas (untuk tanda tangan)',
+          type: 'text',
+          placeholder: 'Nama lengkap + gelar',
+          help: 'Tidak ada di sistem — isi manual.',
+        },
+        {
+          key: 'kepalaSekolahName',
+          label: 'Nama Kepala Sekolah (untuk tanda tangan)',
+          type: 'text',
+          placeholder: 'Nama lengkap + gelar',
+          help: 'Tidak ada di sistem — isi manual.',
+        },
+        {
+          key: 'tanggalPengesahan',
+          label: 'Tanggal Pengesahan',
+          type: 'text',
+          placeholder: 'Contoh: 15 Agustus 2026',
+        },
       ],
     },
     {
-      title: 'Data Produksi',
+      title: 'BAB I — Pendahuluan',
       fields: [
-        { key: 'rabTotal', label: 'Total Estimasi RAB', type: 'text', required: true,
-          placeholder: 'Contoh: Rp 5.500.000',
-          help: 'Lihat total di menu RAB Digital.' },
-        { key: 'publikasi', label: 'Rencana Publikasi (satu per baris)', type: 'list', rows: 5,
-          placeholder: 'Poster resmi produksi (H-30)\nTeaser video (H-14)\nLiputan hari-H' },
-        { key: 'penutup', label: 'Kalimat Penutup', type: 'textarea', rows: 3, required: true,
-          placeholder: 'Demikian proposal ini kami susun sebagai acuan pelaksanaan produksi...' },
+        {
+          key: 'latarBelakang',
+          label: 'Latar Belakang',
+          type: 'textarea',
+          required: true,
+          rows: 6,
+          placeholder: 'Kegiatan ini menjadi ruang bagi siswa kelas IX untuk mengalami langsung proses produksi teater tradisional, mulai dari membaca naskah, berlatih, hingga tampil...',
+          help: 'Tekankan pengalaman belajar: kerja sama, disiplin, kreativitas, apresiasi budaya daerah.',
+        },
+        {
+          key: 'rumusanMasalah',
+          label: 'Rumusan Masalah (satu per baris)',
+          type: 'list',
+          required: true,
+          rows: 3,
+          placeholder: 'Bagaimana merancang produksi teater tradisional?\nBagaimana melaksanakan pementasan?\nBagaimana mengevaluasi hasil pementasan?',
+        },
+        {
+          key: 'tujuan',
+          label: 'Tujuan Kegiatan (satu per baris)',
+          type: 'list',
+          required: true,
+          rows: 5,
+          placeholder: 'Memahami ciri & unsur teater tradisional\nMenyusun rancangan produksi\nMelatih kerja sama & disiplin\nMenampilkan pertunjukan teater tradisional\nMengevaluasi hasil pementasan',
+          help: 'Gunakan kata kerja operasional, minimal 3 poin.',
+        },
+        {
+          key: 'manfaat',
+          label: 'Manfaat Kegiatan',
+          type: 'textarea',
+          required: true,
+          rows: 4,
+          placeholder: 'Bagi siswa: melatih kepercayaan diri & kerja sama.\nBagi sekolah: memperkaya kegiatan seni.\nBagi budaya: ikut melestarikan teater tradisional.',
+        },
+        {
+          key: 'ruangLingkup',
+          label: 'Ruang Lingkup',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Kegiatan mencakup perencanaan, latihan, gladi resik, pementasan, dan evaluasi.',
+        },
+        {
+          key: 'kataPengantar',
+          label: 'Kata Pengantar',
+          type: 'textarea',
+          rows: 4,
+          placeholder: 'Puji syukur kami panjatkan... Proposal ini disusun sebagai rancangan praktik produksi teater tradisional kelas IX...',
+        },
+      ],
+    },
+    {
+      title: 'BAB II — Narasi Artistik (opsional jika sudah ada di sistem)',
+      fields: [
+        {
+          key: 'sinopsis',
+          label: 'Sinopsis Cerita (kosongkan jika pakai dari data Produksi)',
+          type: 'textarea',
+          rows: 5,
+          placeholder: 'Kosongkan jika data Sinopsis sudah ada di menu Produksi. Sistem akan otomatis ambil dari sana.',
+          help: 'Sistem otomatis menarik dari collection "productions" — isi manual hanya jika ingin override.',
+        },
+        {
+          key: 'sumberCerita',
+          label: 'Sumber Cerita',
+          type: 'text',
+          placeholder: 'Cerita rakyat Kalimantan Timur — Legenda Putri Junjung Buih',
+        },
+        {
+          key: 'strukturDramatik',
+          label: 'Struktur Dramatik',
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'Eksposisi: ...\nKonflik: ...\nKlimaks: ...\nResolusi: ...',
+        },
+        {
+          key: 'konsepArtistik',
+          label: 'Konsep Artistik (satu baris per aspek, format: Aspek | Deskripsi)',
+          type: 'list',
+          rows: 9,
+          placeholder: 'Tata Panggung | Panggung sederhana bergaya rumah adat/balai desa\nTata Cahaya | Lampu utama, sorot, dan warna\nTata Suara | Mikrofon, speaker, musik pengiring\nMusik Pengiring | Musik tradisional daerah, gendang, gambang\nKostum | Baju adat daerah, kain, ikat kepala\nRias | Rias karakter tua, muda, lucu\nProperti | Tongkat, kursi, meja, payung, keranjang\nTari/Gerak | Gerak tari daerah pembuka\nBahasa/Dialek | Bahasa Indonesia dengan sentuhan dialek daerah',
+          help: 'Pisahkan dengan " | ". Setiap baris = 1 aspek artistik.',
+        },
+      ],
+    },
+    {
+      title: 'BAB II — Konsep Manajemen',
+      fields: [
+        {
+          key: 'sistemLatihan',
+          label: 'Sistem Latihan',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Latihan 2 kali seminggu, pukul 14.00–16.00 di panggung terbuka.',
+        },
+        {
+          key: 'publikasiDok',
+          label: 'Publikasi & Dokumentasi',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Poster, undangan, dokumentasi foto/video, aftermovie.',
+        },
+        {
+          key: 'konsumsiPerlengkapan',
+          label: 'Konsumsi & Perlengkapan',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Konsumsi latihan & gladi; perlengkapan panggung & properti.',
+        },
+        {
+          key: 'sasaranPenonton',
+          label: 'Sasaran Penonton',
+          type: 'text',
+          placeholder: 'Siswa, guru, orang tua, dan warga sekolah.',
+        },
+      ],
+    },
+    {
+      title: 'BAB III — RAB & Kas',
+      fields: [
+        {
+          key: 'rabUploadUrl',
+          label: 'Link RAB Final Ditandatangani (opsional)',
+          type: 'text',
+          placeholder: 'https://drive.google.com/...',
+          help: 'RAB Digital + estimasi pemasukan dari kas akan OTOMATIS dimuat. Field ini hanya untuk melampirkan file RAB final yang sudah ditandatangani.',
+        },
+        {
+          key: 'rabUploadName',
+          label: 'Nama File RAB Final',
+          type: 'text',
+          placeholder: 'RAB_Final_IX-C.pdf',
+        },
+        {
+          key: 'rabCatatan',
+          label: 'Catatan RAB',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Anggaran dapat berubah sesuai kesepakatan kelas.',
+        },
+      ],
+    },
+    {
+      title: 'BAB IV — Penutup',
+      fields: [
+        {
+          key: 'penutup',
+          label: 'Kalimat Penutup',
+          type: 'textarea',
+          required: true,
+          rows: 3,
+          placeholder: 'Demikian proposal ini kami susun. Kami berharap kegiatan ini dapat berjalan lancar dan memberi pengalaman berharga bagi semua siswa.',
+        },
       ],
     },
   ],
 
-  // ─── 2. SURAT IZIN ───────────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 2. SURAT IZIN (sama seperti sebelumnya)
+  // ═══════════════════════════════════════════════════
   'surat-izin': [
     {
       fields: [
@@ -105,7 +265,9 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
     },
   ],
 
-  // ─── 3. SURAT PERMOHONAN ─────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 3. SURAT PERMOHONAN
+  // ═══════════════════════════════════════════════════
   'surat-permohonan': [
     {
       fields: [
@@ -125,54 +287,236 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
     },
   ],
 
-  // ─── 4. LPJ ──────────────────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 4. LPJ — disederhanakan, hanya yang perlu narasi
+  // ═══════════════════════════════════════════════════
   lpj: [
     {
-      title: 'Data Pelaksanaan',
+      title: 'Identitas LPJ',
       fields: [
-        { key: 'tanggalPementasan', label: 'Tanggal Pementasan', type: 'text', required: true,
-          placeholder: '20 November 2026' },
-        { key: 'tempatPementasan', label: 'Tempat Pementasan', type: 'text', required: true,
-          placeholder: 'Aula SMP Negeri 10 Samarinda' },
-        { key: 'jumlahPenonton', label: 'Jumlah Penonton', type: 'number', required: true,
-          placeholder: '150' },
-        { key: 'picName', label: 'PIC / Pimpinan Produksi', type: 'text', required: true,
-          placeholder: 'Nama lengkap' },
+        {
+          key: 'judulPementasan',
+          label: 'Judul Pementasan',
+          type: 'text',
+          required: true,
+          placeholder: 'Contoh: Mamanda — Petualangan Anak Samarinda',
+        },
+        {
+          key: 'jenisTeaterTradisional',
+          label: 'Jenis Teater Tradisional',
+          type: 'text',
+          required: true,
+          placeholder: 'Mamanda / Ketoprak / Lenong / dll.',
+        },
+        {
+          key: 'waliKelasName',
+          label: 'Nama Wali Kelas (untuk tanda tangan)',
+          type: 'text',
+        },
+        {
+          key: 'kepalaSekolahName',
+          label: 'Nama Kepala Sekolah (untuk tanda tangan)',
+          type: 'text',
+        },
+        {
+          key: 'tanggalPengesahan',
+          label: 'Tanggal Pengesahan',
+          type: 'text',
+        },
       ],
     },
     {
-      title: 'Laporan Divisi',
+      title: 'BAB I — Pendahuluan',
       fields: [
-        { key: 'laporanDivisi', label: 'Capaian per Divisi (satu baris per divisi)',
-          type: 'list', required: true, rows: 7,
-          placeholder: 'Pengurus Inti: koordinasi berjalan lancar\nPerlengkapan: semua properti selesai H-3\nPublikasi: poster & teaser rilis tepat waktu\nTata Panggung: set selesai gladi\nTata Rias: face chart diaplikasikan sesuai desain\nTata Busana: fitting akhir selesai H-2\nTata Musik: cue sheet final lengkap',
-          help: 'Format bebas, satu baris = satu divisi.' },
+        {
+          key: 'latarBelakang',
+          label: 'Latar Belakang LPJ',
+          type: 'textarea',
+          required: true,
+          rows: 4,
+          placeholder: 'Kegiatan pementasan telah dilaksanakan. LPJ ini memuat pelaksanaan, realisasi anggaran, evaluasi, dan refleksi.',
+        },
+        {
+          key: 'dasarPelaksanaan',
+          label: 'Dasar Pelaksanaan',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Program praktik seni teater kelas IX dan hasil rapat panitia.',
+        },
+        {
+          key: 'tujuanLPJ',
+          label: 'Tujuan LPJ',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Melaporkan pelaksanaan kegiatan dan pertanggungjawaban anggaran.',
+        },
+        {
+          key: 'ruangLingkup',
+          label: 'Ruang Lingkup',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Laporan mencakup tahap praproduksi, latihan, gladi resik, pementasan, dan evaluasi.',
+        },
+        {
+          key: 'kataPengantar',
+          label: 'Kata Pengantar',
+          type: 'textarea',
+          rows: 4,
+          placeholder: 'Puji syukur kami panjatkan... Laporan ini disusun sebagai bentuk pertanggungjawaban atas pelaksanaan pementasan teater tradisional kelas IX...',
+        },
       ],
     },
     {
-      title: 'Laporan Keuangan (format: Komponen | Estimasi | Realisasi)',
+      title: 'BAB II — Hasil Pelaksanaan',
       fields: [
-        { key: 'keuangan', label: 'Data Keuangan', type: 'list', required: true, rows: 7,
-          placeholder: 'Pemasukan Kas | 3000000 | 3100000\nSumbangan | 500000 | 500000\nProperti | 800000 | 750000\nKostum | 1200000 | 1350000\nKonsumsi | 600000 | 580000\nLain-lain | 400000 | 300000',
-          help: 'Satu baris = satu komponen. Format: nama | estimasi | realisasi' },
+        {
+          key: 'jumlahPenonton',
+          label: 'Jumlah Penonton',
+          type: 'number',
+          placeholder: '150',
+        },
+        {
+          key: 'tahapanPraproduksi',
+          label: 'Tahapan — Praproduksi',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Rapat panitia, pembagian tugas, penyusunan RAB.',
+        },
+        {
+          key: 'tahapanLatihan',
+          label: 'Tahapan — Latihan',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Latihan 6 kali: reading, blocking, hafalan, full run-through.',
+        },
+        {
+          key: 'tahapanGladi',
+          label: 'Tahapan — Gladi Resik',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Gladi resik 1 kali dengan kostum & properti lengkap.',
+        },
+        {
+          key: 'tahapanPementasan',
+          label: 'Tahapan — Pementasan',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Pementasan utama berjalan lancar, durasi 30 menit.',
+        },
+        {
+          key: 'tahapanEvaluasi',
+          label: 'Tahapan — Evaluasi',
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Rapat evaluasi produksi, penyusunan LPJ, inventarisasi.',
+        },
+        {
+          key: 'hasilPementasan',
+          label: 'Hasil Pementasan (narasi)',
+          type: 'textarea',
+          required: true,
+          rows: 4,
+          placeholder: 'Pementasan berjalan lancar. Penonton terdiri atas siswa, guru, dan orang tua. Respons penonton positif...',
+        },
+        {
+          key: 'kendalaSolusi',
+          label: 'Kendala & Solusi (format: Kendala | Solusi)',
+          type: 'list',
+          required: true,
+          rows: 4,
+          placeholder: 'Waktu latihan terbatas | Latihan ditambah pada hari Sabtu\nSound system error | Diperbaiki oleh tim musik\nKostum belum selesai | Lembur H-2',
+          help: 'Pisahkan dengan " | ". Satu baris = satu pasang kendala & solusi.',
+        },
       ],
     },
     {
-      title: 'Evaluasi',
+      title: 'BAB III — Realisasi Keuangan',
       fields: [
-        { key: 'halBerhasil', label: 'Hal yang Berhasil', type: 'textarea', required: true, rows: 4,
-          placeholder: 'Contoh: kerja sama tim solid, gladi resik berjalan tepat waktu...' },
-        { key: 'kendalaSolusi', label: 'Kendala & Solusi', type: 'textarea', required: true, rows: 4,
-          placeholder: 'Contoh: sound system sempat error, diatasi dengan...' },
-        { key: 'rekomendasi', label: 'Rekomendasi untuk Produksi Berikutnya', type: 'textarea', rows: 3,
-          placeholder: 'Saran perbaikan...' },
-        { key: 'lampiran', label: 'Daftar Lampiran (satu per baris)', type: 'list', rows: 5,
-          placeholder: 'Dokumentasi foto & video pementasan\nNaskah final\nPrompt book final\nBuku kas & nota-nota\nSertifikat/piagam apresiasi' },
+        {
+          key: 'rabUploadUrl',
+          label: 'Link RAB Final Ditandatangani (opsional)',
+          type: 'text',
+          placeholder: 'https://drive.google.com/...',
+          help: 'Detail RAB + estimasi pemasukan dari kas akan OTOMATIS dimuat. Field ini hanya untuk melampirkan file RAB final bertanda tangan.',
+        },
+        {
+          key: 'rabUploadName',
+          label: 'Nama File RAB Final',
+          type: 'text',
+          placeholder: 'RAB_Final_IX-C.pdf',
+        },
+        {
+          key: 'realisasiPemasukan',
+          label: 'Realisasi Pemasukan per Sumber (format: Sumber | Rencana | Realisasi)',
+          type: 'list',
+          rows: 5,
+          placeholder: 'Kas Kelas | 3000000 | 3100000\nIuran Siswa | 0 | 0\nSponsor/Donatur | 500000 | 500000\nTiket/Undangan | 200000 | 250000',
+          help: 'Opsional. Kalau kosong, sistem pakai data kas & RAB otomatis.',
+        },
+        {
+          key: 'realisasiPengeluaran',
+          label: 'Realisasi Pengeluaran per Kategori (format: Kategori | Rencana | Realisasi)',
+          type: 'list',
+          rows: 8,
+          placeholder: 'Kostum | 1000000 | 1100000\nRias | 200000 | 180000\nPanggung | 500000 | 450000\nProperti | 300000 | 280000',
+          help: 'Opsional. Kalau kosong, sistem pakai data RAB Digital.',
+        },
+      ],
+    },
+    {
+      title: 'BAB IV — Evaluasi & Refleksi',
+      fields: [
+        {
+          key: 'evaluasiKetercapaian',
+          label: 'Evaluasi Ketercapaian',
+          type: 'textarea',
+          required: true,
+          rows: 4,
+          placeholder: 'Sebagian besar tujuan tercapai. Siswa mampu tampil percaya diri dan bekerja sama.',
+        },
+        {
+          key: 'refleksiTim',
+          label: 'Refleksi Siswa/Tim',
+          type: 'textarea',
+          required: true,
+          rows: 4,
+          placeholder: 'Kami belajar bahwa pementasan bukan hanya soal akting, tetapi juga kerja sama, disiplin, dan tanggung jawab.',
+        },
+        {
+          key: 'rekomendasi',
+          label: 'Rekomendasi',
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'Perlu latihan lebih awal dan pembagian tugas yang lebih jelas.',
+        },
+      ],
+    },
+    {
+      title: 'BAB V — Penutup & Lampiran',
+      fields: [
+        {
+          key: 'penutup',
+          label: 'Kalimat Penutup',
+          type: 'textarea',
+          required: true,
+          rows: 3,
+          placeholder: 'Demikian LPJ ini kami susun. Terima kasih kepada semua pihak yang telah mendukung.',
+        },
+        {
+          key: 'lampiran',
+          label: 'Daftar Lampiran (satu per baris, kosongkan untuk pakai standar)',
+          type: 'list',
+          rows: 15,
+          placeholder: 'Daftar hadir panitia\nDaftar hadir pemain\nDaftar hadir latihan\nNotula rapat\nJadwal kegiatan\nDokumentasi pementasan\nBukti pengeluaran\nSurat menyurat\nLembar penilaian\nDaftar inventaris\nSusunan acara\nNaskah/skenario\nDesain artistik\nForm evaluasi\nLain-lain',
+          help: 'Kalau dibiarkan kosong, sistem akan pakai daftar lampiran standar.',
+        },
       ],
     },
   ],
 
-  // ─── 5. SKETSA PANGGUNG ──────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 5. SKETSA PANGGUNG
+  // ═══════════════════════════════════════════════════
   'sketsa-panggung': [
     {
       fields: [
@@ -180,20 +524,21 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
           placeholder: 'Gaya realis/stilir, warna dominan, dan kesan yang ingin dibangun...' },
         { key: 'denahZona', label: 'Denah 9 Zona (format: Kode | Deskripsi Penggunaan)',
           type: 'list', rows: 9,
-          placeholder: 'UL | pintu masuk aktor\nUC | singgasana\nUR | backdrop istana\nCL | ruang tunggu\nC | area utama dialog\nCR | meja tamu\nDL | tangga panggung\nDC | area sorot\nDR | area konflik',
-          help: 'Isi 9 baris sesuai grid 3×3.' },
+          placeholder: 'UL | pintu masuk aktor\nUC | singgasana\nUR | backdrop istana\nCL | ruang tunggu\nC | area utama dialog\nCR | meja tamu\nDL | tangga panggung\nDC | area sorot\nDR | area konflik' },
         { key: 'sketsaLink', label: 'Link Sketsa Visual (Google Drive)', type: 'text',
           placeholder: 'https://drive.google.com/...' },
         { key: 'cueLampu', label: 'Cue Lampu (format: Cue | Posisi | Warna | Adegan)',
           type: 'list', rows: 5,
-          placeholder: 'CUE-01 | Spotlight kiri | Kuning hangat | Pembukaan\nCUE-02 | Fill center | Biru redup | Konflik\nCUE-03 | Back light | Putih terang | Resolusi' },
+          placeholder: 'CUE-01 | Spotlight kiri | Kuning hangat | Pembukaan\nCUE-02 | Fill center | Biru redup | Konflik' },
         { key: 'urutanPasang', label: 'Urutan Pasang & Bongkar (satu per baris)', type: 'list', rows: 5,
-          placeholder: 'Target pasang set: < 10 menit\nTarget strike: < 5 menit\nTim: 8 orang\nAlat: palu, bor, tangga' },
+          placeholder: 'Target pasang set: < 10 menit\nTarget strike: < 5 menit\nTim: 8 orang' },
       ],
     },
   ],
 
-  // ─── 6. PROMPT BOOK ──────────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 6. PROMPT BOOK
+  // ═══════════════════════════════════════════════════
   'prompt-book': [
     {
       title: 'Tim Inti',
@@ -209,14 +554,14 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
       title: 'Daftar Adegan (format: No | Adegan | Durasi | Pemain | Zona)',
       fields: [
         { key: 'daftarAdegan', label: 'Daftar Adegan', type: 'list', required: true, rows: 6,
-          placeholder: '1 | Pembukaan — Prolog | 3 mnt | Narator | DC\n2 | Konflik Pertama | 5 mnt | Ratu + Utusan | C\n3 | Klimaks | 8 mnt | Ensemble | UC\n4 | Resolusi | 6 mnt | Ratu + Rakyat | CL\n5 | Penutup — Epilog | 2 mnt | Ensemble | C' },
+          placeholder: '1 | Pembukaan — Prolog | 3 mnt | Narator | DC\n2 | Konflik Pertama | 5 mnt | Ratu + Utusan | C\n3 | Klimaks | 8 mnt | Ensemble | UC' },
       ],
     },
     {
       title: 'Cue Sheet (format: Cue | Trigger | Aksi | Audio | Lampu)',
       fields: [
         { key: 'cueList', label: 'Cue List', type: 'list', required: true, rows: 6,
-          placeholder: 'CUE-01 | Opening music mulai | Lampu fade in | Track 01 | Warm spot UC\nCUE-02 | Aktor masuk stage | Spotlight follow | Track 02 | Follow spot\nCUE-03 | Adegan konflik | Lampu merah | Track 03 | Red wash' },
+          placeholder: 'CUE-01 | Opening music mulai | Lampu fade in | Track 01 | Warm spot UC\nCUE-02 | Aktor masuk stage | Spotlight follow | Track 02 | Follow spot' },
       ],
     },
     {
@@ -225,53 +570,57 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
         { key: 'catatanBlocking', label: 'Catatan Blocking Penting', type: 'textarea', rows: 5,
           placeholder: 'Contoh: Ratu tidak turun dari singgasana sampai adegan 3...' },
         { key: 'catatanTeknis', label: 'Catatan Teknis (satu per baris)', type: 'list', rows: 5,
-          placeholder: 'Standby ASM di sisi panggung kiri\nSound check wajib 30 menit sebelum opening\nCek cue lampu sebelum adegan 1\nKomunikasi via headset' },
+          placeholder: 'Standby ASM di sisi panggung kiri\nSound check wajib 30 menit sebelum opening' },
       ],
     },
   ],
 
-  // ─── 7. CUE SHEET MUSIK ──────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 7. CUE SHEET
+  // ═══════════════════════════════════════════════════
   'cue-sheet': [
     {
       title: 'Daftar Cue',
       fields: [
         { key: 'cueList', label: 'Cue List (format: Cue | Adegan | Track | In/Out | Durasi | Volume | Link)',
           type: 'list', required: true, rows: 7,
-          placeholder: 'CUE-01 | Opening | Overture | In 0:00 | 1:30 | 80% | link1\nCUE-02 | Konflik | Battle Theme | In 0:15 | 2:00 | 75% | link2\nCUE-03 | Penutup | Sape Melankolis | In 0:00 | 2:00 | 70% | link3',
-          help: 'Isi baris sesuai urutan adegan. Setiap baris = 1 cue.' },
+          placeholder: 'CUE-01 | Opening | Overture | In 0:00 | 1:30 | 80% | link1\nCUE-02 | Konflik | Battle Theme | In 0:15 | 2:00 | 75% | link2' },
       ],
     },
     {
       title: 'Operator',
       fields: [
         { key: 'operatorList', label: 'Operator (format: Posisi | Nama)', type: 'list', required: true, rows: 3,
-          placeholder: 'Sound Engineer | Nama 1\nMixer Operator | Nama 2\nBackup Operator | Nama 3' },
+          placeholder: 'Sound Engineer | Nama 1\nMixer Operator | Nama 2' },
       ],
     },
     {
       title: 'Checklist Sound Check',
       fields: [
         { key: 'checklist', label: 'Checklist (satu per baris)', type: 'list', rows: 7,
-          placeholder: 'Semua mic on & balance\nBacking track tersedia offline\nMixer preset tersimpan\nMonitor speaker & feedback terkontrol\nBackup laptop + USB\nLagu darurat siap\nSound check 30 menit sebelum opening' },
+          placeholder: 'Semua mic on & balance\nBacking track tersedia offline\nMixer preset tersimpan\nMonitor speaker & feedback terkontrol' },
       ],
     },
   ],
 
-  // ─── 8. BREAKDOWN PROPERTI ───────────────────────
+  // ═══════════════════════════════════════════════════
+  // 8. PROPERTI
+  // ═══════════════════════════════════════════════════
   'properti-breakdown': [
     {
       fields: [
         { key: 'propertiList', label: 'Daftar Properti (format: No | Adegan | Nama Properti | Bahan | Qty | Status | PIC)',
           type: 'list', required: true, rows: 10,
-          placeholder: '1 | Babak 1 | Singgasana | Kayu + kain | 1 | PROSES | Nama\n2 | Babak 1 | Tongkat kerajaan | Bambu + cat emas | 1 | SELESAI | Nama\n3 | Babak 2 | Keris pusaka | Karton + foil | 1 | BELUM | Nama',
-          help: 'Isi semua properti. Status: BELUM / PROSES / SELESAI / RUSAK.' },
+          placeholder: '1 | Babak 1 | Singgasana | Kayu + kain | 1 | PROSES | Nama\n2 | Babak 1 | Tongkat kerajaan | Bambu + cat emas | 1 | SELESAI | Nama' },
         { key: 'catatanPenting', label: 'Catatan Penting (satu per baris)', type: 'list', rows: 5,
-          placeholder: 'Semua properti harus aman dipakai di panggung\nUpdate status setiap minggu\nSimpan dengan label per adegan\nFoto progress tiap selesai pembuatan' },
+          placeholder: 'Semua properti harus aman dipakai di panggung\nUpdate status setiap minggu' },
       ],
     },
   ],
 
-  // ─── 9. KOSTUM ───────────────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 9. KOSTUM
+  // ═══════════════════════════════════════════════════
   'kostum-karakter': [
     {
       title: 'Identitas Karakter',
@@ -314,15 +663,16 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
       title: 'Bahan & Referensi',
       fields: [
         { key: 'bahanList', label: 'Kebutuhan Bahan (format: Bahan | Jumlah | Warna)', type: 'list', rows: 4,
-          placeholder: 'Kain utama | 3 meter | Putih\nKain furing | 2 meter | Krem\nKancing | 6 pcs | Emas' },
-        { key: 'linkMoodboard', label: 'Link Moodboard', type: 'text',
-          placeholder: 'https://drive.google.com/...' },
+          placeholder: 'Kain utama | 3 meter | Putih\nKain furing | 2 meter | Krem' },
+        { key: 'linkMoodboard', label: 'Link Moodboard', type: 'text' },
         { key: 'linkReferensi', label: 'Link Foto Referensi', type: 'text' },
       ],
     },
   ],
 
-  // ─── 10. FACE CHART ──────────────────────────────
+  // ═══════════════════════════════════════════════════
+  // 10. FACE CHART
+  // ═══════════════════════════════════════════════════
   'face-chart': [
     {
       title: 'Identitas',
@@ -345,16 +695,16 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
       title: 'Palet Warna (format: Area | Warna | Produk)',
       fields: [
         { key: 'paletList', label: 'Palet Warna', type: 'list', required: true, rows: 6,
-          placeholder: 'Base | Coklat muda | Foundation shade 02\nEyeshadow | Emas + coklat | Palet A\nBlush on | Peach | Blush B\nLipstik | Merah bata | Matte lipstick\nKontur | Coklat tua | Contour stick\nHighlight | Gold shimmer | Highlighter C' },
+          placeholder: 'Base | Coklat muda | Foundation shade 02\nEyeshadow | Emas + coklat | Palet A\nBlush on | Peach | Blush B' },
       ],
     },
     {
       title: 'Teknik & Urutan',
       fields: [
         { key: 'teknikKhusus', label: 'Teknik Khusus (satu per baris)', type: 'list', rows: 5,
-          placeholder: 'Efek luka: bubuk kayu manis + madu\nPenuaan: shading + bedak\nEfek air mata: glycerin + air\nAksen glitter: body glitter' },
+          placeholder: 'Efek luka: bubuk kayu manis + madu\nPenuaan: shading + bedak' },
         { key: 'urutanPengerjaan', label: 'Urutan Pengerjaan (satu per baris)', type: 'list', rows: 9,
-          placeholder: 'Bersihkan wajah & aplikasikan primer\nBase & concealer\nKontur & highlight\nMata (eyeshadow, eyeliner, bulu mata)\nAlis\nBlush on\nBibir\nSetting spray\nTouch-up terakhir' },
+          placeholder: 'Bersihkan wajah & aplikasikan primer\nBase & concealer\nKontur & highlight\nMata' },
       ],
     },
     {
@@ -363,7 +713,7 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
         { key: 'linkMoodboard', label: 'Link Moodboard', type: 'text' },
         { key: 'linkFaceChart', label: 'Link Face Chart Kosong', type: 'text' },
         { key: 'higienitas', label: 'Catatan Higienitas (satu per baris)', type: 'list', rows: 5,
-          placeholder: 'Gunakan spons sekali pakai\nSterilkan kuas sebelum & sesudah\nLakukan tes alergi sebelum hari-H\nSediakan makeup remover di ruang rias' },
+          placeholder: 'Gunakan spons sekali pakai\nSterilkan kuas sebelum & sesudah\nLakukan tes alergi sebelum hari-H' },
       ],
     },
   ],
@@ -373,9 +723,6 @@ export function getTemplateForm(templateId: string): FormSection[] {
   return TEMPLATE_FORMS[templateId] || [];
 }
 
-/**
- * Auto-fill field default dari data kelas yang sudah ada.
- */
 export function getDefaultData(_templateId: string): Record<string, any> {
   return {};
 }
