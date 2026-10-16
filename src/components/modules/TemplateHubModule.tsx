@@ -74,15 +74,28 @@ export const TemplateHubModule: React.FC = () => {
   const [drafts, setDrafts] = useState<TemplateDraft[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Auto-data states
   const [members, setMembers] = useState<any[]>([]);
   const [productions, setProductions] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<any[]>([]);
   const [rabItems, setRabItems] = useState<any[]>([]);
   const [kasSettings, setKasSettings] = useState<any[]>([]);
   const [kasPayments, setKasPayments] = useState<any[]>([]);
+  const [cashEntries, setCashEntries] = useState<any[]>([]);
+  const [attendanceSessions, setAttendanceSessions] = useState<any[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [properties, setProperties] = useState<any[]>([]);
+  const [costumes, setCostumes] = useState<any[]>([]);
+  const [faceCharts, setFaceCharts] = useState<any[]>([]);
+  const [musicCues, setMusicCues] = useState<any[]>([]);
+  const [promptBooks, setPromptBooks] = useState<any[]>([]);
+  const [notulensi, setNotulensi] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
 
+  // Fill modal
   const [fillFor, setFillFor] = useState<TemplateDef | null>(null);
 
+  // Upload modal
   const [uploadFor, setUploadFor] = useState<TemplateDef | null>(null);
   const [uploadFileName, setUploadFileName] = useState('');
   const [uploadFileUrl, setUploadFileUrl] = useState('');
@@ -93,37 +106,109 @@ export const TemplateHubModule: React.FC = () => {
 
   const isStaff = isGuruPengampu || isAdminRole;
 
+  // ═══════════════════════════════════════════════════════
+  // FETCH ALL AUTO-DATA
+  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
     setLoading(true);
 
-    fetchUsersByClass(activeClass.id).then(setMembers).catch(err => console.warn('Members error:', err));
+    // 1. Members
+    fetchUsersByClass(activeClass.id)
+      .then(setMembers)
+      .catch(err => console.warn('Members error:', err));
 
+    // 2. Productions
     const qProd = query(collection(db, 'productions'), where('classId', '==', activeClass.id));
     const unsubProd = onSnapshot(qProd, snap => {
       setProductions(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-    });
+    }, err => console.warn('Productions error:', err));
 
+    // 3. Schedules
     const qSch = query(collection(db, 'schedules'), where('classId', '==', activeClass.id));
     const unsubSch = onSnapshot(qSch, snap => {
       setSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-    });
+    }, err => console.warn('Schedules error:', err));
 
+    // 4. RAB Items
     const qRab = query(collection(db, 'rabItems'), where('classId', '==', activeClass.id));
     const unsubRab = onSnapshot(qRab, snap => {
       setRabItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-    });
+    }, err => console.warn('RAB error:', err));
 
+    // 5. Kas Settings
     const qKas = query(collection(db, 'kasSettings'), where('classId', '==', activeClass.id));
     const unsubKas = onSnapshot(qKas, snap => {
       setKasSettings(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-    });
+    }, err => console.warn('Kas settings error:', err));
 
+    // 6. Kas Payments
     const qPay = query(collection(db, 'kasPayments'), where('classId', '==', activeClass.id));
     const unsubPay = onSnapshot(qPay, snap => {
       setKasPayments(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-    });
+    }, err => console.warn('Kas payments error:', err));
 
+    // 7. Cash Entries
+    const qCash = query(collection(db, 'cashEntries'), where('classId', '==', activeClass.id));
+    const unsubCash = onSnapshot(qCash, snap => {
+      setCashEntries(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Cash entries error:', err));
+
+    // 8. Attendance Sessions
+    const qAttSes = query(collection(db, 'attendanceSessions'), where('classId', '==', activeClass.id));
+    const unsubAttSes = onSnapshot(qAttSes, snap => {
+      setAttendanceSessions(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Attendance sessions error:', err));
+
+    // 9. Attendance Records
+    const qAttRec = query(collection(db, 'attendanceRecords'), where('classId', '==', activeClass.id));
+    const unsubAttRec = onSnapshot(qAttRec, snap => {
+      setAttendanceRecords(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Attendance records error:', err));
+
+    // 10. Properties
+    const qProps = query(collection(db, 'properties'), where('classId', '==', activeClass.id));
+    const unsubProps = onSnapshot(qProps, snap => {
+      setProperties(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Properties error:', err));
+
+    // 11. Costumes
+    const qCost = query(collection(db, 'costumes'), where('classId', '==', activeClass.id));
+    const unsubCost = onSnapshot(qCost, snap => {
+      setCostumes(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Costumes error:', err));
+
+    // 12. Face Charts
+    const qFace = query(collection(db, 'faceCharts'), where('classId', '==', activeClass.id));
+    const unsubFace = onSnapshot(qFace, snap => {
+      setFaceCharts(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Face charts error:', err));
+
+    // 13. Music Cues
+    const qMusic = query(collection(db, 'musicCues'), where('classId', '==', activeClass.id));
+    const unsubMusic = onSnapshot(qMusic, snap => {
+      setMusicCues(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Music cues error:', err));
+
+    // 14. Prompt Books
+    const qPrompt = query(collection(db, 'promptBooks'), where('classId', '==', activeClass.id));
+    const unsubPrompt = onSnapshot(qPrompt, snap => {
+      setPromptBooks(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Prompt books error:', err));
+
+    // 15. Notulensi
+    const qNotu = query(collection(db, 'notulensi'), where('classId', '==', activeClass.id));
+    const unsubNotu = onSnapshot(qNotu, snap => {
+      setNotulensi(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Notulensi error:', err));
+
+    // 16. Documents
+    const qDocs = query(collection(db, 'documents'), where('classId', '==', activeClass.id));
+    const unsubDocs = onSnapshot(qDocs, snap => {
+      setDocuments(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+    }, err => console.warn('Documents error:', err));
+
+    // 17. Template Submissions
     const q1 = query(collection(db, 'templateSubmissions'), where('classId', '==', activeClass.id));
     const unsub1 = onSnapshot(q1, snap => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as TemplateSubmission));
@@ -135,6 +220,7 @@ export const TemplateHubModule: React.FC = () => {
       setLoading(false);
     });
 
+    // 18. Template Drafts (user only)
     let unsub2: (() => void) | undefined;
     if (user) {
       const q2 = query(
@@ -149,10 +235,15 @@ export const TemplateHubModule: React.FC = () => {
 
     return () => {
       unsubProd(); unsubSch(); unsubRab(); unsubKas(); unsubPay();
-      unsub1(); if (unsub2) unsub2();
+      unsubCash(); unsubAttSes(); unsubAttRec(); unsubProps();
+      unsubCost(); unsubFace(); unsubMusic(); unsubPrompt();
+      unsubNotu(); unsubDocs(); unsub1(); if (unsub2) unsub2();
     };
   }, [activeClass, user]);
 
+  // ═══════════════════════════════════════════════════════
+  // BUILD CONTEXT
+  // ═══════════════════════════════════════════════════════
   const buildContext = (): TemplateContext => {
     const prod = productions[0];
     const production = prod
@@ -174,7 +265,6 @@ export const TemplateHubModule: React.FC = () => {
       kasLite = {
         title: kasSet.title || 'Kas Produksi',
         amount: Number(kasSet.amount) || 0,
-        periodType: kasSet.periodType || '',
         totalCollected,
         amountPaid: paidRecords.length,
       };
@@ -203,6 +293,28 @@ export const TemplateHubModule: React.FC = () => {
         notes: r.notes || '',
       })),
       kas: kasLite,
+      cashEntries: cashEntries.map(e => ({
+        id: e.id,
+        type: e.type || 'EXPENSE',
+        category: e.category || '',
+        targetName: e.targetName || '',
+        itemName: e.itemName || '',
+        qty: Number(e.qty) || 0,
+        unit: e.unit || '',
+        amount: Number(e.amount) || 0,
+        notes: e.notes || '',
+        date: e.date || new Date().toISOString(),
+        creatorName: e.creatorName || '',
+      })),
+      attendanceSessions: attendanceSessions as any,
+      attendanceRecords: attendanceRecords as any,
+      properties: properties as any,
+      costumes: costumes as any,
+      faceCharts: faceCharts as any,
+      musicCues: musicCues as any,
+      promptBooks: promptBooks as any,
+      notulensi: notulensi as any,
+      documents: documents as any,
     };
   };
 
@@ -266,7 +378,7 @@ export const TemplateHubModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'TemplateSubmission', targetId: newRef.id,
-        details: `Upload hasil "${uploadFor.shortTitle}" — ${uploadFileName}`,
+        details: `Upload hasil "${uploadFor.shortTitle}" - ${uploadFileName}`,
       });
 
       showToast(`Hasil "${uploadFor.shortTitle}" berhasil diunggah.`, 'success');
@@ -351,6 +463,15 @@ export const TemplateHubModule: React.FC = () => {
     schedules: schedules.length,
     rabItems: rabItems.length,
     hasKas: kasSettings.length > 0,
+    cashEntries: cashEntries.length,
+    attendanceRecords: attendanceRecords.length,
+    properties: properties.length,
+    costumes: costumes.length,
+    faceCharts: faceCharts.length,
+    musicCues: musicCues.length,
+    promptBooks: promptBooks.length,
+    notulensi: notulensi.length,
+    documents: documents.length,
   };
 
   if (!activeClass) {
@@ -358,7 +479,7 @@ export const TemplateHubModule: React.FC = () => {
       <div className="p-12 text-center bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 rounded-3xl max-w-2xl mx-auto my-8">
         <AlertTriangle className="w-16 h-16 mx-auto text-amber-600 mb-4" />
         <h3 className="text-base font-extrabold text-amber-900 dark:text-amber-200">Anda Belum Masuk ke Kelas</h3>
-        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">Pilih kelas dulu untuk melihat & mengisi template.</p>
+        <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">Pilih kelas dulu untuk melihat dan mengisi template.</p>
       </div>
     );
   }
@@ -373,10 +494,10 @@ export const TemplateHubModule: React.FC = () => {
           </span>
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
-              Template Hub — Generate DOCX
+              Template Hub - Generate DOCX
             </span>
             <h2 className="text-xl font-black text-white mt-1">
-              Template Dokumen — {activeClass.name}
+              Template Dokumen - {activeClass.name}
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
               Isi form, generate DOCX otomatis dengan data panitia, jadwal, dan RAB dari sistem
@@ -405,7 +526,7 @@ export const TemplateHubModule: React.FC = () => {
         </div>
       </div>
 
-      {/* AUTO-DATA STATUS BANNER */}
+      {/* AUTO-DATA STATUS */}
       <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
         <div className="flex items-start gap-3">
           <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
@@ -416,28 +537,68 @@ export const TemplateHubModule: React.FC = () => {
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
               <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
-                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Panitia & Pemain</p>
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Panitia dan Pemain</p>
                 <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.members}</p>
                 <p className="text-[9px] text-emerald-600 dark:text-emerald-400">anggota terdaftar</p>
               </div>
               <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
-                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Jadwal & Agenda</p>
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Jadwal</p>
                 <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.schedules}</p>
                 <p className="text-[9px] text-emerald-600 dark:text-emerald-400">agenda tersimpan</p>
               </div>
               <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
-                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">RAB Digital</p>
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">RAB</p>
                 <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.rabItems}</p>
                 <p className="text-[9px] text-emerald-600 dark:text-emerald-400">item anggaran</p>
               </div>
               <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
-                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Kas Produksi</p>
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Kas</p>
                 <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.hasKas ? 'Aktif' : '-'}</p>
                 <p className="text-[9px] text-emerald-600 dark:text-emerald-400">{autoStats.hasKas ? 'siap dipakai' : 'belum aktif'}</p>
               </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Buku Kas</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.cashEntries}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">transaksi</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Presensi</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.attendanceRecords}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">entri kehadiran</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Properti</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.properties}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">item</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Kostum</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.costumes}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">desain</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Face Chart</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.faceCharts}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">desain rias</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Cue Musik</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.musicCues}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">cue</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Prompt Book</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.promptBooks}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">scene</p>
+              </div>
+              <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Dokumen</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.documents}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">file arsip</p>
+              </div>
             </div>
             <p className="mt-2 italic text-[10px]">
-              Proposal & LPJ akan menarik data ini otomatis. Anda hanya perlu mengisi narasi dan tanda tangan.
+              Proposal, LPJ, dan semua template artistik akan menarik data ini otomatis. Anda hanya perlu mengisi narasi dan tanda tangan.
             </p>
           </div>
         </div>
@@ -501,7 +662,7 @@ export const TemplateHubModule: React.FC = () => {
                 const canFill = canUploadForTemplate(tpl);
                 const myDraft = draftForTemplate(tpl);
                 const mySubs = subsForTemplate(tpl);
-                const hasAuto = ['proposal', 'lpj'].includes(tpl.id);
+                const hasAuto = ['proposal', 'lpj', 'prompt-book', 'cue-sheet', 'properti-breakdown', 'kostum-karakter', 'face-chart', 'sketsa-panggung'].includes(tpl.id);
 
                 return (
                   <div key={tpl.id}
@@ -557,7 +718,7 @@ export const TemplateHubModule: React.FC = () => {
                             <button onClick={() => openFill(tpl)}
                               className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition min-w-[130px]">
                               <Edit3 className="w-3.5 h-3.5" />
-                              {myDraft ? 'Lanjut Isi Draft' : 'Isi & Generate'}
+                              {myDraft ? 'Lanjut Isi Draft' : 'Isi dan Generate'}
                             </button>
                             <button onClick={() => openUpload(tpl)}
                               className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition min-w-[130px]">
@@ -606,7 +767,7 @@ export const TemplateHubModule: React.FC = () => {
               <FileCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Hasil Karya</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                Isi & generate template dulu di tab Template, edit di Word, lalu unggah hasilnya.
+                Isi dan generate template dulu di tab Template, edit di Word, lalu unggah hasilnya.
               </p>
             </div>
           ) : (
@@ -658,7 +819,7 @@ export const TemplateHubModule: React.FC = () => {
                         </p>
                         {sub.notes && (
                           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 italic p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
-                            "{sub.notes}"
+                            {sub.notes}
                           </p>
                         )}
                       </div>
@@ -667,7 +828,7 @@ export const TemplateHubModule: React.FC = () => {
                     <div className="pt-3 border-t border-slate-100 dark:border-slate-700 flex items-center gap-2 flex-wrap">
                       <a href={sub.fileUrl} target="_blank" rel="noreferrer"
                         className="flex-1 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition min-w-[120px]">
-                        <Download className="w-3.5 h-3.5" /> Unduh / Buka
+                        <Download className="w-3.5 h-3.5" /> Unduh atau Buka
                       </a>
                       <button onClick={() => setPreviewSubmission(sub)}
                         className="px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-bold text-xs flex items-center gap-1.5 border border-slate-200 dark:border-slate-700">
@@ -731,14 +892,14 @@ export const TemplateHubModule: React.FC = () => {
             <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
               <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                <strong>Pastikan file sudah diedit</strong> & di-upload ke Google Drive dengan izin
+                <strong>Pastikan file sudah diedit</strong> dan di-upload ke Google Drive dengan izin
                 <strong> "Anyone with the link"</strong> supaya bisa diunduh semua orang.
               </p>
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Nama File / Judul Hasil <span className="text-rose-500">*</span>
+                Nama File atau Judul Hasil <span className="text-rose-500">*</span>
               </label>
               <input type="text" required value={uploadFileName}
                 onChange={(e) => setUploadFileName(e.target.value)}
@@ -765,7 +926,7 @@ export const TemplateHubModule: React.FC = () => {
               </label>
               <textarea rows={2} value={uploadNotes}
                 onChange={(e) => setUploadNotes(e.target.value)}
-                placeholder="Contoh: Sudah ditandatangani Pimpro & Bendahara"
+                placeholder="Contoh: Sudah ditandatangani Pimpro dan Bendahara"
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
             </div>
 
@@ -825,7 +986,7 @@ export const TemplateHubModule: React.FC = () => {
               {previewSubmission.notes && (
                 <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
                   <p className="text-[10px] font-bold text-amber-700 dark:text-amber-300 uppercase">Catatan</p>
-                  <p className="text-amber-900 dark:text-amber-200 mt-0.5 italic">"{previewSubmission.notes}"</p>
+                  <p className="text-amber-900 dark:text-amber-200 mt-0.5 italic">{previewSubmission.notes}</p>
                 </div>
               )}
             </div>
