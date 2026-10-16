@@ -4,7 +4,7 @@ import {
   ExternalLink, FileText, User as UserIcon, Clock, CheckCircle,
   AlertTriangle, Eye, Link2, Info, RefreshCw, FileCheck,
   Layers, BookOpen, Music, Package, Scissors, Palette, ShieldAlert,
-  FileDown, FileEdit,
+  FileDown, FileEdit, Zap, FileBadge, CheckSquare, Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -74,7 +74,6 @@ export const TemplateHubModule: React.FC = () => {
   const [drafts, setDrafts] = useState<TemplateDraft[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ AUTO-DATA STATES
   const [members, setMembers] = useState<any[]>([]);
   const [productions, setProductions] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -82,10 +81,8 @@ export const TemplateHubModule: React.FC = () => {
   const [kasSettings, setKasSettings] = useState<any[]>([]);
   const [kasPayments, setKasPayments] = useState<any[]>([]);
 
-  // Fill modal
   const [fillFor, setFillFor] = useState<TemplateDef | null>(null);
 
-  // Upload modal
   const [uploadFor, setUploadFor] = useState<TemplateDef | null>(null);
   const [uploadFileName, setUploadFileName] = useState('');
   const [uploadFileUrl, setUploadFileUrl] = useState('');
@@ -96,47 +93,37 @@ export const TemplateHubModule: React.FC = () => {
 
   const isStaff = isGuruPengampu || isAdminRole;
 
-  // ═══════════════════════════════════════════════════════
-  // FETCH ALL AUTO-DATA
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
     setLoading(true);
 
-    // Members
     fetchUsersByClass(activeClass.id).then(setMembers).catch(err => console.warn('Members error:', err));
 
-    // Productions
     const qProd = query(collection(db, 'productions'), where('classId', '==', activeClass.id));
     const unsubProd = onSnapshot(qProd, snap => {
       setProductions(snap.docs.map(d => ({ ...d.data(), id: d.id })));
     });
 
-    // Schedules
     const qSch = query(collection(db, 'schedules'), where('classId', '==', activeClass.id));
     const unsubSch = onSnapshot(qSch, snap => {
       setSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id })));
     });
 
-    // RAB items
     const qRab = query(collection(db, 'rabItems'), where('classId', '==', activeClass.id));
     const unsubRab = onSnapshot(qRab, snap => {
       setRabItems(snap.docs.map(d => ({ ...d.data(), id: d.id })));
     });
 
-    // Kas settings
     const qKas = query(collection(db, 'kasSettings'), where('classId', '==', activeClass.id));
     const unsubKas = onSnapshot(qKas, snap => {
       setKasSettings(snap.docs.map(d => ({ ...d.data(), id: d.id })));
     });
 
-    // Kas payments
     const qPay = query(collection(db, 'kasPayments'), where('classId', '==', activeClass.id));
     const unsubPay = onSnapshot(qPay, snap => {
       setKasPayments(snap.docs.map(d => ({ ...d.data(), id: d.id })));
     });
 
-    // Submissions
     const q1 = query(collection(db, 'templateSubmissions'), where('classId', '==', activeClass.id));
     const unsub1 = onSnapshot(q1, snap => {
       const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as TemplateSubmission));
@@ -148,7 +135,6 @@ export const TemplateHubModule: React.FC = () => {
       setLoading(false);
     });
 
-    // Drafts (user only)
     let unsub2: (() => void) | undefined;
     if (user) {
       const q2 = query(
@@ -167,11 +153,7 @@ export const TemplateHubModule: React.FC = () => {
     };
   }, [activeClass, user]);
 
-  // ═══════════════════════════════════════════════════════
-  // BUILD CONTEXT — dengan semua auto-data
-  // ═══════════════════════════════════════════════════════
   const buildContext = (): TemplateContext => {
-    // Produksi aktif (yang pertama)
     const prod = productions[0];
     const production = prod
       ? {
@@ -184,7 +166,6 @@ export const TemplateHubModule: React.FC = () => {
         }
       : undefined;
 
-    // Kas aktif
     const kasSet = kasSettings[0];
     let kasLite: TemplateContext['kas'] = undefined;
     if (kasSet) {
@@ -209,7 +190,6 @@ export const TemplateHubModule: React.FC = () => {
       schoolAddress: 'Jl. Pendidikan No. 10, Samarinda, Kalimantan Timur 75123',
       schoolEmail: 'info@smpn10samarinda.sch.id',
       schoolPhone: '(0541) 123456',
-      // ✅ AUTO-SOURCES
       members: members as any,
       production,
       schedules: schedules as any,
@@ -289,7 +269,7 @@ export const TemplateHubModule: React.FC = () => {
         details: `Upload hasil "${uploadFor.shortTitle}" — ${uploadFileName}`,
       });
 
-      showToast(`✅ Hasil "${uploadFor.shortTitle}" berhasil diunggah!`, 'success');
+      showToast(`Hasil "${uploadFor.shortTitle}" berhasil diunggah.`, 'success');
       setUploadFor(null);
       setActiveTab('submissions');
     } catch (err: any) {
@@ -366,7 +346,6 @@ export const TemplateHubModule: React.FC = () => {
     myDrafts: drafts.length,
   };
 
-  // ─── Stats auto-data untuk badge
   const autoStats = {
     members: members.length,
     schedules: schedules.length,
@@ -400,7 +379,7 @@ export const TemplateHubModule: React.FC = () => {
               Template Dokumen — {activeClass.name}
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Isi form → generate DOCX otomatis (data panitia, jadwal, RAB diambil dari sistem)
+              Isi form, generate DOCX otomatis dengan data panitia, jadwal, dan RAB dari sistem
             </p>
           </div>
         </div>
@@ -430,8 +409,11 @@ export const TemplateHubModule: React.FC = () => {
       <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
         <div className="flex items-start gap-3">
           <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
-            <p className="font-black text-sm mb-1">✅ Data Otomatis Siap Diambil dari Sistem</p>
+          <div className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed w-full">
+            <p className="font-black text-sm mb-2 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4" />
+              Data Otomatis Siap Diambil dari Sistem
+            </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
               <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
                 <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Panitia & Pemain</p>
@@ -450,12 +432,12 @@ export const TemplateHubModule: React.FC = () => {
               </div>
               <div className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
                 <p className="text-[9px] font-bold uppercase text-emerald-700 dark:text-emerald-300">Kas Produksi</p>
-                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.hasKas ? '✓' : '-'}</p>
-                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">{autoStats.hasKas ? 'aktif' : 'belum aktif'}</p>
+                <p className="text-lg font-black text-emerald-900 dark:text-emerald-100">{autoStats.hasKas ? 'Aktif' : '-'}</p>
+                <p className="text-[9px] text-emerald-600 dark:text-emerald-400">{autoStats.hasKas ? 'siap dipakai' : 'belum aktif'}</p>
               </div>
             </div>
             <p className="mt-2 italic text-[10px]">
-              Proposal & LPJ akan menarik data ini <strong>otomatis</strong> — Anda hanya perlu isi narasi & tanda tangan.
+              Proposal & LPJ akan menarik data ini otomatis. Anda hanya perlu mengisi narasi dan tanda tangan.
             </p>
           </div>
         </div>
@@ -519,8 +501,6 @@ export const TemplateHubModule: React.FC = () => {
                 const canFill = canUploadForTemplate(tpl);
                 const myDraft = draftForTemplate(tpl);
                 const mySubs = subsForTemplate(tpl);
-
-                // Badge "AUTO" kalau template menarik data dari sistem
                 const hasAuto = ['proposal', 'lpj'].includes(tpl.id);
 
                 return (
@@ -536,13 +516,13 @@ export const TemplateHubModule: React.FC = () => {
                             {TEMPLATE_CATEGORIES.find(c => c.id === tpl.category)?.label}
                           </span>
                           {tpl.withKop && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40">
-                              📄 KOP
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/40 flex items-center gap-1">
+                              <FileBadge className="w-2.5 h-2.5" /> KOP
                             </span>
                           )}
                           {hasAuto && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-500/40 flex items-center gap-1">
-                              ⚡ AUTO-FILL
+                              <Zap className="w-2.5 h-2.5" /> AUTO-FILL
                             </span>
                           )}
                           {myDraft && (
@@ -723,7 +703,7 @@ export const TemplateHubModule: React.FC = () => {
         />
       )}
 
-      {/* UPLOAD MODAL (sama seperti sebelumnya) */}
+      {/* UPLOAD MODAL */}
       {uploadFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleSubmitUpload}
