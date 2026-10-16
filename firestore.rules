@@ -1,15 +1,446 @@
 rules_version = '2';
+
+// =====================================================
+// SP-PPT — Firestore Security Rules
+// SMP Negeri 10 Samarinda
+// =====================================================
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow update: if request.auth != null && request.auth.uid == userId;
-      allow delete: if false;
+
+    // ═══════════════════════════════════════════════════
+    // HELPER FUNCTIONS
+    // ═══════════════════════════════════════════════════
+    function isSignedIn() {
+      return request.auth != null;
     }
 
+    function uid() {
+      return request.auth.uid;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(uid())).data;
+    }
+
+    function userRole() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(uid()))
+        ? userDoc().role
+        : '';
+    }
+
+    function userClassId() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(uid()))
+        ? userDoc().classId
+        : '';
+    }
+
+    function isGuru() {
+      return userRole() in ['Guru Pengampu', 'Guru Pembina'];
+    }
+
+    function isAdmin() {
+      return userRole() in ['Admin', 'Super Admin'];
+    }
+
+    function isStaff() {
+      return isGuru() || isAdmin();
+    }
+
+    function isPimprod() {
+      return userRole() == 'Pimpinan Produksi';
+    }
+
+    function isSekretaris() {
+      return userRole() == 'Sekretaris';
+    }
+
+    function belongsToClass(cid) {
+      return isSignedIn() && (userClassId() == cid || isStaff());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // USERS
+    // ═══════════════════════════════════════════════════
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && uid() == userId;
+      allow update: if isSignedIn() && (uid() == userId || isStaff());
+      allow delete: if isSignedIn() && isStaff();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // USER CREDENTIALS (untuk "Lihat Pass" Guru)
+    // ═══════════════════════════════════════════════════
+    match /userCredentials/{docId} {
+      allow read: if isSignedIn() && (isStaff() || docId == uid());
+      allow write: if isSignedIn();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // CLASSES + SUBCOLLECTION CONFIG
+    // ═══════════════════════════════════════════════════
+    match /classes/{classId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isStaff();
+      allow update: if isSignedIn() && isStaff();
+      allow delete: if isSignedIn() && isAdmin();
+
+      match /config/{docId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && isStaff();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PRODUCTIONS
+    // ═══════════════════════════════════════════════════
+    match /productions/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isStaff() || isPimprod());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // TASKS (legacy)
+    // ═══════════════════════════════════════════════════
+    match /tasks/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.classId is string
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn() && belongsToClass(resource.data.classId);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // DEADLINES + SUBMISSIONS
+    // ═══════════════════════════════════════════════════
+    match /deadlines/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn() && belongsToClass(resource.data.classId);
+    }
+
+    match /deadlineSubmissions/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.studentId == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update: if isSignedIn()
+                    && (resource.data.studentId == uid() || isStaff());
+      allow delete: if isSignedIn()
+                    && (resource.data.studentId == uid() || isStaff());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ASSESSMENTS + HISTORY
+    // ═══════════════════════════════════════════════════
+    match /assessments/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.assessorId == uid()
+                    && request.resource.data.studentId != uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update: if isSignedIn()
+                    && resource.data.assessorId == uid()
+                    && request.resource.data.studentId != uid();
+      allow delete: if isSignedIn() && isStaff();
+    }
+
+    match /assessmentHistory/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ATTENDANCE
+    // ═══════════════════════════════════════════════════
+    match /attendanceSessions/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn() && belongsToClass(resource.data.classId);
+    }
+
+    match /attendanceRecords/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.studentId == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update: if isSignedIn()
+                    && (resource.data.studentId == uid() || isStaff());
+      allow delete: if isSignedIn() && isStaff();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SCHEDULES + CONFIRMATIONS
+    // ═══════════════════════════════════════════════════
+    match /schedules/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.createdBy == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn() && belongsToClass(resource.data.classId);
+    }
+
+    match /scheduleConfirmations/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.userId == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn()
+                            && (resource.data.userId == uid() || isStaff());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // DOCUMENTS
+    // ═══════════════════════════════════════════════════
+    match /documents/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.uploadedBy == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn()
+                            && (resource.data.uploadedBy == uid() || isStaff());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // BROADCASTS + CROSS-CLASS
+    // ═══════════════════════════════════════════════════
+    match /broadcasts/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.senderId == uid();
+      allow update, delete: if isSignedIn()
+                            && (resource.data.senderId == uid() || isStaff());
+    }
+
+    match /crossClassBroadcasts/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.senderId == uid();
+      allow update, delete: if isSignedIn()
+                            && (resource.data.senderId == uid() || isStaff());
+    }
+
+    match /crossClassMessages/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.senderId == uid();
+      allow update, delete: if isSignedIn()
+                            && (resource.data.senderId == uid() || isStaff());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // NOTIFICATIONS
+    // ═══════════════════════════════════════════════════
+    match /notifications/{docId} {
+      allow read: if isSignedIn() && resource.data.userId == uid();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && resource.data.userId == uid();
+
+      match /replies/{replyId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.resource.data.userId == uid();
+        allow delete: if isSignedIn() && resource.data.userId == uid();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // COMPLAINTS
+    // ═══════════════════════════════════════════════════
+    match /complaints/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.studentId == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn()
+                            && (resource.data.studentId == uid() || isStaff() || isPimprod());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // PROMPT BOOKS
+    // ═══════════════════════════════════════════════════
+    match /promptBooks/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // AUDIT LOGS
+    // ═══════════════════════════════════════════════════
+    match /auditLogs/{docId} {
+      allow read: if isSignedIn() && (isStaff() || resource.data.userId == uid());
+      allow create: if isSignedIn() && request.resource.data.userId == uid();
+      allow update, delete: if false;
+    }
+
+    // ═══════════════════════════════════════════════════
+    // KAS + BUKU KAS + RAB
+    // ═══════════════════════════════════════════════════
+    match /kasSettings/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /kasPeriods/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /kasPayments/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /cashEntries/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /rabItems/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /rabDocuments/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // DIVISI ARTISTIK
+    // ═══════════════════════════════════════════════════
+    match /properties/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /costumes/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /faceCharts/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /musicCues/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /musicReferences/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // JADWAL DIVISI, KONTEN, TIMELINE
+    // ═══════════════════════════════════════════════════
+    match /divisionSchedules/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /contentSchedule/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /directorTimeline/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /timelineConfigs/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /timelineWeeks/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // NOTULENSI, BOOKING, DRIVE
+    // ═══════════════════════════════════════════════════
+    match /notulensi/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /equipment/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow write: if isSignedIn() && belongsToClass(request.resource.data.classId);
+    }
+
+    match /bookings/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.bookedBy == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow update, delete: if isSignedIn()
+                            && (resource.data.bookedBy == uid() || isStaff() || isPimprod());
+    }
+
+    match /driveSubmissions/{docId} {
+      allow read: if isSignedIn() && belongsToClass(resource.data.classId);
+      allow create: if isSignedIn()
+                    && request.resource.data.uploadedBy == uid()
+                    && belongsToClass(request.resource.data.classId);
+      allow delete: if isSignedIn()
+                    && (resource.data.uploadedBy == uid() || isStaff());
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SCRIPTS
+    // ═══════════════════════════════════════════════════
+    match /scripts/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // TEMPLATE HUB — Submissions & Drafts
+    // ═══════════════════════════════════════════════════
+    match /templateSubmissions/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+                    && request.resource.data.uploaderId == uid();
+      allow update, delete: if isSignedIn()
+                            && (resource.data.uploaderId == uid()
+                                || isStaff()
+                                || isPimprod());
+    }
+
+    match /templateDrafts/{docId} {
+      allow read: if isSignedIn() && resource.data.userId == uid();
+      allow create, update: if isSignedIn()
+                            && request.resource.data.userId == uid();
+      allow delete: if isSignedIn() && resource.data.userId == uid();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // SYSTEM CONFIG & REMINDER LOG
+    // ═══════════════════════════════════════════════════
+    match /systemConfig/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /reminderLog/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // FALLBACK — Untuk koleksi yang belum di-enumerate
+    // ═══════════════════════════════════════════════════
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
   }
 }
