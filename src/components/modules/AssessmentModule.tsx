@@ -273,9 +273,6 @@ export const AssessmentModule: React.FC = () => {
     });
     let finalScore = w > 0 ? Math.round((sum / w) * 10) / 10 : 80;
 
-    // ============================================
-    // SAFETY NET — Batas Maksimum Nilai
-    // ============================================
     const taskScore = auto.tanggung_jawab;
     const disciplineScore = auto.kedisiplinan;
 
@@ -364,15 +361,21 @@ export const AssessmentModule: React.FC = () => {
     return { finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs, roleBreakdown };
   };
 
+  // ============================================================
+  // ✅ FIX: Guru/Admin bypass semua lock (tahap & jadwal penilaian)
+  // ============================================================
   const openGrading = (s: UserProfile) => {
-    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan oleh Guru.', 'error'); return; }
-    if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
-    if (isAssessmentLocked) {
-      if (aStatus.reason === 'not-started' && aStatus.startMs) showToast(`Dibuka dalam ${formatDuration(aStatus.startMs - Date.now())}.`, 'warning');
-      else if (aStatus.reason === 'ended') showToast(`Sudah ditutup.`, 'warning');
-      else if (aStatus.reason === 'disabled') showToast('Dinonaktifkan.', 'warning');
-      else showToast('Belum dibuka.', 'warning');
-      return;
+    // Guru & Admin: bisa mengisi/edit nilai meskipun tahap/penilaian ditutup
+    if (!canManageAll) {
+      if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan oleh Guru.', 'error'); return; }
+      if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
+      if (isAssessmentLocked) {
+        if (aStatus.reason === 'not-started' && aStatus.startMs) showToast(`Dibuka dalam ${formatDuration(aStatus.startMs - Date.now())}.`, 'warning');
+        else if (aStatus.reason === 'ended') showToast(`Sudah ditutup.`, 'warning');
+        else if (aStatus.reason === 'disabled') showToast('Dinonaktifkan.', 'warning');
+        else showToast('Belum dibuka.', 'warning');
+        return;
+      }
     }
     if (!canGradeStudent(s)) { showToast('Tidak berwenang.', 'warning'); return; }
     setSelectedStudent(s);
@@ -389,8 +392,13 @@ export const AssessmentModule: React.FC = () => {
 
   const handleSave = async () => {
     if (!user || !selectedStudent || !activeClass) return;
-    if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan. Tidak bisa menyimpan.', 'error'); return; }
-    if (isStageLocked || isAssessmentLocked) { showToast('Penilaian terkunci.', 'warning'); return; }
+
+    // ✅ Guru/Admin bypass semua lock saat menyimpan
+    if (!canManageAll) {
+      if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan. Tidak bisa menyimpan.', 'error'); return; }
+      if (isStageLocked || isAssessmentLocked) { showToast('Penilaian terkunci.', 'warning'); return; }
+    }
+
     const low = Object.values(manualScores).some(v => v <= 2);
     if (low && (!comment || comment.trim().length < 5)) { showToast('Komentar wajib bila ada nilai <= 2!', 'error'); return; }
     setIsSubmitting(true);
@@ -423,7 +431,7 @@ export const AssessmentModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'ASSESS', targetType: 'Assessment', targetId: selectedStudent.uid,
-        details: `Nilai ${total} untuk ${selectedStudent.displayName} (${selectedStage}, kategori: ${cat})`,
+        details: `Nilai ${total} untuk ${selectedStudent.displayName} (${selectedStage}, kategori: ${cat}${canManageAll && (isStageLocked || isAssessmentLocked) ? ', BYPASS LOCK' : ''})`,
       });
       showToast(`Penilaian ${selectedStudent.displayName} disimpan!`, 'success');
       setIsGradingOpen(false);
@@ -596,6 +604,19 @@ export const AssessmentModule: React.FC = () => {
         )}
         {isAssessmentLocked && aStatus.reason === 'disabled' && (
           <div className="mt-3 p-3 rounded-xl bg-slate-50 border-2 border-slate-300 flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" /><div className="text-[11px] text-slate-800"><p className="font-bold">Penilaian dinonaktifkan</p></div></div>
+        )}
+
+        {/* ✅ BANNER BYPASS UNTUK GURU/ADMIN */}
+        {canManageAll && (isStageLocked || isAssessmentLocked) && (
+          <div className="mt-3 p-3 rounded-xl bg-purple-50 border-2 border-purple-300 flex items-start gap-2">
+            <ShieldAlert className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-purple-900">
+              <p className="font-bold">Mode Guru/Admin: Bypass Lock Aktif</p>
+              <p className="mt-0.5 leading-relaxed">
+                Anda tetap dapat <strong>mengisi dan mengedit nilai</strong> meskipun tahap atau jadwal penilaian sedang <strong>ditutup / dinonaktifkan</strong>. Aturan lock hanya berlaku untuk siswa dan penilai lain.
+              </p>
+            </div>
+          </div>
         )}
 
         <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
@@ -787,7 +808,8 @@ export const AssessmentModule: React.FC = () => {
               ) : (
                 filtered.map(s => {
                   const ag = getAgg(s.uid, s.role);
-                  const cg = canGradeStudent(s) && !isStageLocked && !isAssessmentLocked;
+                  // ✅ Guru/Admin: tombol Edit/Nilai tetap muncul meskipun locked
+                  const cg = canGradeStudent(s) && (canManageAll || (!isStageLocked && !isAssessmentLocked));
                   const ps = getPeerStatus(s);
                   const commentCount = assessments.filter(a =>
                     a.studentId === s.uid &&
@@ -829,7 +851,18 @@ export const AssessmentModule: React.FC = () => {
                       <td className="py-3.5 px-4 text-center">{ag ? <span className="text-sm font-black text-slate-900 font-mono">{ag.finalVal}</span> : <span className="text-xs text-slate-400">-</span>}</td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                          {cg ? <button onClick={() => openGrading(s)} className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1"><Edit3 className="w-3 h-3" /> {ag ? 'Edit' : 'Nilai'}</button> : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : canGradeStudent(s) ? 'Lihat' : 'Bukan penilai'}</span>}
+                          {cg ? (
+                            <button onClick={() => openGrading(s)} className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 ${
+                              canManageAll && (isStageLocked || isAssessmentLocked)
+                                ? 'bg-purple-500 hover:bg-purple-600 text-white'
+                                : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                            }`}>
+                              <Edit3 className="w-3 h-3" /> {ag ? 'Edit' : 'Nilai'}
+                              {canManageAll && (isStageLocked || isAssessmentLocked) && (
+                                <Lock className="w-3 h-3 opacity-80" />
+                              )}
+                            </button>
+                          ) : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : canGradeStudent(s) ? 'Lihat' : 'Bukan penilai'}</span>}
                           {canManageAll && s.phone && <button onClick={() => handleWAScore(s)} className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100" title="WA tanya nilai"><Send className="w-3.5 h-3.5" /></button>}
                         </div>
                       </td>
@@ -847,7 +880,16 @@ export const AssessmentModule: React.FC = () => {
           <div className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
             <div className="p-6 bg-slate-900 text-white shrink-0">
               <div className="flex items-center justify-between">
-                <div><span className="text-xs font-bold text-amber-400 uppercase">Penilaian 360 • {selectedStage}</span><h3 className="text-lg font-black mt-0.5">{selectedStudent.displayName}</h3><p className="text-xs text-slate-400">{selectedStudent.role}{selectedStudent.divisionName ? ` • ${selectedStudent.divisionName}` : ''}</p></div>
+                <div>
+                  <span className="text-xs font-bold text-amber-400 uppercase">Penilaian 360 • {selectedStage}</span>
+                  <h3 className="text-lg font-black mt-0.5">{selectedStudent.displayName}</h3>
+                  <p className="text-xs text-slate-400">{selectedStudent.role}{selectedStudent.divisionName ? ` • ${selectedStudent.divisionName}` : ''}</p>
+                  {canManageAll && (isStageLocked || isAssessmentLocked) && (
+                    <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-500/50">
+                      <ShieldAlert className="w-2.5 h-2.5" /> Bypass Lock Aktif
+                    </span>
+                  )}
+                </div>
                 <div className="text-right">
                   <p className="text-[10px] text-slate-400">Perkiraan</p>
                   <p className="text-3xl font-black text-amber-400 font-mono">{calcTotal()}</p>
