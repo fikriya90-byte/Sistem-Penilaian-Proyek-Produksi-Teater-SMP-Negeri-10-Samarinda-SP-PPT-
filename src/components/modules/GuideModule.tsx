@@ -1,1017 +1,817 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Award, BookOpen, Calendar, CheckCircle, ChevronDown, ChevronRight,
-  ClipboardList, HelpCircle, Radio, Sparkles, Users, Megaphone,
-  Wallet, Calculator, Star, MessageSquare, Timer, Camera, Music,
-  Palette, Scissors, Package, ShieldCheck, Lock, KeyRound, Eye,
-  FileText, Briefcase, Layers, TrendingUp, Bell, Info, AlertTriangle,
-  ArrowRight, UserCheck, Target, Play,
-  CheckSquare,
+  Award, Printer, MessageSquare, CheckCircle, Clock, Target,
+  BarChart3, Star, TrendingUp, Bot, EyeOff, Users, Shield,
+  Sparkles, Info, Lock, Send, Download, MessageCircle, AlertCircle,
+  ChevronDown, ShieldAlert, Calculator,
 } from 'lucide-react';
-import { APP_CONFIG } from '../../core/constants';
+import {
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, Cell,
+} from 'recharts';
 import { useAuth } from '../../core/authContext';
+import { useToast } from '../common/Toast';
+import {
+  PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES, getPredikat,
+  getAssessmentMatrix, getAssessorWeights, normalizeUserRole,
+  isPemeranRole, canRoleAssessTarget,
+} from '../../core/constants';
+import { AssessmentRecord, ProductionStage } from '../../core/types';
+import {
+  subscribeAssessments, subscribeDeadlinesByClass,
+  subscribeDeadlineSubmissionsByClass, subscribeAttendanceSessions,
+  subscribeAllAttendanceRecords,
+} from '../../services/firestoreService';
+import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
+import { db } from '../../core/firebase';
+import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
-interface GuideSection {
-  id: string;
-  title: string;
-  icon: any;
-  color: string;
-  content: React.ReactNode;
-}
+type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
-// =====================================================
-// PANDUAN PER PERAN
-// =====================================================
-const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; desc: string; steps: string[] }> = {
-  'Guru Pengampu': {
-    title: 'Guru Pengampu / Pembina',
-    icon: ShieldCheck,
-    color: 'from-amber-700 to-orange-800',
-    desc: 'Pengawas tertinggi, pembimbing artistik, penilai utama',
-    steps: [
-      'Buka Dashboard untuk melihat ringkasan seluruh aktivitas kelas',
-      'Kelola Kelas → buat kelas baru, bagikan kode ke siswa, kelola akun',
-      'Kelola Siswa → klik "Lihat Pass" untuk melihat email & password siswa, atau "Reset" untuk mengirim link reset password ke email siswa',
-      'Kelola Tahapan → atur tahap aktif dan deadline per tahapan produksi (Persiapan, Pelaksanaan, Pertunjukan, Pasca). Tahap yang dinonaktifkan di sini juga mengunci penilaian pada tahap tersebut',
-      'Kelola Tahapan → Carry Over untuk memindahkan deadline dari tahap sebelumnya ke tahap aktif (hanya Guru Pengampu)',
-      'Jadwal Penilaian → atur kapan penilaian tiap tahap dibuka dan ditutup (tanggal + jam)',
-      'Tugas & Deadline → kirim tugas dari template ke siswa (bisa pilih beberapa template dan beberapa target)',
-      'Nilai & Penilaian → beri nilai Pimpinan Produksi dan Sutradara (atasan tertinggi). Guru bisa menilai siapa saja, tetapi hanya saat jendela penilaian tahap itu sedang terbuka',
-      'Nilai & Penilaian → cek panel "Perlu Klarifikasi" untuk nilai yang terlalu ekstrem atau berbeda jauh dari penilai lain, lalu hubungi penilai lewat WA',
-      'Moderasi → tinjau penilaian dari ketua dan rekan',
-      'Statistik Presensi → lihat rekap kehadiran per siswa & divisi',
-      'Backup & Restore → backup data Firestore ke JSON untuk arsip',
-      'Panduan ini bisa dibuka berkali-kali kapan pun dibutuhkan',
-    ],
-  },
-  'Pimpinan Produksi': {
-    title: 'Pimpinan Produksi (Pimpro)',
-    icon: Sparkles,
-    color: 'from-blue-800 to-indigo-900',
-    desc: 'Manajer proyek, penyusun Master Schedule & LPJ',
-    steps: [
-      'Dashboard → lihat status keseluruhan produksi & progress 6 divisi',
-      'Susun Master Production Schedule & validasi RAB bersama Bendahara',
-      'Tugas & Deadline → kirim tugas ke divisi & peran terkait',
-      'Presensi → buat sesi absensi pleno (semua siswa) atau lintas divisi',
-      'Jadwal & Agenda → tambah jadwal rapat, gladi, dan pementasan',
-      'Struktur Kerabat → ubah nama kerabat kerja (opsi Guru & Pimpro)',
-      'Broadcast → kirim pengumuman siaran ke semua siswa',
-      'Nilai & Penilaian → beri nilai Sekretaris, Bendahara, dan Koordinator Divisi (sebagai atasan mereka)',
-      'Saat Show Time: pimpin Taklimat 10 menit sebelum pintu dibuka',
-      'Kendalikan waktu: 10 menit persiapan + 30 menit tampil + 5 menit bongkar',
-      'Setelah selesai: susun LPJ & serahkan ke Guru',
-    ],
-  },
-  'Sekretaris': {
-    title: 'Sekretaris Administrasi',
-    icon: FileText,
-    color: 'from-blue-700 to-blue-900',
-    desc: 'Presensi harian, arsip dokumen, notulen rapat',
-    steps: [
-      'Dashboard → lihat sesi presensi aktif & agenda hari ini',
-      'Presensi → buat sesi absensi untuk rapat pleno / lintas divisi',
-      'Isi Buku Log Produksi (catat kehadiran tiap sesi latihan & hasil rapat)',
-      'Jadwal & Agenda → tambah jadwal internal untuk rapat koordinasi',
-      'Dokumen & Arsip → unggah draf naskah, notulen, proposal ke arsip web',
-      'Broadcast → kirim pengumuman resmi ke tim',
-      'Nilai & Penilaian → beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
-      'Saat Show Time: bertugas di Front of House (FOH) — arahkan antrean, validasi tiket, bagikan buku acara',
-      'Catat statistik riil jumlah penonton',
-      'Setelah selesai: susun & distribusikan sertifikat/surat apresiasi, arsipkan semua dokumen',
-    ],
-  },
-  'Bendahara': {
-    title: 'Bendahara Keuangan & Logistik',
-    icon: Wallet,
-    color: 'from-emerald-700 to-green-900',
-    desc: 'RAB, kas produksi, buku kas, nota, LPJ keuangan',
-    steps: [
-      'Dashboard → lihat saldo, pemasukan, pengeluaran, capaian kas',
-      'Kas & Buku Kas → aktifkan fitur kas (kesepakatan kelas) dengan nominal & periode',
-      'Centang pembayaran siswa per periode. Saldo terakumulasi otomatis',
-      'Buku Kas → catat pemasukan (kas siswa, sumbangan) & pengeluaran (beli properti, konsumsi)',
-      'Export Excel → 4 sheet: Ringkasan, Pemasukan, Pengeluaran, Rekap Periode',
-      'RAB Digital → susun RAB per divisi/peran/umum dengan estimasi biaya',
-      'Export RAB ke Word (.doc) untuk ditandatangani Pimpro',
-      'Unggah RAB Final yang sudah ditandatangani ke menu RAB',
-      'Kirim Reminder santun ke siswa yang belum bayar',
-      'Nilai & Penilaian → beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
-      'Saat Show Time: siapkan Tas Logistik Darurat (P3K, peniti, selotip, air minum)',
-      'Setelah selesai: susun tabel Perbandingan Anggaran (estimasi vs realisasi) & LPJ Keuangan',
-    ],
-  },
-  'Sutradara': {
-    title: 'Sutradara',
-    icon: Star,
-    color: 'from-rose-700 to-pink-900',
-    desc: 'Visi artistik, casting, penilai utama aktor',
-    steps: [
-      'Dashboard → lihat kriteria akting pemain & progres latihan',
-      'Studio & Naskah → 3x3 blocking grid untuk blocking panggung',
-      'Simpan posisi aktor di 9 zona panggung (UL, UC, UR, CL, C, CR, DL, DC, DR)',
-      'Editor Cue Sheet untuk instruksi cue musik & lampu',
-      'Presensi → buat sesi latihan untuk Pemain + Tata Musik (peserta terkunci)',
-      'Nilai & Penilaian → beri nilai Asisten Sutradara, Pemain, dan Koordinator Artistik (Busana, Rias, Panggung, Musik)',
-      'Saat Show Time: pimpin gladi bersih & pastikan durasi tepat 30 menit',
-      'Beri motivasi akhir & input nilai keaktoran saat pementasan',
-      'Setelah selesai: tulis analisis perkembangan keaktoran individual via web',
-    ],
-  },
-  'Asisten Sutradara': {
-    title: 'Asisten Sutradara (Astrada)',
-    icon: Play,
-    color: 'from-purple-700 to-indigo-900',
-    desc: 'Prompt book, cue sheet, catatan latihan',
-    steps: [
-      'Dashboard → lihat status pemain & cue berikutnya',
-      'Studio → Prompt Book untuk kelola cue sheet audio & lighting',
-      'Susun Call Sheet latihan per adegan',
-      'Kelola setor hafalan dialog pemain via video/audio',
-      'Latih Shadow Player (pemain cadangan)',
-      'Presensi → buat absensi latihan Pemain + Musik',
-      'Nilai & Penilaian → beri nilai Pemain (bawahan), Sutradara (feedback ke atasan), & Koor Artistik (rekan kerja)',
-      'Saat Show Time: panggil pemain ke wing, pandu pemanasan vokal',
-      'Kontrol urutan adegan sesuai 30 menit',
-      'Siap gantikan Sutradara jika berhalangan',
-      'Setelah selesai: konsolidasi catatan perkembangan pemain ke arsip',
-    ],
-  },
-  'Koordinator Perlengkapan': {
-    title: 'Koordinator Perlengkapan',
-    icon: Package,
-    color: 'from-blue-700 to-blue-900',
-    desc: 'Properti, bahan daur ulang, inventaris',
-    steps: [
-      'Dashboard → lihat 6 divisi & progress perlengkapan',
-      'Properti → daftar properti per adegan (maks prioritas daur ulang)',
-      'Update status properti: BELUM / PROSES / SELESAI / RUSAK',
-      'Presensi → buat sesi absensi internal divisi Perlengkapan (peserta terkunci ke anggota)',
-      'Jadwal Divisi → tambah jadwal internal divisi',
-      'Nilai & Penilaian → beri nilai Anggota Perlengkapan (bawahan) & Pimpinan Produksi (feedback atasan)',
-      'Saat Show Time: bagi zona prop table di wing, eksekusi transisi properti cepat',
-      'Setelah selesai: kembalikan inventaris sekolah & update status barang di web',
-    ],
-  },
-  'Koordinator Publikasi': {
-    title: 'Koordinator Publikasi & Dokumentasi',
-    icon: Camera,
-    color: 'from-emerald-700 to-green-900',
-    desc: 'Poster, konten, BTS, aftermovie',
-    steps: [
-      'Dashboard → kelola timeline publikasi & jadwal konten',
-      'Jadwal Konten → susun kalender konten (H-30, H-14, H-7, H-1, Hari-H)',
-      'Dokumen & Arsip → unggah foto & video Behind the Scene',
-      'Presensi internal divisi untuk koordinasi',
-      'Nilai & Penilaian → beri nilai Anggota Publikasi (bawahan) & Pimpinan Produksi (feedback atasan)',
-      'Saat Show Time: pasang kamera statis di angle terbaik',
-      'Ambil foto candid penonton & rekam pementasan 30 menit utuh',
-      'Setelah selesai: sunting aftermovie & arsipkan semua media ke Drive',
-    ],
-  },
-  'Koordinator Tata Panggung': {
-    title: 'Koordinator Tata Panggung',
-    icon: Layers,
-    color: 'from-purple-700 to-purple-900',
-    desc: 'Desain panggung, set, cross-operator',
-    steps: [
-      'Dashboard → lihat progress divisi & tugas terkait',
-      'Properti → kelola properti panggung (set, backdrop)',
-      'Presensi internal divisi Tata Panggung',
-      'Nilai & Penilaian → beri nilai Anggota Panggung (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: eksekusi pasang set 10 menit, bongkar 5 menit',
-      'Jaga sterilitas area samping & pindahkan dekorasi tanpa suara',
-      'Setelah selesai: bongkar set & kembalikan panggung ke kondisi semula',
-    ],
-  },
-  'Koordinator Tata Rias': {
-    title: 'Koordinator Tata Rias',
-    icon: Palette,
-    color: 'from-pink-700 to-rose-900',
-    desc: 'Face chart, rias karakter/fantasi, higienitas',
-    steps: [
-      'Dashboard → kelola face chart & jadwal urutan merias',
-      'Face Chart → buat desain rias per pemain (Korektif / Karakter / Fantasi)',
-      'Unggah moodboard & face chart ke web',
-      'Presensi internal divisi Tata Rias',
-      'Nilai & Penilaian → beri nilai Anggota Rias (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: eksekusi tata rias sesuai timeline',
-      'Standby touch-up cepat di antara adegan',
-      'Setelah selesai: dampingi pembersihan rias & sterilkan alat',
-    ],
-  },
-  'Koordinator Tata Busana': {
-    title: 'Koordinator Tata Busana',
-    icon: Scissors,
-    color: 'from-indigo-700 to-indigo-900',
-    desc: 'Desain kostum, fitting, quick change',
-    steps: [
-      'Dashboard → kelola desain & status kostum per peran',
-      'Kostum → tambah kostum untuk karakter & pemain',
-      'Track progress: DESAIN → POTONG → JAHIT → FITTING → SELESAI',
-      'Simpan moodboard, ukuran pemain, meter kain yang digunakan',
-      'Presensi internal divisi Tata Busana',
-      'Nilai & Penilaian → beri nilai Anggota Busana (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: bagi area rak gantung, dampingi quick change pemain',
-      'Setelah selesai: cuci, bersihkan, & kembalikan aset kostum',
-    ],
-  },
-  'Koordinator Tata Musik': {
-    title: 'Koordinator Tata Musik & Suara',
-    icon: Music,
-    color: 'from-cyan-700 to-blue-900',
-    desc: 'Cue sheet audio, sound check, instrumen',
-    steps: [
-      'Dashboard → kelola sound cue sheet',
-      'Cue Sheet → tambah cue audio: Overture, Penutup, Pergantian Babak, dll',
-      'Simpan URL audio, volume, durasi per cue',
-      'Presensi internal divisi Tata Musik',
-      'Nilai & Penilaian → beri nilai Anggota Musik (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: bagi channel mixer, check sound 10 menit',
-      'Mainkan musik iringan presisi mengikuti alur adegan 30 menit',
-      'Setelah selesai: rapikan & kembalikan instrumen ke penyimpanan',
-    ],
-  },
-  'Anggota Perlengkapan': {
-    title: 'Anggota Divisi Perlengkapan',
-    icon: Package,
-    color: 'from-blue-600 to-blue-800',
-    desc: 'Produksi properti, bahan daur ulang',
-    steps: [
-      'Dashboard → lihat tugas dari koordinator & progress Anda',
-      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
-      'Bukti tidak wajib. Untuk menambahkan catatan atau link (mis. Google Drive), pilih "Tambah Catatan"',
-      'Properti → tambah/update properti yang Anda kerjakan',
-      'Jadwal Divisi Saya → lihat agenda internal divisi',
-      'Presensi → isi kehadiran Anda di setiap sesi',
-      'Kas Saya → cek tagihan kas yang harus dibayar',
-      'Nilai & Penilaian → beri nilai Koordinator Perlengkapan (feedback atasan) & sesama Anggota (rekan)',
-      'Nilai Saya → lihat rapor pribadi',
-    ],
-  },
-  'Anggota Publikasi': {
-    title: 'Anggota Divisi Publikasi & Dokumentasi',
-    icon: Camera,
-    color: 'from-emerald-600 to-emerald-800',
-    desc: 'Foto, video, BTS, media sosial',
-    steps: [
-      'Dashboard → lihat tugas dokumentasi yang ditugaskan',
-      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan link media dari Drive sebagai catatan jika perlu',
-      'Dokumen & Arsip → unggah foto/video ke arsip digital',
-      'Jadwal Konten → lihat kalender publikasi',
-      'Presensi → isi kehadiran di setiap sesi',
-      'Kas Saya → cek tagihan kas',
-      'Nilai & Penilaian → beri nilai Koordinator Publikasi (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Panggung': {
-    title: 'Anggota Divisi Tata Panggung',
-    icon: Layers,
-    color: 'from-purple-600 to-purple-800',
-    desc: 'Konstruksi set, spotting, dekorasi',
-    steps: [
-      'Dashboard → lihat tugas konstruksi set',
-      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan catatan jika perlu',
-      'Properti → update status pekerjaan konstruksi',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Panggung (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Rias': {
-    title: 'Anggota Divisi Tata Rias',
-    icon: Palette,
-    color: 'from-pink-600 to-rose-800',
-    desc: 'Aplikasi rias, higienitas alat',
-    steps: [
-      'Dashboard → lihat tugas rias yang ditugaskan',
-      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
-      'Face Chart → lihat desain rias dari koordinator',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Rias (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Busana': {
-    title: 'Anggota Divisi Tata Busana',
-    icon: Scissors,
-    color: 'from-indigo-600 to-indigo-800',
-    desc: 'Jahit, modifikasi, fitting',
-    steps: [
-      'Dashboard → lihat tugas busana',
-      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
-      'Kostum → update status kostum yang Anda kerjakan',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Busana (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Anggota Tata Musik': {
-    title: 'Anggota Divisi Tata Musik & Suara',
-    icon: Music,
-    color: 'from-cyan-600 to-cyan-800',
-    desc: 'Musik, sound, instrumen',
-    steps: [
-      'Dashboard → lihat cue & tugas musik',
-      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
-      'Cue Sheet → lihat & update cue audio',
-      'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Musik (feedback atasan) & sesama Anggota (rekan)',
-    ],
-  },
-  'Pemain': {
-    title: 'Pemain (Aktor / Aktris)',
-    icon: Star,
-    color: 'from-rose-600 to-pink-800',
-    desc: 'Akting, hafalan dialog, blocking, refleksi',
-    steps: [
-      'Dashboard → lihat progress latihan & nilai sementara',
-      'Naskah & Blocking → baca naskah digital & lihat blocking 3x3',
-      'Rekam suara latihan dialog dengan fitur Perekam Suara',
-      'Ikuti 10 langkah latihan dialog',
-      'Tugas & Deadline → tekan "Tandai Selesai" & kirim hafalan via video jika diminta',
-      'Jadwal Latihan → konfirmasi kehadiran latihan',
-      'Presensi → isi kehadiran di setiap sesi',
-      'Nilai & Penilaian → beri nilai Sutradara & Astrada (pengarah langsung), serta sesama Pemain (rekan)',
-      'Nilai Saya → lihat rapor penilaian keaktoran',
-      'Refleksi Diri → isi refleksi setelah pementasan',
-    ],
-  },
+const CATEGORY_LABEL: Record<AssessorCategory, string> = {
+  GURU: 'Guru Pengampu', ATASAN: 'Koordinator', REKAN: 'Rekan Kerja', BAWAHAN: 'Anggota Tim',
 };
 
-export const GuideModule: React.FC = () => {
-  const { user } = useAuth();
-  const [activeSection, setActiveSection] = useState<string>('my-role');
-  const [showAllRoles, setShowAllRoles] = useState(false);
+function buildWhatsAppUrl(phone: string, text: string): string {
+  let clean = (phone || '').replace(/\D/g, '');
+  if (clean.startsWith('0')) clean = '62' + clean.slice(1);
+  return clean ? `https://wa.me/${clean}?text=${encodeURIComponent(text)}` : '#';
+}
 
-  const myRole = user?.role || 'Pemain';
-  const myGuide = ROLE_GUIDES[myRole];
+function isAssessmentOpen(stageDeadlines: any, stageId: ProductionStage) {
+  const cfg = stageDeadlines?.[stageId];
+  if (!cfg) return { open: false, reason: 'no-config' as const };
+  if (cfg.assessmentEnabled === false) return { open: false, reason: 'disabled' as const };
+  const startMs = cfg.assessmentStart ? new Date(cfg.assessmentStart).getTime() : undefined;
+  const endMs = cfg.assessmentEnd ? new Date(cfg.assessmentEnd).getTime() : undefined;
+  const now = Date.now();
+  if (startMs && !isNaN(startMs) && now < startMs) return { open: false, reason: 'not-started' as const, startMs, endMs };
+  if (endMs && !isNaN(endMs) && now > endMs) return { open: false, reason: 'ended' as const, startMs, endMs };
+  return { open: true, reason: 'open' as const, startMs, endMs };
+}
 
-  const SECTIONS: GuideSection[] = [
-    // ============================================
-    // 1. PANDUAN PERAN ANDA (dinamis berdasarkan login)
-    // ============================================
-    {
-      id: 'my-role',
-      title: `📌 Panduan untuk Peran Anda: ${myRole}`,
-      icon: myGuide?.icon || UserCheck,
-      color: myGuide?.color || 'from-amber-600 to-orange-800',
-      content: (
-        <div className="space-y-4">
-          {myGuide ? (
-            <>
-              <div className={`p-4 rounded-2xl bg-gradient-to-r ${myGuide.color} text-white`}>
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-2xl bg-white/20 backdrop-blur-sm shrink-0">
-                    <myGuide.icon className="w-7 h-7" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-black">{myGuide.title}</h3>
-                    <p className="text-xs opacity-90 mt-0.5">{myGuide.desc}</p>
-                  </div>
-                </div>
-              </div>
+function formatDateTime(iso: string | undefined): string {
+  if (!iso) return '-';
+  try {
+    return new Date(iso).toLocaleString('id-ID', {
+      day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }) + ' WITA';
+  } catch { return '-'; }
+}
 
-              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                <div className="flex items-center gap-2 mb-2">
-                  <Target className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-                  <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
-                    Yang bisa Anda lakukan:
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {myGuide.steps.map((step, i) => (
-                    <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-amber-100 dark:border-amber-500/20">
-                      <span className="w-6 h-6 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-[11px] shrink-0">
-                        {i + 1}
-                      </span>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed pt-0.5">
-                        {step}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+function formatDuration(ms: number): string {
+  if (ms <= 0) return '0 detik';
+  const d = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (d > 0) return `${d} hari ${h} jam`;
+  if (h > 0) return `${h} jam ${m} menit`;
+  if (m > 0) return `${m} menit`;
+  return `${Math.floor(ms / 1000)} detik`;
+}
 
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                  Panduan ini dapat dibuka berkali-kali kapan pun Anda butuh.
-                  Sidebar menu menampilkan fitur sesuai wewenang peran Anda.
-                </p>
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-slate-500 italic text-center py-4">
-              Panduan untuk peran "{myRole}" belum tersedia.
-            </p>
-          )}
-        </div>
-      ),
-    },
+export const MyGradeModule: React.FC = () => {
+  const { user, activeClass, isGuruPengampu, isAdminRole } = useAuth();
+  const { showToast } = useToast();
+  const [assessments, setAssessments] = useState<AssessmentRecord[]>([]);
+  const [classmates, setClassmates] = useState<any[]>([]);
+  const [deadlines, setDeadlines] = useState<any[]>([]);
+  const [submissions, setSubmissions] = useState<any[]>([]);
+  const [attendanceSessions, setAttendanceSessions] = useState<any[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
+  const [stageConfig, setStageConfig] = useState<any>(null);
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [, setTick] = useState(0);
 
-    // ============================================
-    // 2. PENGANTAR SP-PPT
-    // ============================================
-    {
-      id: 'intro',
-      title: '🎭 Pengantar SP-PPT',
-      icon: BookOpen,
-      color: 'from-slate-700 to-slate-900',
-      content: (
-        <div className="space-y-3 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
-          <p>
-            <strong>SP-PPT (Sistem Penilaian & Manajemen Proyek Produksi Teater)</strong> adalah platform
-            web resmi pembelajaran Seni Budaya (Seni Teater) Kelas IX di SMP Negeri 10 Samarinda.
+  useEffect(() => {
+    const t = setInterval(() => setTick(n => n + 1), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const canBypassGate = isGuruPengampu || isAdminRole;
+
+  useEffect(() => {
+    if (!activeClass || !user) return;
+    const unsub = subscribeAssessments(activeClass.id, (records) => {
+      setAssessments(records);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [activeClass, user]);
+
+  useEffect(() => {
+    if (!activeClass) return;
+    const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setStageConfig(data);
+        if (data.currentStage) setSelectedStage(data.currentStage);
+      }
+    });
+    return () => unsub();
+  }, [activeClass]);
+
+  useEffect(() => {
+    if (!activeClass) return;
+    const q = query(collection(db, 'users'), where('classId', '==', activeClass.id));
+    const unsub = onSnapshot(q, snap => {
+      const users = snap.docs.map(d => {
+        const raw = { ...d.data(), uid: d.id };
+        return { ...raw, role: normalizeUserRole(raw.role) };
+      });
+      setClassmates(users);
+    });
+    return () => unsub();
+  }, [activeClass]);
+
+  // NEW: subscribe deadlines, submissions, attendance
+  useEffect(() => {
+    if (!activeClass || !user) return;
+    const u1 = subscribeDeadlinesByClass(activeClass.id, setDeadlines);
+    const u2 = subscribeDeadlineSubmissionsByClass(activeClass.id, setSubmissions);
+    const u3 = subscribeAttendanceSessions(activeClass.id, setAttendanceSessions);
+    const u4 = subscribeAllAttendanceRecords(activeClass.id, setAttendanceRecords);
+    return () => { u1(); u2(); u3(); u4(); };
+  }, [activeClass, user]);
+
+  const peerStatus = (() => {
+    if (!user || classmates.length === 0) {
+      return { total: 0, filled: 0, pending: 0, pct: 100, isComplete: true, targets: [] as any[] };
+    }
+    const targets = classmates.filter(s => {
+      if (s.uid === user.uid) return false;
+      if (['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role)) return false;
+      return canRoleAssessTarget(s.role, user.role);
+    });
+    const filled = targets.filter(t =>
+      assessments.some(a =>
+        a.assessorId === user.uid &&
+        a.studentId === t.uid &&
+        a.stage === selectedStage
+      )
+    ).length;
+    const total = targets.length;
+    return {
+      total, filled, pending: total - filled,
+      pct: total > 0 ? Math.round((filled / total) * 100) : 100,
+      isComplete: filled >= total, targets,
+    };
+  })();
+
+  const peerGateUnlocked = canBypassGate || peerStatus.isComplete || peerStatus.total === 0;
+
+  const assessmentStatus = isAssessmentOpen(stageConfig?.stageDeadlines, selectedStage);
+  const assessmentTimeOpen = canBypassGate || assessmentStatus.open;
+
+  const myAssessments = assessments.filter(a => a.studentId === user?.uid);
+
+  const getStageScore = (stage: ProductionStage) => {
+    const stageRecords = myAssessments.filter(a => a.stage === stage);
+    if (stageRecords.length === 0) return null;
+    const byCat: Record<string, AssessmentRecord[]> = {};
+    stageRecords.forEach(r => {
+      const cat = (r as any).assessorCategory || 'REKAN';
+      if (!byCat[cat]) byCat[cat] = [];
+      byCat[cat].push(r);
+    });
+    const avg = (arr: AssessmentRecord[]) =>
+      arr.length > 0 ? arr.reduce((s, a) => s + a.totalScore, 0) / arr.length : null;
+    const weights = getAssessorWeights(normalizeUserRole(user?.role));
+    let sum = 0, wSum = 0;
+    Object.entries(weights).forEach(([cat, w]) => {
+      const catScore = byCat[cat] ? avg(byCat[cat]) : null;
+      if (catScore !== null && w > 0) { sum += catScore * w; wSum += w; }
+    });
+    return wSum > 0 ? Math.round((sum / wSum) * 10) / 10 : null;
+  };
+
+  const stageScores: Record<ProductionStage, number | null> = {
+    PERSIAPAN: getStageScore('PERSIAPAN'),
+    PELAKSANAAN: getStageScore('PELAKSANAAN'),
+    PERTUNJUKAN: getStageScore('PERTUNJUKAN'),
+    PASCA: getStageScore('PASCA'),
+  };
+
+  const computeFinal = () => {
+    let sum = 0, wTotal = 0;
+    STAGES.forEach(s => {
+      const sc = stageScores[s.id];
+      if (sc !== null) { sum += sc * (s.defaultWeight / 100); wTotal += s.defaultWeight / 100; }
+    });
+    return wTotal > 0 ? Math.round((sum / wTotal) * 10) / 10 : 0;
+  };
+
+  const finalScore = computeFinal();
+  const predikatInfo = getPredikat(finalScore);
+  const hasAnyScore = Object.values(stageScores).some(s => s !== null);
+
+  const isActor = isPemeranRole(user?.role);
+  const allCriteria = isActor ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
+
+  // NEW: compute task responsibility & attendance for explanation
+  const taskResult = (() => {
+    if (!user) return { score: 4, total: 0, pct: 100, awal: 0, tepat: 0, telat: 0, belum: 0 };
+    const myDeadlines = deadlines.filter(d => {
+      if (d.status === 'CANCELLED') return false;
+      const sc = d.targetScope;
+      if (sc === 'SEMUA') return true;
+      if (sc === 'PERAN') return d.targetRole === user.role;
+      if (sc === 'DIVISI') return d.targetDivision === user.divisionName;
+      if (sc === 'CUSTOM') {
+        const tr: string[] = d.targetRoles || [];
+        const td: string[] = d.targetDivisions || [];
+        const tu: string[] = d.targetUserIds || [];
+        if (tr.length > 0 && tr.includes(user.role)) return true;
+        if (td.length > 0 && user.divisionName && td.includes(user.divisionName)) return true;
+        if (tu.length === 0) return true;
+        return tu.includes(user.uid);
+      }
+      return false;
+    });
+    let awal = 0, tepat = 0, telat = 0, belum = 0;
+    myDeadlines.forEach(task => {
+      const sub = submissions.find(s => s.deadlineId === task.id && s.studentId === user.uid);
+      if (!sub || sub.status === 'BELUM') { belum++; return; }
+      if (sub.status === 'SELESAI' && sub.submittedAt) {
+        const diff = Math.floor((new Date(sub.submittedAt).getTime() - new Date(task.dueDate).getTime()) / 86400000);
+        if (diff <= -1) awal++;
+        else if (diff === 0) tepat++;
+        else telat++;
+      } else if (sub.status === 'TERLAMBAT') telat++;
+    });
+    const total = myDeadlines.length;
+    if (total === 0) return { score: 4, total: 0, pct: 100, awal: 0, tepat: 0, telat: 0, belum: 0 };
+    const pct = Math.round(((awal + tepat) / total) * 100);
+    let score = 1;
+    if (pct >= 90) score = 4;
+    else if (pct >= 75) score = 3;
+    else if (pct >= 50) score = 2;
+    return { score, total, pct, awal, tepat, telat, belum };
+  })();
+
+  const attendResult = (() => {
+    if (!user) return { score: 4, total: 0, pct: 100, hadir: 0, izin: 0, alpa: 0 };
+    const myRecords = attendanceRecords.filter(r => r.studentId === user.uid);
+    let h = 0, iz = 0, al = 0;
+    myRecords.forEach(r => {
+      if (r.status === 'Hadir') h++;
+      else if (r.status === 'Izin' || r.status === 'Sakit') iz++;
+      else if (r.status === 'Alpa') al++;
+    });
+    const total = myRecords.length;
+    if (total === 0) return { score: 4, total: 0, pct: 100, hadir: 0, izin: 0, alpa: 0 };
+    const pct = Math.round(((h + iz) / total) * 100);
+    let score = 1;
+    if (pct >= 95) score = 4;
+    else if (pct >= 85) score = 3;
+    else if (pct >= 70) score = 2;
+    if (al >= 3) score = Math.min(score, 2);
+    return { score, total, pct, hadir: h, izin: iz, alpa: al };
+  })();
+
+  const disciplineScore = isActor ? Math.floor((taskResult.score + attendResult.score) / 2) : null;
+
+  const safetyNet = (() => {
+    if (taskResult.total > 0 && taskResult.score === 1) {
+      return { active: true, cap: 70, reason: 'Tugas tidak dikerjakan (skor Tanggung Jawab = 1)' };
+    }
+    if (isActor && disciplineScore !== null && disciplineScore <= 2 && attendResult.total > 0) {
+      return { active: true, cap: 75, reason: 'Kedisiplinan rendah (skor Kedisiplinan ≤ 2)' };
+    }
+    return { active: false, cap: 100, reason: '' };
+  })();
+
+  const handleDownload = () => {
+    if (!user) return;
+    const sheet1 = {
+      name: 'Ringkasan',
+      headers: ['Tahap', 'Nilai Tahap', 'Bobot'],
+      rows: STAGES.map(s => [s.id, stageScores[s.id] ?? '-', `${s.defaultWeight}%`]),
+    };
+    const sheet2 = {
+      name: 'Nilai Akhir',
+      headers: ['Field', 'Nilai'],
+      rows: [
+        ['Nama', user.displayName],
+        ['Peran', user.role],
+        ['Divisi', user.divisionName || '-'],
+        ['Kelas', activeClass?.name || '-'],
+        ['Nilai Akhir', finalScore],
+        ['Predikat', predikatInfo.predikat],
+        ['Keterangan', predikatInfo.label],
+        ['Safety Net', safetyNet.active ? `Aktif (max ${safetyNet.cap})` : 'Tidak aktif'],
+        ['Tanggal Unduh', new Date().toLocaleString('id-ID')],
+      ],
+    };
+    const criteriaScores: Record<string, number[]> = {};
+    myAssessments.forEach(a => {
+      Object.entries(a.scores || {}).forEach(([k, v]) => {
+        if (!criteriaScores[k]) criteriaScores[k] = [];
+        criteriaScores[k].push(v);
+      });
+    });
+    const sheet3 = {
+      name: 'Rincian Kriteria',
+      headers: ['Kriteria', 'Bobot', 'Rata-rata (1-4)', 'Konversi (0-100)', 'Sumber'],
+      rows: allCriteria.map(c => {
+        const arr = criteriaScores[c.key] || [];
+        const avg = arr.length > 0 ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
+        return [c.label, `${c.weight}%`, avg ? avg.toFixed(2) : '-', avg ? SCORE_SCALE[Math.round(avg)]?.score100 : '-', c.source === 'MANUAL' ? 'Manual' : 'Otomatis'];
+      }),
+    };
+    const sheet4 = {
+      name: 'Skor Otomatis',
+      headers: ['Komponen', 'Skor (1-4)', 'Detail'],
+      rows: [
+        ['Tanggung Jawab', taskResult.score, `${taskResult.pct}% tugas tepat waktu (${taskResult.awal + taskResult.tepat}/${taskResult.total})`],
+        ['Kehadiran', attendResult.score, `${attendResult.pct}% hadir (${attendResult.hadir}/${attendResult.total})`],
+        ...(isActor && disciplineScore !== null ? [['Kedisiplinan', disciplineScore, `Rata-rata tugas & kehadiran`]] : []),
+      ],
+    };
+    exportMultiSheetXLSX(
+      `Rapor_${user.displayName.replace(/\s+/g, '_')}_${activeClass?.name || 'Kelas'}_${new Date().toISOString().slice(0, 10)}.xls`,
+      [sheet1, sheet2, sheet3, sheet4]
+    );
+    showToast('Rapor berhasil diunduh!', 'success');
+  };
+
+  const handleWAAskTeacher = () => {
+    const guru = classmates.find(c => c.role === 'Guru Pengampu' || c.role === 'Guru Pembina');
+    if (!guru?.phone) { showToast('Nomor WhatsApp Guru belum tersedia.', 'warning'); return; }
+    const text =
+      `Halo Pak/Bu ${guru.displayName},\n\n` +
+      `Saya ${user?.displayName} (${user?.role}) dari kelas ${activeClass?.name}.\n\n` +
+      `Saya ingin *menanyakan/membahas nilai saya* di tahap ${selectedStage}.\n\n` +
+      `Nilai akhir saya saat ini: ${finalScore} (${predikatInfo.predikat}).\n\n` +
+      `Mohon arahan dan bimbingannya. Terima kasih`;
+    window.open(buildWhatsAppUrl(guru.phone, text), '_blank', 'noopener,noreferrer');
+  };
+
+  if (loading) return <div className="p-12 text-center text-slate-400 text-xs">Memuat...</div>;
+  if (!user) return null;
+
+  if (!peerGateUnlocked) {
+    return (
+      <div className="space-y-6 max-w-2xl mx-auto">
+        <div className="p-8 rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border-2 border-amber-300 dark:border-amber-500/40 text-center">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-100 dark:bg-amber-500/20 border-4 border-amber-300 dark:border-amber-500/40 mb-4">
+            <Lock className="w-10 h-10 text-amber-600 dark:text-amber-400" />
+          </div>
+          <h2 className="text-xl font-black text-amber-900 dark:text-amber-200">Nilai Anda Belum Bisa Dibuka</h2>
+          <p className="text-xs text-amber-800 dark:text-amber-300 mt-3 leading-relaxed max-w-md mx-auto">
+            Untuk menjaga keadilan penilaian 360°, <strong>Anda harus menyelesaikan penilaian rekan kerja</strong> terlebih dahulu sebelum melihat nilai sendiri.
           </p>
-          <p>
-            Sistem ini mendokumentasikan, mengelola alur kerja, dan menilai proses produksi teater
-            secara holistik dari tahap <strong>Pra-Produksi → Pelaksanaan (3 bulan) → Show Time → Pasca-Produksi</strong>.
-          </p>
-          <div className="p-3 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-200 dark:border-amber-500/30">
-            <p className="text-amber-900 dark:text-amber-200 font-bold text-[11px]">
-              💡 Prinsip Utama:
-            </p>
-            <p className="text-amber-800 dark:text-amber-300 text-[11px] mt-1">
-              Penilaian tidak hanya melihat hari-H pertunjukan di panggung, tetapi menghargai setiap
-              tetes keringat proses latihan, koordinasi divisi, dan kedisiplinan kerja tim.
+          <div className="mt-5 p-4 rounded-2xl bg-white/70 dark:bg-slate-800/70 border border-amber-200 dark:border-amber-500/30 max-w-sm mx-auto">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-amber-900 dark:text-amber-200">Progress Penilaian Anda</span>
+              <span className="text-[11px] font-black text-amber-900 dark:text-amber-200">{peerStatus.filled}/{peerStatus.total}</span>
+            </div>
+            <div className="w-full h-3 bg-amber-100 dark:bg-amber-500/20 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-amber-400 to-amber-600 transition-all" style={{ width: `${peerStatus.pct}%` }} />
+            </div>
+            <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-2">
+              Masih ada <strong>{peerStatus.pending} orang</strong> yang belum Anda nilai.
             </p>
           </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 3. SEMUA PERAN — untuk lihat semua
-    // ============================================
-    {
-      id: 'all-roles',
-      title: '👥 Daftar Semua Peran & Wewenang',
-      icon: Users,
-      color: 'from-purple-700 to-indigo-900',
-      content: (
-        <div className="space-y-3">
-          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-            Sistem membedakan hak akses secara ketat berdasarkan hierarki kepanitiaan produksi.
-            Klik peran untuk melihat detail.
-          </p>
           <button
-            onClick={() => setShowAllRoles(!showAllRoles)}
-            className="w-full p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 text-purple-800 dark:text-purple-300 font-bold text-xs flex items-center justify-between"
+            onClick={() => window.dispatchEvent(new CustomEvent('spppt-navigate', { detail: { module: 'nilai' } }))}
+            className="mt-5 px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-black text-sm shadow-lg transition flex items-center gap-2 mx-auto"
           >
-            <span>{showAllRoles ? '▲ Sembunyikan Detail Semua Peran' : '▼ Tampilkan Detail Semua Peran'}</span>
-            <ChevronDown className={`w-4 h-4 transition-transform ${showAllRoles ? 'rotate-180' : ''}`} />
+            <Star className="w-4 h-4" /> Isi Penilaian Rekan Sekarang
           </button>
-
-          {showAllRoles && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto pr-1">
-              {Object.entries(ROLE_GUIDES).map(([roleKey, guide]) => {
-                const Icon = guide.icon;
-                const isMe = roleKey === myRole;
-                return (
-                  <div key={roleKey} className={`p-3 rounded-xl border-2 ${
-                    isMe ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
-                  }`}>
-                    <div className="flex items-start gap-2 mb-2">
-                      <div className={`p-2 rounded-lg bg-gradient-to-br ${guide.color} text-white shrink-0`}>
-                        <Icon className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="text-xs font-bold text-slate-900 dark:text-white">{guide.title}</p>
-                          {isMe && (
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">
-                              Anda
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{guide.desc}</p>
-                      </div>
-                    </div>
-                    <ul className="text-[10px] text-slate-600 dark:text-slate-400 space-y-0.5 pl-4 list-disc">
-                      {guide.steps.slice(0, 3).map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                      {guide.steps.length > 3 && (
-                        <li className="text-slate-400 italic">...dan {guide.steps.length - 3} langkah lain</li>
-                      )}
-                    </ul>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </div>
-      ),
-    },
+      </div>
+    );
+  }
 
-    // ============================================
-    // 4. CARA MENDAFTAR AKUN
-    // ============================================
-    {
-      id: 'register',
-      title: '🔐 Cara Mendaftar Akun Baru',
-      icon: KeyRound,
-      color: 'from-blue-700 to-indigo-900',
-      content: (
-        <div className="space-y-3 text-xs leading-relaxed">
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              📋 Yang dibutuhkan:
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
-              <li>Kode Kelas (dapat dari Guru Pengampu)</li>
-              <li>Nama lengkap sesuai data sekolah</li>
-              <li>Email aktif (boleh Gmail/email sekolah)</li>
-              <li>Nomor WhatsApp aktif (WAJIB — untuk koordinasi produksi)</li>
-              <li>Password minimal 6 karakter</li>
-              <li>Peran/Jabatan dalam kepanitiaan</li>
-            </ul>
+  if (!assessmentTimeOpen) {
+    return (
+      <div className="space-y-6 max-w-2xl mx-auto">
+        <div className={`p-8 rounded-3xl border-2 text-center ${
+          assessmentStatus.reason === 'not-started'
+            ? 'bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border-blue-300 dark:border-blue-500/40'
+            : 'bg-gradient-to-br from-rose-50 to-orange-50 dark:from-rose-500/10 dark:to-orange-500/10 border-rose-300 dark:border-rose-500/40'
+        }`}>
+          <div className={`inline-flex items-center justify-center w-20 h-20 rounded-full border-4 mb-4 ${
+            assessmentStatus.reason === 'not-started'
+              ? 'bg-blue-100 dark:bg-blue-500/20 border-blue-300 dark:border-blue-500/40'
+              : 'bg-rose-100 dark:bg-rose-500/20 border-rose-300 dark:border-rose-500/40'
+          }`}>
+            {assessmentStatus.reason === 'not-started' ? <Clock className="w-10 h-10 text-blue-600" /> : <Lock className="w-10 h-10 text-rose-600" />}
           </div>
-
-          <div className="space-y-2">
-            <p className="font-bold text-slate-900 dark:text-slate-200">Langkah pendaftaran:</p>
-            {[
-              'Buka halaman login SP-PPT',
-              'Pilih tab "Siswa"',
-              'Klik "Daftar Siswa" di bawah tombol masuk',
-              'Isi kode kelas yang diberikan guru (contoh: IXF-RAC97BK4)',
-              'Isi nama lengkap, email, nomor WhatsApp',
-              'Buat password & konfirmasi ulang',
-              'Pilih peran Anda dari dropdown (Pengurus Inti, Pemeran & Penyutradaraan, Koordinator Divisi, atau Anggota Divisi)',
-              'Klik "Daftarkan Akun Siswa"',
-              'Setelah berhasil, login kembali dengan email & password',
-              'Modal verifikasi akan muncul — klik "Ya, Saya Benar" untuk konfirmasi',
-            ].map((step, i) => (
-              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <span className="w-6 h-6 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center text-[11px] shrink-0">
-                  {i + 1}
-                </span>
-                <p className="text-slate-700 dark:text-slate-300 pt-0.5">{step}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed">
-              <strong>Perhatian:</strong> Nomor WhatsApp tidak boleh kosong — dipakai untuk koordinasi
-              mendadak (mis. perubahan jadwal gladi). Pastikan nomor Anda aktif.
-            </p>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 5. VERIFIKASI LOGIN
-    // ============================================
-    {
-      id: 'verify-login',
-      title: '🛡️ Verifikasi Login & Keamanan',
-      icon: ShieldCheck,
-      color: 'from-emerald-700 to-green-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Setiap kali berhasil login, sistem akan menampilkan <strong>kartu verifikasi</strong>:
-            foto, nama, email, peran, dan kelas Anda.
+          <h2 className={`text-xl font-black ${assessmentStatus.reason === 'not-started' ? 'text-blue-900 dark:text-blue-200' : 'text-rose-900 dark:text-rose-200'}`}>
+            {assessmentStatus.reason === 'not-started' ? 'Waktu Penilaian Belum Dibuka'
+              : assessmentStatus.reason === 'ended' ? 'Waktu Penilaian Sudah Ditutup'
+              : 'Penilaian Tahap Ini Dinonaktifkan'}
+          </h2>
+          <p className={`text-xs mt-3 leading-relaxed max-w-md mx-auto ${assessmentStatus.reason === 'not-started' ? 'text-blue-800 dark:text-blue-300' : 'text-rose-800 dark:text-rose-300'}`}>
+            {assessmentStatus.reason === 'not-started' && assessmentStatus.startMs ? (
+              <>Penilaian untuk tahap <strong>{selectedStage}</strong> akan dibuka dalam <strong>{formatDuration(assessmentStatus.startMs - Date.now())}</strong>.</>
+            ) : assessmentStatus.reason === 'ended' && assessmentStatus.endMs ? (
+              <>Penilaian tahap <strong>{selectedStage}</strong> sudah ditutup pada <strong>{formatDateTime(new Date(assessmentStatus.endMs).toISOString())}</strong>.</>
+            ) : (
+              <>Guru menonaktifkan penilaian untuk tahap <strong>{selectedStage}</strong>.</>
+            )}
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-              <p className="font-bold text-emerald-800 dark:text-emerald-300 text-[11px] flex items-center gap-1.5">
-                <CheckCircle className="w-3.5 h-3.5" /> Jika ini Anda
-              </p>
-              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
-                Klik tombol hijau <strong>"Ya, Saya Benar"</strong> untuk lanjut ke dashboard.
-              </p>
-            </div>
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
-              <p className="font-bold text-rose-800 dark:text-rose-300 text-[11px] flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Jika bukan Anda
-              </p>
-              <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-1">
-                Klik <strong>"Bukan Saya"</strong> untuk langsung logout & mencegah penyalahgunaan akun.
-              </p>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              Fitur keamanan tambahan:
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
-              <li>Auto-logout jika profil tidak ditemukan</li>
-              <li>Konfirmasi logout (Ya/Tidak) untuk mencegah klik tak sengaja</li>
-              <li>Kredensial dicatat Guru agar bisa dibantu reset password</li>
-              <li>Audit log mencatat semua aktivitas login/logout</li>
-            </ul>
-          </div>
         </div>
-      ),
-    },
+      </div>
+    );
+  }
 
-    // ============================================
-    // 6. SISTEM PENILAIAN 360
-    // ============================================
-    {
-      id: 'grading',
-      title: '⭐ Sistem Penilaian 360',
-      icon: Award,
-      color: 'from-amber-600 to-orange-800',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Setiap siswa dinilai dari dua sumber: <strong>skor otomatis</strong> dari data sistem
-            (tugas, kehadiran, dan kedisiplinan) dan <strong>penilaian manual</strong> dari penilai.
-          </p>
+  if (!hasAnyScore) {
+    return (
+      <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 max-w-2xl mx-auto">
+        <Award className="w-12 h-12 mx-auto text-slate-300 mb-3" />
+        <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Nilai</h3>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          Nilai akan muncul setelah penilai mengisi formulir.
+        </p>
+      </div>
+    );
+  }
 
-          <div className="p-3.5 bg-slate-900 text-amber-300 rounded-xl font-mono text-[11px] text-center leading-relaxed">
-            Nilai Akhir = rata-rata tiap kategori penilai<br />
-            (Guru Pengampu, Koordinator, Rekan Kerja, Anggota Tim)<br />
-            dikalikan bobot yang berbeda untuk setiap peran
-          </div>
+  const radarData = STAGES.map(s => ({
+    stage: s.name.replace('Tahap ', '').replace(/^\d+:\s*/, ''),
+    score: stageScores[s.id] || 0,
+  }));
 
-          <div>
-            <p className="font-bold text-slate-900 dark:text-slate-200 mb-2 text-[11px]">Skala Penilaian Manual:</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-              {[
-                { score: 1, label: 'Kurang', color: 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30' },
-                { score: 2, label: 'Cukup', color: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' },
-                { score: 3, label: 'Baik', color: 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30' },
-                { score: 4, label: 'Sangat Baik', color: 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30' },
-              ].map(item => (
-                <div key={item.label} className={`p-2 rounded-lg border ${item.color}`}>
-                  <p className="font-bold text-xs text-slate-800 dark:text-slate-200">{item.label}</p>
-                  <p className="font-mono text-slate-500 dark:text-slate-400 text-[10px]">Nilai: {item.score}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+  const barData = STAGES.map(s => ({ name: s.id.slice(0, 6), Nilai: stageScores[s.id] || 0 }));
 
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              Skor otomatis (diisi sistem, tidak bisa diubah manual):
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1 pl-4 list-disc">
-              <li><strong>Tanggung Jawab</strong>: dihitung dari ketepatan waktu pengumpulan tugas. Tugas kritis yang terlambat atau belum dikerjakan menurunkan skor.</li>
-              <li><strong>Kehadiran</strong>: dihitung dari sesi presensi. Status Hadir, Izin, dan Sakit dihitung sebagai hadir. Alpa tiga kali atau lebih, atau alpa di sesi Gladi/Pementasan, membatasi skor maksimal.</li>
-              <li><strong>Kedisiplinan</strong>: hanya untuk peran Pemeran, merupakan rata-rata dari Tanggung Jawab dan Kehadiran.</li>
-            </ul>
-          </div>
+  const categoryData = [
+    { name: 'GURU', value: myAssessments.filter(a => (a as any).assessorCategory === 'GURU').length, color: '#F59E0B' },
+    { name: 'ATASAN', value: myAssessments.filter(a => (a as any).assessorCategory === 'ATASAN').length, color: '#3B82F6' },
+    { name: 'REKAN', value: myAssessments.filter(a => (a as any).assessorCategory === 'REKAN').length, color: '#10B981' },
+    { name: 'BAWAHAN', value: myAssessments.filter(a => (a as any).assessorCategory === 'BAWAHAN').length, color: '#8B5CF6' },
+  ].filter(d => d.value > 0);
 
-          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              <strong>Komentar Wajib:</strong> Jika penilai memberi nilai ≤ 2 (Kurang/Cukup) pada salah satu kriteria,
-              kolom komentar wajib diisi minimal 5 karakter agar siswa tahu aspek yang perlu diperbaiki.
-            </p>
-          </div>
+  const comments = myAssessments
+    .filter(a => a.comment && a.comment.trim())
+    .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
-          <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
-            <p className="font-bold text-purple-900 dark:text-purple-200 text-[11px] mb-1">
-              Jendela penilaian:
-            </p>
-            <ul className="text-[11px] text-purple-800 dark:text-purple-300 space-y-0.5 pl-4 list-disc">
-              <li>Guru mengatur jadwal buka dan tutup penilaian per tahap di menu Jadwal Penilaian.</li>
-              <li>Di luar rentang tanggal dan jam, penilai tidak bisa mengisi atau mengubah nilai, termasuk Guru.</li>
-              <li>Jika tanggal belum diisi, penilaian terbuka tanpa batas waktu.</li>
-              <li>Tahap yang dinonaktifkan di Kelola Tahapan juga mengunci penilaian tahap tersebut.</li>
-            </ul>
-          </div>
+  const criteriaScores: Record<string, number[]> = {};
+  myAssessments.forEach(a => {
+    Object.entries(a.scores || {}).forEach(([k, v]) => {
+      if (!criteriaScores[k]) criteriaScores[k] = [];
+      criteriaScores[k].push(v);
+    });
+  });
 
-          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
-            <p className="font-bold text-rose-900 dark:text-rose-200 text-[11px] mb-1">
-              Panel "Perlu Klarifikasi" (khusus Guru & Admin):
-            </p>
-            <ul className="text-[11px] text-rose-800 dark:text-rose-300 space-y-0.5 pl-4 list-disc">
-              <li>Nilai semua kriteria 1: prioritas tinggi.</li>
-              <li>Nilai semua kriteria 4: prioritas sedang.</li>
-              <li>Semua kriteria bernilai sama (selain 1 dan 4): prioritas rendah.</li>
-              <li>Nilai berbeda 25 poin atau lebih dari rata-rata penilai lain (minimal dua penilai lain): prioritas sedang. Selisih 35 poin atau lebih: prioritas tinggi.</li>
-              <li>Dari panel ini Guru bisa menghubungi penilai lewat WA, atau menghapus penilaian. Penilaian yang dihapus tetap tersimpan di riwayat.</li>
-            </ul>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
-              <strong>Reset nilai per tahap</strong> (khusus Guru & Admin) menghapus seluruh penilaian pada tahap yang
-              sedang dipilih. Sistem meminta Anda mengetik nama kelas sebagai konfirmasi. Data lama tetap tersimpan di riwayat.
-            </p>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 7. FITUR KAS & RAB (khusus bendahara & viewer)
-    // ============================================
-    {
-      id: 'kas-rab',
-      title: '💰 Fitur Kas & RAB Digital',
-      icon: Wallet,
-      color: 'from-emerald-700 to-green-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            <strong>Kas</strong> dan <strong>RAB Digital</strong> dikelola oleh <strong>Bendahara</strong>.
-            Guru, Pimpro, Sekretaris, dan siswa hanya <strong>melihat</strong> hasilnya.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-              <h4 className="font-bold text-emerald-900 dark:text-emerald-200 text-[11px] flex items-center gap-1.5 mb-2">
-                <Wallet className="w-4 h-4" /> Kas & Buku Kas
-              </h4>
-              <ul className="text-[10px] text-emerald-800 dark:text-emerald-300 space-y-1 pl-4 list-disc">
-                <li>Aktifkan kas dengan nominal & periode (mingguan/2minggu/10hari/manual)</li>
-                <li>Centang per periode untuk siswa yang sudah bayar</li>
-                <li>Saldo terakumulasi otomatis</li>
-                <li>Kirim reminder santun ke siswa yang belum bayar</li>
-                <li>Catat pemasukan & pengeluaran manual</li>
-                <li>Export Excel 4 sheet (Ringkasan, Pemasukan, Pengeluaran, Periode)</li>
-              </ul>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-              <h4 className="font-bold text-amber-900 dark:text-amber-200 text-[11px] flex items-center gap-1.5 mb-2">
-                <Calculator className="w-4 h-4" /> RAB Digital
-              </h4>
-              <ul className="text-[10px] text-amber-800 dark:text-amber-300 space-y-1 pl-4 list-disc">
-                <li>Input item per Divisi, Peran, atau Umum</li>
-                <li>Estimasi biaya otomatis dihitung (Qty × Harga)</li>
-                <li>Export ke Word (.doc) untuk tanda tangan fisik</li>
-                <li>Unggah RAB Final yang sudah ditandatangani Pimpro & Bendahara</li>
-                <li>Tanda tangan digital di sistem</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 8. TUGAS & DEADLINE
-    // ============================================
-    {
-      id: 'tasks',
-      title: '📋 Tugas & Deadline',
-      icon: CheckSquare,
-      color: 'from-blue-700 to-indigo-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Guru dan pengurus dapat membuat tugas dari <strong>template</strong> yang sudah disiapkan,
-            atau menginput tugas secara manual. Siswa menandai tugasnya sebagai selesai di menu yang sama.
-          </p>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1.5">
-              Cara membuat tugas dari template:
-            </p>
-            <ol className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1 pl-4 list-decimal">
-              <li>Buka menu Tugas & Deadline</li>
-              <li>Pilih <strong>Tahap Produksi</strong> (Persiapan / Pelaksanaan / Pertunjukan / Pasca)</li>
-              <li>Pilih satu atau beberapa <strong>template</strong></li>
-              <li>Pilih <strong>target</strong>: beberapa peran, beberapa divisi, atau semua siswa</li>
-              <li>Atur jatuh tempo: tetap, digeser, atau diganti tanggal tertentu (override)</li>
-              <li>Periksa jumlah penerima di langkah terakhir, lalu kirim</li>
-            </ol>
-            <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-2">
-              Tugas bisa ditandai <strong>Kritis</strong>. Tugas kritis memengaruhi skor Tanggung Jawab di penilaian.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-            <p className="font-bold text-emerald-900 dark:text-emerald-200 text-[11px] mb-1.5">
-              Cara siswa menandai tugas:
-            </p>
-            <ol className="text-[11px] text-emerald-800 dark:text-emerald-300 space-y-1 pl-4 list-decimal">
-              <li>Buka menu Tugas & Deadline</li>
-              <li>Lihat daftar tugas dengan badge prioritas dan countdown</li>
-              <li>Tekan <strong>"Tandai Selesai"</strong> jika tugas sudah dikerjakan. Tidak perlu link apa pun</li>
-              <li>Untuk menambahkan catatan atau link bukti (mis. Google Drive), pilih <strong>"Tambah Catatan"</strong>. Ini opsional</li>
-              <li>Tekan <strong>"Batalkan"</strong> jika status selesai perlu dibatalkan</li>
-            </ol>
-            <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-2">
-              Jika tugas sudah lewat deadline, tombol tetap bisa dipakai. Status akan tercatat sebagai <strong>Terlambat</strong>.
-              Countdown akan berhenti (DITAHAN) saat tugas ditahan oleh Guru.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
-            <p className="font-bold text-purple-900 dark:text-purple-200 text-[11px] mb-1">
-              🎁 Fitur Pengingat Otomatis:
-            </p>
-            <ul className="text-[11px] text-purple-800 dark:text-purple-300 space-y-0.5 pl-4 list-disc">
-              <li>Setiap login/refresh, siswa melihat modal pengingat</li>
-              <li>Berisi: tugas belum dikerjakan, tugas selesai, agenda 7 hari, tagihan kas</li>
-              <li>Bisa di-dismiss per item agar tetap fokus</li>
-              <li>Banner kuning tetap terlihat jika modal ditutup</li>
-            </ul>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 9. FAQ
-    // ============================================
-    {
-      id: 'faq',
-      title: '❓ FAQ & Troubleshooting',
-      icon: HelpCircle,
-      color: 'from-slate-700 to-slate-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          {[
-            {
-              q: 'Lupa password, bagaimana?',
-              a: 'Hubungi Guru Pengampu. Guru bisa membuka menu Kelola Siswa: tombol "Lihat Pass" menampilkan email dan password Anda, sedangkan tombol "Reset" mengirim link reset password ke email Anda. Setelah membuka link, buat password baru sendiri.',
-            },
-            {
-              q: 'Saat login muncul "Profil tidak ditemukan"?',
-              a: 'Akun Anda mungkin terdaftar di Firebase Auth tapi profil Firestore hilang. Silakan daftar ulang dengan kode kelas, atau hubungi Guru untuk didaftarkan manual.',
-            },
-            {
-              q: 'Saat login muncul "Role tidak cocok dengan tab"?',
-              a: 'Anda login di tab yang salah. Contoh: akun siswa tapi login di tab Guru. Ikuti tombol "Ganti ke Tab [X]" yang muncul.',
-            },
-            {
-              q: 'Notifikasi tidak muncul di bell?',
-              a: 'Cek: (1) koneksi internet, (2) izin notifikasi browser, (3) refresh halaman. Notifikasi real-time dari Firestore biasanya muncul dalam 1-2 detik.',
-            },
-            {
-              q: 'Tidak bisa melihat menu Kas / RAB?',
-              a: 'Menu Kas & RAB hanya untuk Bendahara (edit) dan Admin/Guru (view RAB). Siswa hanya melihat "Kas Saya" (tagihan pribadi).',
-            },
-            {
-              q: 'Tugas yang saya kirim ke target mana saja?',
-              a: 'Di langkah pemilihan target, sistem menghitung berapa siswa yang match dengan target Anda. Periksa jumlah penerima di langkah terakhir sebelum kirim.',
-            },
-            {
-              q: 'Kenapa tombol Nilai tidak bisa dipakai?',
-              a: 'Ada tiga kemungkinan: tahap yang dipilih sedang nonaktif di Kelola Tahapan, penilaian tahap itu dinonaktifkan atau belum dibuka di Jadwal Penilaian, atau waktu penilaian sudah berakhir. Pesan di bagian atas halaman Penilaian 360 menjelaskan kondisinya.',
-            },
-            {
-              q: 'Kelas lama muncul kembali setelah dihapus?',
-              a: 'Sudah diperbaiki. Jika masih terjadi, buka DevTools → Console → ketik: localStorage.clear() lalu refresh.',
-            },
-            {
-              q: 'Bagaimana cara ganti nama kerabat kerja (nama produksi)?',
-              a: 'Guru Pengampu & Pimpinan Produksi bisa ubah di menu Struktur Kerabat → klik ikon pensil di samping nama kerabat.',
-            },
-          ].map((item, i) => (
-            <div key={i} className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-              <p className="font-bold text-slate-900 dark:text-white text-xs flex items-start gap-2">
-                <span className="text-amber-500 shrink-0">Q:</span>
-                <span>{item.q}</span>
-              </p>
-              <p className="text-slate-600 dark:text-slate-400 text-[11px] mt-1.5 flex items-start gap-2 leading-relaxed">
-                <span className="text-emerald-500 font-bold shrink-0">A:</span>
-                <span>{item.a}</span>
-              </p>
-            </div>
-          ))}
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 10. TENTANG APLIKASI
-    // ============================================
-    {
-      id: 'about',
-      title: 'ℹ️ Tentang SP-PPT',
-      icon: Info,
-      color: 'from-slate-700 to-slate-900',
-      content: (
-        <div className="space-y-3 text-xs leading-relaxed">
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border border-amber-200 dark:border-amber-500/30">
-            <p className="font-black text-slate-900 dark:text-white text-sm">{APP_CONFIG.appName}</p>
-            <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-1">{APP_CONFIG.tagline}</p>
-            <div className="mt-3 space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
-              <p><strong>Sekolah:</strong> {APP_CONFIG.schoolName}</p>
-              <p><strong>Tahun Ajaran:</strong> {APP_CONFIG.academicYear}</p>
-              <p><strong>Mata Pelajaran:</strong> Seni Budaya (Seni Teater)</p>
-              <p><strong>Kelas:</strong> IX (Sembilan)</p>
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-            <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
-              <strong>© 2026 {APP_CONFIG.schoolName}.</strong> Hak cipta dilindungi undang-undang.
-              Platform dikembangkan untuk pembelajaran Seni Teater secara terintegrasi.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-              <strong>Tips:</strong> Panduan ini bisa dibuka kapan pun dari menu Panduan & FAQ di sidebar.
-              Setiap peran memiliki akses yang berbeda sesuai tugas & tanggung jawabnya.
-            </p>
-          </div>
-        </div>
-      ),
-    },
-  ];
-
-  const toggleSection = (id: string) => {
-    setActiveSection(activeSection === id ? '' : id);
+  const getCategoryBadgeClass = (cat: AssessorCategory) => {
+    const map: Record<AssessorCategory, string> = {
+      GURU: 'bg-amber-100 text-amber-800 border-amber-300',
+      ATASAN: 'bg-blue-100 text-blue-800 border-blue-300',
+      REKAN: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      BAWAHAN: 'bg-purple-100 text-purple-800 border-purple-300',
+    };
+    return map[cat];
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl border border-amber-500/20">
-        <div className="flex items-center gap-3">
-          <span className="p-3 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/30">
-            <HelpCircle className="w-7 h-7" />
-          </span>
-          <div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
-              Panduan Resmi
+    <div className="space-y-6" id="rapor-container">
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-600 via-amber-700 to-orange-800 text-white shadow-xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="p-3 rounded-2xl bg-white/20 border border-white/30">
+              <Award className="w-7 h-7" />
             </span>
-            <h2 className="text-xl font-black text-white mt-1">Panduan Operasional SP-PPT</h2>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Pedoman lengkap untuk setiap peran — dapat dibuka berkali-kali
-            </p>
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-200 bg-white/10 px-2.5 py-0.5 rounded-full border border-white/30">
+                Rapor Digital 360°
+              </span>
+              <h2 className="text-xl font-black text-white mt-1">Nilai Saya — {activeClass?.name || ''}</h2>
+              <p className="text-xs text-amber-100 mt-0.5">
+                {user?.displayName} • {user?.role}
+                {user?.divisionName ? ` • ${user.divisionName}` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap print:hidden">
+            <button onClick={handleWAAskTeacher}
+              className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
+              <MessageCircle className="w-4 h-4" /> Tanya Guru
+            </button>
+            <button onClick={handleDownload}
+              className="px-4 py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-2 shadow-lg">
+              <Download className="w-4 h-4" /> Unduh Rapor
+            </button>
+            <button onClick={() => setTimeout(() => window.print(), 300)}
+              className="px-4 py-2.5 rounded-xl bg-white text-amber-800 hover:bg-amber-50 font-bold text-xs flex items-center gap-2 shadow-lg">
+              <Printer className="w-4 h-4" /> PDF
+            </button>
           </div>
         </div>
+      </div>
 
-        {/* Your role badge */}
-        {user && (
-          <div className="mt-4 p-3 rounded-2xl bg-white/10 border border-white/20 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-500 text-slate-950">
-              <UserCheck className="w-5 h-5" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className={`p-6 rounded-3xl border-2 shadow-md ${predikatInfo.color}`}>
+          <p className="text-[11px] font-bold uppercase tracking-wider opacity-80">Nilai Akhir</p>
+          <p className="text-5xl font-black mt-2 font-mono">{finalScore.toFixed(1)}</p>
+          <p className="text-lg font-black mt-2">Predikat {predikatInfo.predikat}</p>
+          <p className="text-xs mt-1 font-medium opacity-90">{predikatInfo.label}</p>
+          {safetyNet.active && (
+            <div className="mt-3 p-2 rounded-lg bg-rose-600 text-white">
+              <p className="text-[10px] font-bold flex items-center gap-1">
+                <ShieldAlert className="w-3 h-3" /> Dibatasi max {safetyNet.cap}
+              </p>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
-                Login sebagai
+          )}
+        </div>
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm md:col-span-2">
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-1 flex items-center gap-2">
+            <Target className="w-4 h-4 text-amber-600" /> Grafik Radar 4 Tahapan
+          </h3>
+          <div className="w-full h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData} outerRadius="75%">
+                <PolarGrid stroke="#E2E8F0" />
+                <PolarAngleAxis dataKey="stage" tick={{ fontSize: 10, fill: '#475569' }} />
+                <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 9, fill: '#94A3B8' }} />
+                <Radar name="Nilai" dataKey="score" stroke="#D97706" fill="#F59E0B" fillOpacity={0.5} />
+                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* PENJELASAN NILAI */}
+      <div className="p-5 rounded-3xl bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 border-2 border-blue-200 dark:border-blue-500/40 shadow-sm">
+        <button onClick={() => setShowExplanation(!showExplanation)} className="w-full flex items-center justify-between text-left">
+          <div className="flex items-center gap-2">
+            <Info className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">Kenapa Nilai Saya Segini?</h3>
+              <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                Klik untuk melihat rincian perhitungan nilai Anda
               </p>
-              <p className="text-sm font-black text-white truncate">
-                {user.displayName} — {myRole}
-                {user.divisionName && <span className="text-amber-200 font-normal"> • {user.divisionName}</span>}
+            </div>
+          </div>
+          <ChevronDown className={`w-5 h-5 text-blue-600 transition-transform ${showExplanation ? 'rotate-180' : ''}`} />
+        </button>
+
+        {showExplanation && (
+          <div className="mt-4 pt-4 border-t border-blue-200 dark:border-blue-500/30 space-y-4">
+            <div>
+              <p className="text-xs font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-1.5">
+                <Bot className="w-4 h-4 text-blue-600" />
+                1. Skor Otomatis (dihitung sistem)
               </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-blue-200 dark:border-blue-500/30">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300">Tanggung Jawab</span>
+                    <span className="text-lg font-black text-blue-800 dark:text-blue-200 font-mono">{taskResult.score}/4</span>
+                  </div>
+                  <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1">{taskResult.pct}% tugas tepat waktu</p>
+                  <p className="text-[9px] text-blue-500 dark:text-blue-300 mt-0.5">
+                    {taskResult.awal + taskResult.tepat} tepat, {taskResult.telat} telat, {taskResult.belum} belum
+                  </p>
+                </div>
+                <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-500/30">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300">Kehadiran</span>
+                    <span className="text-lg font-black text-emerald-800 dark:text-emerald-200 font-mono">{attendResult.score}/4</span>
+                  </div>
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1">{attendResult.pct}% kehadiran</p>
+                  <p className="text-[9px] text-emerald-500 dark:text-emerald-300 mt-0.5">
+                    Hadir {attendResult.hadir}, Izin/Sakit {attendResult.izin}, Alpa {attendResult.alpa}
+                  </p>
+                </div>
+                {isActor && disciplineScore !== null && (
+                  <div className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-purple-200 dark:border-purple-500/30">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300">Kedisiplinan</span>
+                      <span className="text-lg font-black text-purple-800 dark:text-purple-200 font-mono">{disciplineScore}/4</span>
+                    </div>
+                    <p className="text-[10px] text-purple-600 dark:text-purple-400 mt-1">Rata-rata tugas & kehadiran</p>
+                    <p className="text-[9px] text-purple-500 dark:text-purple-300 mt-0.5">
+                      ({taskResult.score} + {attendResult.score}) ÷ 2 = {disciplineScore}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-amber-600" />
+                2. Penilaian Manual (dari Guru, Koordinator, Rekan)
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {allCriteria.filter(c => c.source === 'MANUAL').map(c => {
+                  const arr = criteriaScores[c.key] || [];
+                  const avg = arr.length > 0 ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
+                  return (
+                    <div key={c.key} className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{c.label}</span>
+                        <span className="text-[11px] font-black text-slate-900 dark:text-white font-mono">
+                          {avg > 0 ? avg.toFixed(1) : '-'}/4
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Bobot {c.weight}% • dinilai oleh {arr.length} orang
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {safetyNet.active && (
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
+                <div className="flex items-start gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-bold text-rose-900 dark:text-rose-200">Safety Net Aktif</p>
+                    <p className="text-[10px] text-rose-700 dark:text-rose-300 mt-0.5 leading-relaxed">
+                      {safetyNet.reason}. Nilai maksimum Anda dibatasi <strong>{safetyNet.cap}</strong>.
+                      Seharusnya nilai Anda bisa lebih tinggi jika <strong>{safetyNet.cap === 70 ? 'mengerjakan tugas lebih rajin' : 'meningkatkan kedisiplinan'}</strong>.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+              <p className="text-xs font-bold text-amber-900 dark:text-amber-200 mb-2 flex items-center gap-1.5">
+                <Calculator className="w-4 h-4" /> Cara Baca Predikat
+              </p>
+              <div className="grid grid-cols-5 gap-1">
+                {[
+                  { p: 'A', range: '90-100', c: 'amber' },
+                  { p: 'B', range: '80-89', c: 'blue' },
+                  { p: 'C', range: '70-79', c: 'emerald' },
+                  { p: 'D', range: '60-69', c: 'orange' },
+                  { p: 'E', range: '<60', c: 'rose' },
+                ].map(item => (
+                  <div key={item.p} className={`p-1.5 rounded-lg bg-${item.c}-100 dark:bg-${item.c}-500/20 border border-${item.c}-300 dark:border-${item.c}-500/40 text-center`}>
+                    <p className={`font-black text-${item.c}-800 dark:text-${item.c}-200`}>{item.p}</p>
+                    <p className={`text-[9px] text-${item.c}-700 dark:text-${item.c}-300`}>{item.range}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <div className="text-[10px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                <p className="font-bold mb-1">Tips Meningkatkan Nilai:</p>
+                <ul className="list-disc pl-3.5 space-y-0.5">
+                  <li>Kerjakan tugas <strong>sebelum deadline</strong> (mempengaruhi Tanggung Jawab)</li>
+                  <li>Hadir di setiap sesi presensi (mempengaruhi Kehadiran)</li>
+                  <li>Untuk Pemeran: Hafalan, penjiwaan, blocking juga dinilai</li>
+                  <li>Jika ada yang kurang jelas, klik <strong>"Tanya Guru"</strong> di atas</li>
+                </ul>
+              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Accordion Sections */}
-      <div className="space-y-3">
-        {SECTIONS.map(sec => {
-          const isOpen = activeSection === sec.id;
-          const Icon = sec.icon;
+      {categoryData.length > 0 && (
+        <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+            <Users className="w-4 h-4 text-blue-600" /> Siapa yang Menilai Saya
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {categoryData.map((cat, i) => (
+              <div key={i} className={`p-3 rounded-2xl border-2 ${getCategoryBadgeClass(cat.name as AssessorCategory)}`}>
+                <p className="text-[10px] font-bold uppercase opacity-80">
+                  {CATEGORY_LABEL[cat.name as AssessorCategory]}
+                </p>
+                <p className="text-2xl font-black font-mono mt-1">{cat.value}</p>
+                <p className="text-[10px] opacity-70">penilaian</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-3 italic flex items-center gap-1">
+            <EyeOff className="w-3 h-3" />
+            Penilaian rekan kerja & anggota tim ditampilkan anonim.
+          </p>
+        </div>
+      )}
 
-          return (
-            <div
-              key={sec.id}
-              className={`rounded-3xl bg-white dark:bg-slate-900 border-2 shadow-sm overflow-hidden transition ${
-                isOpen
-                  ? 'border-amber-300 dark:border-amber-500/50 shadow-md'
-                  : 'border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => toggleSection(sec.id)}
-                className="w-full p-5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition"
-              >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={`p-2.5 rounded-xl bg-gradient-to-br ${sec.color} text-white shrink-0`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
-                    {sec.title}
-                  </h3>
-                </div>
-
-                <ChevronDown
-                  className={`w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0 ml-2 ${
-                    isOpen ? 'rotate-180 text-amber-600 dark:text-amber-400' : ''
-                  }`}
-                />
-              </button>
-
-              {isOpen && (
-                <div className="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-700 animate-in fade-in">
-                  {sec.content}
-                </div>
-              )}
-            </div>
-          );
-        })}
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-blue-600" /> Perbandingan Nilai Antar Tahapan
+        </h3>
+        <div className="w-full h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={barData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+              <Bar dataKey="Nilai" radius={[6, 6, 0, 0]}>
+                {barData.map((entry, i) => (
+                  <Cell key={i} fill={
+                    entry.Nilai >= 90 ? '#F59E0B' :
+                    entry.Nilai >= 80 ? '#3B82F6' :
+                    entry.Nilai >= 70 ? '#10B981' :
+                    entry.Nilai >= 60 ? '#F97316' : '#EF4444'
+                  } />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
-      {/* Footer note */}
-      <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3">
-        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Panduan ini dapat dibuka berkali-kali.</strong> Jika ada pertanyaan atau fitur yang belum
-          dipahami, hubungi Guru Pengampu atau Pimpinan Produksi kelas Anda.
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-emerald-600" /> Rincian Per Kriteria
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {allCriteria.map(c => {
+            const isAuto = c.source !== 'MANUAL';
+            const arr = criteriaScores[c.key] || [];
+            const avg = arr.length > 0 ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
+            const colorClass =
+              avg >= 3.5 ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10' :
+              avg >= 2.5 ? 'border-blue-300 bg-blue-50 dark:bg-blue-500/10' :
+              avg >= 1.5 ? 'border-amber-300 bg-amber-50 dark:bg-amber-500/10' :
+              avg > 0 ? 'border-rose-300 bg-rose-50 dark:bg-rose-500/10' :
+              'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800';
+            return (
+              <div key={c.key} className={`p-3 rounded-2xl border ${colorClass}`}>
+                <div className="flex items-start justify-between mb-1 gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-white">{c.label}</span>
+                  <span className="text-[10px] font-bold text-slate-500 shrink-0">{c.weight}%</span>
+                </div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  {isAuto ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 flex items-center gap-0.5">
+                      <Bot className="w-2.5 h-2.5" /> OTOMATIS
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                      MANUAL
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-end justify-between mt-2">
+                  <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
+                    {avg > 0 ? avg.toFixed(1) : '-'}
+                  </span>
+                  <span className="text-[10px] text-slate-500">
+                    {avg > 0 ? `≈ ${SCORE_SCALE[Math.round(avg)]?.score100}` : 'Belum dinilai'}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
         </div>
+      </div>
+
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-purple-600" /> Komentar dari Penilai ({comments.length})
+        </h3>
+        {comments.length === 0 ? (
+          <p className="text-xs text-slate-400 italic text-center py-6">Belum ada komentar.</p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {comments.map(c => {
+              const cat = ((c as any).assessorCategory as AssessorCategory) || 'REKAN';
+              const shouldAnonymize = cat === 'BAWAHAN' || cat === 'REKAN';
+              return (
+                <div key={c.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center justify-between text-[11px] mb-1 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-bold px-2 py-0.5 rounded-md border ${getCategoryBadgeClass(cat)}`}>
+                        {CATEGORY_LABEL[cat]}
+                      </span>
+                      {shouldAnonymize ? (
+                        <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                          <EyeOff className="w-3 h-3" /> Anonim
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">
+                          {c.assessorName}
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-slate-400 text-[10px]">
+                      {new Date(c.createdAt || 0).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic">"{c.comment}"</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Tahap: {c.stage} • Nilai: {c.totalScore}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="hidden print:block text-center text-[10px] text-slate-500 pt-4 border-t">
+        SP-PPT — SMP Negeri 10 Samarinda • T.A. 2025/2026 • Dicetak: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
       </div>
     </div>
   );
