@@ -2,26 +2,28 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Megaphone, PlusCircle, Search, X, Save, Trash2, AlertTriangle,
   Pin, Clock, User, Filter, Bell, Sparkles, PinOff,
-  Camera, ImagePlus, Link2,
+  Camera, ImagePlus, Link2, CheckSquare, Square, Building2, Users,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { recordAuditLog, notifyTeachers } from '../../services/firestoreService';
 import {
-  collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc,
+  collection, query, where, onSnapshot, doc, deleteDoc, updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
 interface Information {
   id: string;
   classId: string;
+  batchId?: string; // ID grup untuk multi-class broadcast
   title: string;
   content: string;
   category: 'PENGUMUMAN' | 'INFO' | 'URGENT' | 'JADWAL' | 'KEUANGAN';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   isPinned: boolean;
-  photoUrls?: string[]; // Array untuk multiple photos
-  photoUrl?: string;    // Backward compatibility untuk data lama
+  photoUrls?: string[];
+  photoUrl?: string;
   authorId: string;
   authorName: string;
   authorRole: string;
@@ -42,7 +44,6 @@ const CAN_POST_ROLES = [
   'Pimpinan Produksi', 'Sekretaris', 'Sutradara', 'Asisten Sutradara', 'Bendahara',
 ];
 
-// Helper kompres gambar
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -61,7 +62,7 @@ const compressImage = (file: File): Promise<string> => {
         const ctx = canvas.getContext('2d');
         if (!ctx) return reject(new Error('Canvas tidak tersedia'));
         ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.6)); // Kualitas 0.6 agar ringan
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
       };
       img.onerror = () => reject(new Error('Gagal memuat gambar'));
       img.src = e.target?.result as string;
@@ -72,7 +73,7 @@ const compressImage = (file: File): Promise<string> => {
 };
 
 export const InformationModule: React.FC = () => {
-  const { user, activeClass, isGuruPengampu, isAdminRole } = useAuth();
+  const { user, activeClass, classes, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -90,15 +91,21 @@ export const InformationModule: React.FC = () => {
   const [priority, setPriority] = useState<Information['priority']>('MEDIUM');
   const [isPinned, setIsPinned] = useState(false);
   
-  // FOTO (Array)
+  // Multi-Class Target
+  const [sendToAll, setSendToAll] = useState(false);
+  const [targetClassIds, setTargetClassIds] = useState<string[]>([]);
+
+  // FOTO
   const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [photoUrlInput, setPhotoUrlInput] = useState('');
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const canPost = user && (CAN_POST_ROLES.includes(user.role) || user.role.startsWith('Koordinator '));
+  const canMultiClass = isGuruPengampu || isAdminRole; // Fitur lintas kelas hanya untuk Guru/Admin
 
   useEffect(() => {
     if (!activeClass) return;
+    // Query mengambil data dari kelas yang sedang aktif
     const q = query(collection(db, 'information'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as Information));
@@ -116,6 +123,15 @@ export const InformationModule: React.FC = () => {
     setTitle(''); setContent('');
     setCategory('PENGUMUMAN'); setPriority('MEDIUM'); setIsPinned(false);
     setPhotoUrls([]); setPhotoUrlInput('');
+    
+    // Default target kelas
+    if (canMultiClass) {
+      setSendToAll(false);
+      setTargetClassIds(activeClass ? [activeClass.id] : []);
+    } else if (activeClass) {
+      setTargetClassIds([activeClass.id]);
+    }
+    
     setIsModalOpen(true);
   };
 
@@ -124,7 +140,6 @@ export const InformationModule: React.FC = () => {
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
     
-    // Handle legacy single photo
     const existingPhotos = item.photoUrls || (item.photoUrl ? [item.photoUrl] : []);
     setPhotoUrls(existingPhotos);
     setPhotoUrlInput('');
@@ -132,7 +147,23 @@ export const InformationModule: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  // Handler Upload File (Bisa Multiple)
+  const toggleTargetClass = (id: string) => {
+    setTargetClassIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+    setSendToAll(false);
+  };
+
+  const handleSendToAllToggle = () => {
+    const next = !sendToAll;
+    setSendToAll(next);
+    if (next) {
+      setTargetClassIds(classes.map(c => c.id));
+    } else {
+      setTargetClassIds(activeClass ? [activeClass.id] : []);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -159,7 +190,7 @@ export const InformationModule: React.FC = () => {
     }
 
     setPhotoUrls(prev => [...prev, ...newPhotos]);
-    e.target.value = ''; // Reset input
+    e.target.value = '';
   };
 
   const handleAddPhotoUrl = () => {
@@ -187,52 +218,96 @@ export const InformationModule: React.FC = () => {
       showToast('Judul dan isi wajib diisi.', 'warning');
       return;
     }
+
+    if (targetClassIds.length === 0) {
+      showToast('Pilih minimal 1 kelas tujuan.', 'warning');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const id = editing?.id || doc(collection(db, 'information')).id;
-      const data: Information = {
-        id, classId: activeClass.id,
-        title: title.trim(), content: content.trim(),
-        category, priority, isPinned,
-        photoUrls: photoUrls,
-        photoUrl: '', // Clear legacy field to avoid duplication
-        authorId: user.uid, authorName: user.displayName, authorRole: user.role,
-        createdAt: editing?.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      
-      await setDoc(doc(db, 'information', id), data, { merge: true });
-      
+      if (editing) {
+        // MODE EDIT: Hanya update dokumen yang sedang diedit
+        await updateDoc(doc(db, 'information', editing.id), {
+          title: title.trim(),
+          content: content.trim(),
+          category, priority, isPinned,
+          photoUrls: photoUrls,
+          photoUrl: '', // clear legacy
+          updatedAt: new Date().toISOString(),
+        });
+        showToast('Informasi berhasil diperbarui.', 'success');
+      } else {
+        // MODE BUAT BARU: Bisa kirim ke multiple kelas sekaligus
+        const batch = writeBatch(db);
+        const now = new Date().toISOString();
+        // ID grup untuk menandai bahwa dokumen ini dibuat bersamaan
+        const broadcastGroupId = targetClassIds.length > 1 ? doc(collection(db, 'information')).id : undefined;
+
+        // Simpan ke setiap kelas yang dipilih
+        targetClassIds.forEach(cid => {
+          const newRef = doc(collection(db, 'information'));
+          batch.set(newRef, {
+            id: newRef.id,
+            classId: cid,
+            batchId: broadcastGroupId,
+            title: title.trim(),
+            content: content.trim(),
+            category, priority, isPinned,
+            photoUrls: photoUrls,
+            photoUrl: '',
+            authorId: user.uid,
+            authorName: user.displayName,
+            authorRole: user.role,
+            createdAt: now,
+            updatedAt: now,
+          });
+        });
+
+        await batch.commit();
+
+        // Kirim notifikasi ke guru di masing-masing kelas (jika urgent/penting)
+        if (priority === 'HIGH' || category === 'URGENT') {
+          for (const cid of targetClassIds) {
+            try {
+              await notifyTeachers(cid, {
+                title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
+                message: `${user.displayName} (${user.role}) memposting informasi penting.`,
+                category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
+                link: 'informasi',
+                senderName: user.displayName,
+              });
+            } catch (err) { console.warn('Notif error:', err); }
+          }
+        }
+
+        showToast(`Informasi berhasil diposting ke ${targetClassIds.length} kelas!`, 'success');
+      }
+
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: editing ? 'UPDATE' : 'CREATE',
-        targetType: 'Information', targetId: id,
+        targetType: 'Information', targetId: editing?.id || 'multiple',
         details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"${photoUrls.length > 0 ? ` + ${photoUrls.length} foto` : ''}`,
       });
 
-      if (!editing && (priority === 'HIGH' || category === 'URGENT')) {
-        try {
-          await notifyTeachers(activeClass.id, {
-            title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
-            message: `${user.displayName} (${user.role}) memposting informasi penting.`,
-            category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
-            link: 'informasi',
-            senderName: user.displayName,
-          });
-        } catch (err) { console.warn(err); }
-      }
-      showToast(`Informasi berhasil ${editing ? 'diperbarui' : 'diposting'}!`, 'success');
       setIsModalOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDelete = async (item: Information) => {
-    if (!confirm(`Hapus informasi "${item.title}"?`)) return;
+    const msg = item.batchId 
+      ? `Hapus informasi "${item.title}" dari kelas ini? (Info ini juga ada di kelas lain karena broadcast)`
+      : `Hapus informasi "${item.title}"?`;
+      
+    if (!confirm(msg)) return;
     try {
       await deleteDoc(doc(db, 'information', item.id));
-      showToast('Informasi dihapus.', 'info');
+      showToast('Informasi dihapus dari kelas ini.', 'info');
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
@@ -268,7 +343,7 @@ export const InformationModule: React.FC = () => {
                 Papan Informasi
               </span>
               <h2 className="text-xl font-black text-white mt-1">Pengumuman & Informasi Produksi</h2>
-              <p className="text-xs text-slate-300 mt-0.5">Semua pengumuman resmi tim teater {activeClass?.name || ''}</p>
+              <p className="text-xs text-slate-300 mt-0.5">Papan informasi terintegrasi seluruh kelas</p>
             </div>
           </div>
           {canPost && (
@@ -323,7 +398,6 @@ export const InformationModule: React.FC = () => {
             const Icon = cfg.icon;
             const canEdit = isGuruPengampu || isAdminRole || it.authorId === user?.uid;
             
-            // Gabungkan legacy photoUrl & new photoUrls
             const allPhotos = it.photoUrls && it.photoUrls.length > 0 
               ? it.photoUrls 
               : (it.photoUrl ? [it.photoUrl] : []);
@@ -348,6 +422,11 @@ export const InformationModule: React.FC = () => {
                           <Pin className="w-3 h-3" /> DISEMATKAN
                         </span>
                       )}
+                      {it.batchId && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1">
+                          <Building2 className="w-3 h-3" /> LINTAS KELAS
+                        </span>
+                      )}
                       {allPhotos.length > 0 && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
                           <ImagePlus className="w-3 h-3" /> {allPhotos.length} FOTO
@@ -365,7 +444,6 @@ export const InformationModule: React.FC = () => {
                     <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
                     <p className="text-xs text-slate-700 mt-1.5 leading-relaxed whitespace-pre-line">{it.content}</p>
                     
-                    {/* GALERI FOTO - LANGSUNG TERLIHAT */}
                     {allPhotos.length > 0 && (
                       <div className={`mt-3 grid gap-2 ${
                         allPhotos.length === 1 ? 'grid-cols-1 sm:grid-cols-2' : 
@@ -442,6 +520,7 @@ export const InformationModule: React.FC = () => {
                   placeholder="Contoh: Rapat Pleno Darurat Besok Pukul 14.00"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
               </div>
+              
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
@@ -462,6 +541,51 @@ export const InformationModule: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {/* MULTI-CLASS SELECTOR (Hanya saat create, dan user berhak) */}
+              {!editing && canMultiClass && (
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                  <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-amber-600" />
+                    Pilih Kelas Tujuan *
+                  </label>
+                  
+                  <button type="button" onClick={handleSendToAllToggle}
+                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl border-2 transition mb-2 ${
+                      sendToAll ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'
+                    }`}>
+                    <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                      sendToAll ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'
+                    }`}>
+                      {sendToAll && <CheckSquare className="w-3 h-3" />}
+                    </div>
+                    <span className="text-xs font-bold text-slate-900">SEMUA KELAS ({classes.length})</span>
+                  </button>
+
+                  <div className="max-h-40 overflow-y-auto space-y-1 p-1">
+                    {classes.map(c => {
+                      const sel = targetClassIds.includes(c.id);
+                      return (
+                        <button key={c.id} type="button" onClick={() => toggleTargetClass(c.id)}
+                          className={`w-full p-2 rounded-lg text-left transition flex items-center gap-2 ${
+                            sel ? 'bg-amber-100 border border-amber-300' : 'bg-white border border-slate-200'
+                          }`}>
+                          <div className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 ${
+                            sel ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'
+                          }`}>
+                            {sel && <CheckSquare className="w-2.5 h-2.5" />}
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-800 truncate">{c.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-500 mt-2">
+                    {targetClassIds.length} kelas dipilih
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Isi Informasi *</label>
                 <textarea rows={4} required value={content} onChange={(e) => setContent(e.target.value)}
@@ -476,10 +600,8 @@ export const InformationModule: React.FC = () => {
                     <ImagePlus className="w-4 h-4 text-amber-600" />
                     Foto Pendukung <span className="text-slate-400 font-normal">({photoUrls.length}/5)</span>
                   </label>
-                  <span className="text-[10px] text-slate-500">Maks 5 foto</span>
                 </div>
 
-                {/* Grid Foto yang sudah diupload */}
                 {photoUrls.length > 0 && (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
                     {photoUrls.map((url, idx) => (
@@ -497,7 +619,6 @@ export const InformationModule: React.FC = () => {
                   </div>
                 )}
 
-                {/* Tombol Upload */}
                 {photoUrls.length < 5 && (
                   <div className="space-y-2">
                     <input
@@ -511,11 +632,10 @@ export const InformationModule: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full py-3 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex flex-col items-center gap-1 transition"
+                      className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex flex-col items-center gap-1 transition"
                     >
                       <Camera className="w-5 h-5" />
-                      Pilih Foto dari Perangkat
-                      <span className="text-[10px] font-normal text-amber-600">Bisa pilih lebih dari 1 file sekaligus</span>
+                      Pilih Foto
                     </button>
                     
                     <div className="flex gap-2">
@@ -523,7 +643,7 @@ export const InformationModule: React.FC = () => {
                         <Link2 className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
                         <input
                           type="url"
-                          placeholder="Atau tempel link foto (Drive/URL)"
+                          placeholder="Atau tempel link foto"
                           value={photoUrlInput}
                           onChange={(e) => setPhotoUrlInput(e.target.value)}
                           className="w-full pl-8 pr-2 py-2 rounded-lg border border-slate-200 text-[11px]"
@@ -556,7 +676,7 @@ export const InformationModule: React.FC = () => {
                 <button type="submit" disabled={submitting}
                   className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                   <Save className="w-3.5 h-3.5" />
-                  {submitting ? 'Menyimpan...' : (editing ? 'Perbarui' : 'Posting')}
+                  {submitting ? 'Menyimpan...' : (editing ? 'Perbarui' : `Posting ke ${targetClassIds.length} Kelas`)}
                 </button>
               </div>
             </form>
