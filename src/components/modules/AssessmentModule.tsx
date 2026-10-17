@@ -469,7 +469,7 @@ export const AssessmentModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'UPDATE', targetType: 'Assessment', targetId: editingRecord.id,
-        details: `Edit nilai ${editingRecord.studentName} oleh ${editingRecord.assessorName} (${editingRecord.assessorCategory}) dari ${editingRecord.totalScore} menjadi ${editRecordScore}`,
+        details: `Guru mengedit nilai ${editingRecord.studentName} yang diberikan oleh ${editingRecord.assessorName} (${editingRecord.assessorCategory}) dari ${editingRecord.totalScore} menjadi ${editRecordScore}`,
       });
       showToast('Nilai berhasil diperbarui!', 'success');
       setEditingRecord(null);
@@ -658,7 +658,13 @@ export const AssessmentModule: React.FC = () => {
 
         <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
           <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja. Klik icon pesan di sebelah nama untuk lihat komentar.</p></div>
+          <div className="text-[11px] text-blue-900 leading-relaxed">
+            <p className="font-bold">Mode Guru/Admin:</p>
+            <ul className="list-disc pl-4 mt-0.5 space-y-0.5">
+              <li>Klik <strong>Nilai Akhir</strong> di tabel untuk melihat siapa saja yang menilai siswa.</li>
+              <li>Klik <strong>Edit</strong> di modal detail untuk mengubah nilai spesifik dari penilai manapun (termasuk nilai dari siswa/rekan).</li>
+            </ul>
+          </div>
         </div>
       </div>
 
@@ -886,8 +892,9 @@ export const AssessmentModule: React.FC = () => {
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.bawahan != null ? ag.bawahan.toFixed(1) : '-'}</td>
                       <td className="py-3.5 px-4 text-center">
                         {ag ? (
-                          <button onClick={() => openDetail(s)} className="text-sm font-black text-slate-900 font-mono hover:text-blue-600 transition underline decoration-dotted underline-offset-2" title="Klik untuk edit detail nilai">
+                          <button onClick={() => openDetail(s)} className="text-sm font-black text-blue-600 hover:text-blue-800 transition underline decoration-dotted underline-offset-2 flex items-center gap-1 mx-auto" title="Klik untuk melihat rincian & edit nilai">
                             {ag.finalVal}
+                            <Edit3 className="w-3 h-3" />
                           </button>
                         ) : <span className="text-xs text-slate-400">-</span>}
                       </td>
@@ -1109,7 +1116,7 @@ export const AssessmentModule: React.FC = () => {
       )}
 
       {/* ================================================= */}
-      {/* ✅ NEW: MODAL DETAIL & EDIT NILAI PER ORANG      */}
+      {/* ✅ MODAL DETAIL & EDIT NILAI PER ORANG            */}
       {/* ================================================= */}
       {isDetailOpen && detailStudent && (() => {
         const ag = getAgg(detailStudent.uid, detailStudent.role);
@@ -1120,7 +1127,7 @@ export const AssessmentModule: React.FC = () => {
               <div className="p-5 bg-gradient-to-r from-blue-700 to-indigo-800 text-white shrink-0">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h3 className="text-base font-black">Rincian Penilaian</h3>
+                    <h3 className="text-base font-black">Rincian & Edit Nilai</h3>
                     <p className="text-xs opacity-90">{detailStudent.displayName} ({detailStudent.role})</p>
                   </div>
                   <button onClick={() => setIsDetailOpen(false)} className="p-1.5 rounded-lg hover:bg-white/20">
@@ -1158,7 +1165,7 @@ export const AssessmentModule: React.FC = () => {
       })()}
 
       {/* ================================================= */}
-      {/* ✅ NEW: MODAL EDIT NILAI SPESIFIK (PER ORANG)    */}
+      {/* ✅ MODAL EDIT NILAI SPESIFIK (PER ORANG)          */}
       {/* ================================================= */}
       {editingRecord && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
