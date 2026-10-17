@@ -1,491 +1,953 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
-  Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
-  Plus, X,
+  Award, BookOpen, Calendar, CheckCircle, ChevronDown, ChevronRight,
+  ClipboardList, HelpCircle, Radio, Sparkles, Users, Megaphone,
+  Wallet, Calculator, Star, MessageSquare, Timer, Camera, Music,
+  Palette, Scissors, Package, ShieldCheck, Lock, KeyRound, Eye,
+  FileText, Briefcase, Layers, TrendingUp, Bell, Info, AlertTriangle,
+  ArrowRight, UserCheck, Target, Play,
+  CheckSquare,
 } from 'lucide-react';
+import { APP_CONFIG } from '../../core/constants';
+import { useAuth } from '../../core/authContext';
 
-import { AuthProvider, useAuth } from './core/authContext';
-import { ThemeProvider } from './core/themeContext';
-import { ToastProvider } from './components/common/Toast';
-import { Navbar } from './components/common/Navbar';
-import { Sidebar } from './components/common/Sidebar';
-import { LoginModal } from './components/auth/LoginModal';
-import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
-import { StudentWelcomePage } from './components/welcome/StudentWelcomePage';
-import { DashboardReminder } from './components/common/DashboardReminder';
+interface GuideSection {
+  id: string;
+  title: string;
+  icon: any;
+  color: string;
+  content: React.ReactNode;
+}
 
-import { DashboardModule } from './components/modules/DashboardModule';
-import { AssessmentModule } from './components/modules/AssessmentModule';
-import { MyGradeModule } from './components/modules/MyGradeModule';
-import { AttendanceModule } from './components/modules/AttendanceModule';
-import { ScheduleModule } from './components/modules/ScheduleModule';
-import { TaskProgressModule } from './components/modules/TaskProgressModule';
-import { StructureModule } from './components/modules/StructureModule';
-import { StudioModule } from './components/modules/StudioModule';
-import { BroadcastModule } from './components/modules/BroadcastModule';
-import { DocumentModule } from './components/modules/DocumentModule';
-import { ComplaintModule } from './components/modules/ComplaintModule';
-import { GuideModule } from './components/modules/GuideModule';
-import { SettingsModule } from './components/modules/SettingsModule';
-import { AdminModule } from './components/modules/AdminModule';
-import { ManageClassModule } from './components/modules/ManageClassModule';
-import { ManageStudentModule } from './components/modules/ManageStudentModule';
-import { StageManagerModule } from './components/modules/StageManagerModule';
-import { AssessmentScheduleModule } from './components/modules/AssessmentScheduleModule';
-import { ModerationModule } from './components/modules/ModerationModule';
-import { AttendanceStatsModule } from './components/modules/AttendanceStatsModule';
-import { KasModule } from './components/modules/KasModule';
-import { PropertyModule } from './components/modules/PropertyModule';
-import { MusicCueModule } from './components/modules/MusicCueModule';
-import { FaceChartModule } from './components/modules/FaceChartModule';
-import { CostumeModule } from './components/modules/CostumeModule';
-import { BackupModule } from './components/modules/BackupModule';
-import { InformationModule } from './components/modules/InformationModule';
-import { NotificationPage } from './components/modules/NotificationPage';
-import { ActivityLogModule } from './components/modules/ActivityLogModule';
-import { MasterTimelineModule } from './components/modules/MasterTimelineModule';
-import { ContentScheduleModule } from './components/modules/ContentScheduleModule';
-import { DivisionScheduleModule } from './components/modules/DivisionScheduleModule';
-import { DirectorTimelineModule } from './components/modules/DirectorTimelineModule';
-import { DeadlineModule } from './components/modules/DeadlineModule';
-import { NotulensiModule } from './components/modules/NotulensiModule';
-import { BookingModule } from './components/modules/BookingModule';
-import { InterClassCoordModule } from './components/modules/InterClassCoordModule';
-import { DebugUsersModule } from './components/modules/DebugUsersModule';
-import { RABModule } from './components/modules/RABModule';
-import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastModule';
-import { GradeRecapModule } from './components/modules/GradeRecapModule';
-import { TemplateHubModule } from './components/modules/TemplateHubModule';
+// =====================================================
+// PANDUAN PER PERAN
+// =====================================================
+const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; desc: string; steps: string[] }> = {
+  'Guru Pengampu': {
+    title: 'Guru Pengampu / Pembina',
+    icon: ShieldCheck,
+    color: 'from-amber-700 to-orange-800',
+    desc: 'Pengawas tertinggi, pembimbing artistik, penilai utama',
+    steps: [
+      'Buka Dashboard untuk melihat ringkasan seluruh aktivitas kelas',
+      'Kelola Kelas → buat kelas baru, bagikan kode ke siswa, kelola akun',
+      'Kelola Siswa → klik "Lihat Pass" untuk melihat email & password siswa, atau "Reset" untuk mengirim link reset password ke email siswa',
+      'Kelola Tahapan → atur tahap aktif dan deadline per tahapan produksi (Persiapan, Pelaksanaan, Pertunjukan, Pasca). Tahap yang dinonaktifkan di sini juga mengunci penilaian pada tahap tersebut',
+      'Kelola Tahapan → Carry Over untuk memindahkan deadline dari tahap sebelumnya ke tahap aktif (hanya Guru Pengampu)',
+      'Jadwal Penilaian → atur kapan penilaian tiap tahap dibuka dan ditutup (tanggal + jam)',
+      'Tugas & Deadline → kirim tugas dari template ke siswa (bisa pilih beberapa template dan beberapa target)',
+      'Nilai & Penilaian → beri nilai Pimpinan Produksi dan Sutradara (atasan tertinggi). Guru bisa menilai siapa saja, tetapi hanya saat jendela penilaian tahap itu sedang terbuka',
+      'Nilai & Penilaian → cek panel "Perlu Klarifikasi" untuk nilai yang terlalu ekstrem atau berbeda jauh dari penilai lain, lalu hubungi penilai lewat WA',
+      'Moderasi → tinjau penilaian dari ketua dan rekan',
+      'Statistik Presensi → lihat rekap kehadiran per siswa & divisi',
+      'Backup & Restore → backup data Firestore ke JSON untuk arsip',
+      'Panduan ini bisa dibuka berkali-kali kapan pun dibutuhkan',
+    ],
+  },
+  'Pimpinan Produksi': {
+    title: 'Pimpinan Produksi (Pimpro)',
+    icon: Sparkles,
+    color: 'from-blue-800 to-indigo-900',
+    desc: 'Manajer proyek, penyusun Master Schedule & LPJ',
+    steps: [
+      'Dashboard → lihat status keseluruhan produksi & progress 6 divisi',
+      'Susun Master Production Schedule & validasi RAB bersama Bendahara',
+      'Tugas & Deadline → kirim tugas ke divisi & peran terkait',
+      'Presensi → buat sesi absensi pleno (semua siswa) atau lintas divisi',
+      'Jadwal & Agenda → tambah jadwal rapat, gladi, dan pementasan',
+      'Struktur Kerabat → ubah nama kerabat kerja (opsi Guru & Pimpro)',
+      'Broadcast → kirim pengumuman siaran ke semua siswa',
+      'Nilai & Penilaian → beri nilai Sekretaris, Bendahara, dan Koordinator Divisi (sebagai atasan mereka)',
+      'Saat Show Time: pimpin Taklimat 10 menit sebelum pintu dibuka',
+      'Kendalikan waktu: 10 menit persiapan + 30 menit tampil + 5 menit bongkar',
+      'Setelah selesai: susun LPJ & serahkan ke Guru',
+    ],
+  },
+  'Sekretaris': {
+    title: 'Sekretaris Administrasi',
+    icon: FileText,
+    color: 'from-blue-700 to-blue-900',
+    desc: 'Presensi harian, arsip dokumen, notulen rapat',
+    steps: [
+      'Dashboard → lihat sesi presensi aktif & agenda hari ini',
+      'Presensi → buat sesi absensi untuk rapat pleno / lintas divisi',
+      'Isi Buku Log Produksi (catat kehadiran tiap sesi latihan & hasil rapat)',
+      'Jadwal & Agenda → tambah jadwal internal untuk rapat koordinasi',
+      'Dokumen & Arsip → unggah draf naskah, notulen, proposal ke arsip web',
+      'Broadcast → kirim pengumuman resmi ke tim',
+      'Nilai & Penilaian → beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
+      'Saat Show Time: bertugas di Front of House (FOH) — arahkan antrean, validasi tiket, bagikan buku acara',
+      'Catat statistik riil jumlah penonton',
+      'Setelah selesai: susun & distribusikan sertifikat/surat apresiasi, arsipkan semua dokumen',
+    ],
+  },
+  'Bendahara': {
+    title: 'Bendahara Keuangan & Logistik',
+    icon: Wallet,
+    color: 'from-emerald-700 to-green-900',
+    desc: 'RAB, kas produksi, buku kas, nota, LPJ keuangan',
+    steps: [
+      'Dashboard → lihat saldo, pemasukan, pengeluaran, capaian kas',
+      'Kas & Buku Kas → aktifkan fitur kas (kesepakatan kelas) dengan nominal & periode',
+      'Centang pembayaran siswa per periode. Saldo terakumulasi otomatis',
+      'Buku Kas → catat pemasukan (kas siswa, sumbangan) & pengeluaran (beli properti, konsumsi)',
+      'Export Excel → 4 sheet: Ringkasan, Pemasukan, Pengeluaran, Rekap Periode',
+      'RAB Digital → susun RAB per divisi/peran/umum dengan estimasi biaya',
+      'Export RAB ke Word (.doc) untuk ditandatangani Pimpro',
+      'Unggah RAB Final yang sudah ditandatangani ke menu RAB',
+      'Kirim Reminder santun ke siswa yang belum bayar',
+      'Nilai & Penilaian → beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
+      'Saat Show Time: siapkan Tas Logistik Darurat (P3K, peniti, selotip, air minum)',
+      'Setelah selesai: susun tabel Perbandingan Anggaran (estimasi vs realisasi) & LPJ Keuangan',
+    ],
+  },
+  'Sutradara': {
+    title: 'Sutradara',
+    icon: Star,
+    color: 'from-rose-700 to-pink-900',
+    desc: 'Visi artistik, casting, penilai utama aktor',
+    steps: [
+      'Dashboard → lihat kriteria akting pemain & progres latihan',
+      'Studio & Naskah → 3x3 blocking grid untuk blocking panggung',
+      'Simpan posisi aktor di 9 zona panggung (UL, UC, UR, CL, C, CR, DL, DC, DR)',
+      'Editor Cue Sheet untuk instruksi cue musik & lampu',
+      'Presensi → buat sesi latihan untuk Pemain + Tata Musik (peserta terkunci)',
+      'Nilai & Penilaian → beri nilai Asisten Sutradara, Pemain, dan Koordinator Artistik (Busana, Rias, Panggung, Musik)',
+      'Saat Show Time: pimpin gladi bersih & pastikan durasi tepat 30 menit',
+      'Beri motivasi akhir & input nilai keaktoran saat pementasan',
+      'Setelah selesai: tulis analisis perkembangan keaktoran individual via web',
+    ],
+  },
+  'Asisten Sutradara': {
+    title: 'Asisten Sutradara (Astrada)',
+    icon: Play,
+    color: 'from-purple-700 to-indigo-900',
+    desc: 'Prompt book, cue sheet, catatan latihan',
+    steps: [
+      'Dashboard → lihat status pemain & cue berikutnya',
+      'Studio → Prompt Book untuk kelola cue sheet audio & lighting',
+      'Susun Call Sheet latihan per adegan',
+      'Kelola setor hafalan dialog pemain via video/audio',
+      'Latih Shadow Player (pemain cadangan)',
+      'Presensi → buat absensi latihan Pemain + Musik',
+      'Nilai & Penilaian → beri nilai Pemain (bawahan), Sutradara (feedback ke atasan), & Koor Artistik (rekan kerja)',
+      'Saat Show Time: panggil pemain ke wing, pandu pemanasan vokal',
+      'Kontrol urutan adegan sesuai 30 menit',
+      'Siap gantikan Sutradara jika berhalangan',
+      'Setelah selesai: konsolidasi catatan perkembangan pemain ke arsip',
+    ],
+  },
+  'Koordinator Perlengkapan': {
+    title: 'Koordinator Perlengkapan',
+    icon: Package,
+    color: 'from-blue-700 to-blue-900',
+    desc: 'Properti, bahan daur ulang, inventaris',
+    steps: [
+      'Dashboard → lihat 6 divisi & progress perlengkapan',
+      'Properti → daftar properti per adegan (maks prioritas daur ulang)',
+      'Update status properti: BELUM / PROSES / SELESAI / RUSAK',
+      'Presensi → buat sesi absensi internal divisi Perlengkapan (peserta terkunci ke anggota)',
+      'Jadwal Divisi → tambah jadwal internal divisi',
+      'Nilai & Penilaian → beri nilai Anggota Perlengkapan (bawahan) & Pimpinan Produksi (feedback atasan)',
+      'Saat Show Time: bagi zona prop table di wing, eksekusi transisi properti cepat',
+      'Setelah selesai: kembalikan inventaris sekolah & update status barang di web',
+    ],
+  },
+  'Koordinator Publikasi': {
+    title: 'Koordinator Publikasi & Dokumentasi',
+    icon: Camera,
+    color: 'from-emerald-700 to-green-900',
+    desc: 'Poster, konten, BTS, aftermovie',
+    steps: [
+      'Dashboard → kelola timeline publikasi & jadwal konten',
+      'Jadwal Konten → susun kalender konten (H-30, H-14, H-7, H-1, Hari-H)',
+      'Dokumen & Arsip → unggah foto & video Behind the Scene',
+      'Presensi internal divisi untuk koordinasi',
+      'Nilai & Penilaian → beri nilai Anggota Publikasi (bawahan) & Pimpinan Produksi (feedback atasan)',
+      'Saat Show Time: pasang kamera statis di angle terbaik',
+      'Ambil foto candid penonton & rekam pementasan 30 menit utuh',
+      'Setelah selesai: sunting aftermovie & arsipkan semua media ke Drive',
+    ],
+  },
+  'Koordinator Tata Panggung': {
+    title: 'Koordinator Tata Panggung',
+    icon: Layers,
+    color: 'from-purple-700 to-purple-900',
+    desc: 'Desain panggung, set, cross-operator',
+    steps: [
+      'Dashboard → lihat progress divisi & tugas terkait',
+      'Properti → kelola properti panggung (set, backdrop)',
+      'Presensi internal divisi Tata Panggung',
+      'Nilai & Penilaian → beri nilai Anggota Panggung (bawahan) & Sutradara (feedback atasan artistik)',
+      'Saat Show Time: eksekusi pasang set 10 menit, bongkar 5 menit',
+      'Jaga sterilitas area samping & pindahkan dekorasi tanpa suara',
+      'Setelah selesai: bongkar set & kembalikan panggung ke kondisi semula',
+    ],
+  },
+  'Koordinator Tata Rias': {
+    title: 'Koordinator Tata Rias',
+    icon: Palette,
+    color: 'from-pink-700 to-rose-900',
+    desc: 'Face chart, rias karakter/fantasi, higienitas',
+    steps: [
+      'Dashboard → kelola face chart & jadwal urutan merias',
+      'Face Chart → buat desain rias per pemain (Korektif / Karakter / Fantasi)',
+      'Unggah moodboard & face chart ke web',
+      'Presensi internal divisi Tata Rias',
+      'Nilai & Penilaian → beri nilai Anggota Rias (bawahan) & Sutradara (feedback atasan artistik)',
+      'Saat Show Time: eksekusi tata rias sesuai timeline',
+      'Standby touch-up cepat di antara adegan',
+      'Setelah selesai: dampingi pembersihan rias & sterilkan alat',
+    ],
+  },
+  'Koordinator Tata Busana': {
+    title: 'Koordinator Tata Busana',
+    icon: Scissors,
+    color: 'from-indigo-700 to-indigo-900',
+    desc: 'Desain kostum, fitting, quick change',
+    steps: [
+      'Dashboard → kelola desain & status kostum per peran',
+      'Kostum → tambah kostum untuk karakter & pemain',
+      'Track progress: DESAIN → POTONG → JAHIT → FITTING → SELESAI',
+      'Simpan moodboard, ukuran pemain, meter kain yang digunakan',
+      'Presensi internal divisi Tata Busana',
+      'Nilai & Penilaian → beri nilai Anggota Busana (bawahan) & Sutradara (feedback atasan artistik)',
+      'Saat Show Time: bagi area rak gantung, dampingi quick change pemain',
+      'Setelah selesai: cuci, bersihkan, & kembalikan aset kostum',
+    ],
+  },
+  'Koordinator Tata Musik': {
+    title: 'Koordinator Tata Musik & Suara',
+    icon: Music,
+    color: 'from-cyan-700 to-blue-900',
+    desc: 'Cue sheet audio, sound check, instrumen',
+    steps: [
+      'Dashboard → kelola sound cue sheet',
+      'Cue Sheet → tambah cue audio: Overture, Penutup, Pergantian Babak, dll',
+      'Simpan URL audio, volume, durasi per cue',
+      'Presensi internal divisi Tata Musik',
+      'Nilai & Penilaian → beri nilai Anggota Musik (bawahan) & Sutradara (feedback atasan artistik)',
+      'Saat Show Time: bagi channel mixer, check sound 10 menit',
+      'Mainkan musik iringan presisi mengikuti alur adegan 30 menit',
+      'Setelah selesai: rapikan & kembalikan instrumen ke penyimpanan',
+    ],
+  },
+  'Anggota Perlengkapan': {
+    title: 'Anggota Divisi Perlengkapan',
+    icon: Package,
+    color: 'from-blue-600 to-blue-800',
+    desc: 'Produksi properti, bahan daur ulang',
+    steps: [
+      'Dashboard → lihat tugas dari koordinator & progress Anda',
+      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
+      'Bukti tidak wajib. Untuk menambahkan catatan atau link (mis. Google Drive), pilih "Tambah Catatan"',
+      'Properti → tambah/update properti yang Anda kerjakan',
+      'Jadwal Divisi Saya → lihat agenda internal divisi',
+      'Presensi → isi kehadiran Anda di setiap sesi',
+      'Kas Saya → cek tagihan kas yang harus dibayar',
+      'Nilai & Penilaian → beri nilai Koordinator Perlengkapan (feedback atasan) & sesama Anggota (rekan)',
+      'Nilai Saya → lihat rapor pribadi',
+    ],
+  },
+  'Anggota Publikasi': {
+    title: 'Anggota Divisi Publikasi & Dokumentasi',
+    icon: Camera,
+    color: 'from-emerald-600 to-emerald-800',
+    desc: 'Foto, video, BTS, media sosial',
+    steps: [
+      'Dashboard → lihat tugas dokumentasi yang ditugaskan',
+      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan link media dari Drive sebagai catatan jika perlu',
+      'Dokumen & Arsip → unggah foto/video ke arsip digital',
+      'Jadwal Konten → lihat kalender publikasi',
+      'Presensi → isi kehadiran di setiap sesi',
+      'Kas Saya → cek tagihan kas',
+      'Nilai & Penilaian → beri nilai Koordinator Publikasi (feedback atasan) & sesama Anggota (rekan)',
+    ],
+  },
+  'Anggota Tata Panggung': {
+    title: 'Anggota Divisi Tata Panggung',
+    icon: Layers,
+    color: 'from-purple-600 to-purple-800',
+    desc: 'Konstruksi set, spotting, dekorasi',
+    steps: [
+      'Dashboard → lihat tugas konstruksi set',
+      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan catatan jika perlu',
+      'Properti → update status pekerjaan konstruksi',
+      'Presensi → isi kehadiran',
+      'Kas Saya → cek tagihan',
+      'Nilai & Penilaian → beri nilai Koor Panggung (feedback atasan) & sesama Anggota (rekan)',
+    ],
+  },
+  'Anggota Tata Rias': {
+    title: 'Anggota Divisi Tata Rias',
+    icon: Palette,
+    color: 'from-pink-600 to-rose-800',
+    desc: 'Aplikasi rias, higienitas alat',
+    steps: [
+      'Dashboard → lihat tugas rias yang ditugaskan',
+      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
+      'Face Chart → lihat desain rias dari koordinator',
+      'Presensi → isi kehadiran',
+      'Kas Saya → cek tagihan',
+      'Nilai & Penilaian → beri nilai Koor Rias (feedback atasan) & sesama Anggota (rekan)',
+    ],
+  },
+  'Anggota Tata Busana': {
+    title: 'Anggota Divisi Tata Busana',
+    icon: Scissors,
+    color: 'from-indigo-600 to-indigo-800',
+    desc: 'Jahit, modifikasi, fitting',
+    steps: [
+      'Dashboard → lihat tugas busana',
+      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
+      'Kostum → update status kostum yang Anda kerjakan',
+      'Presensi → isi kehadiran',
+      'Kas Saya → cek tagihan',
+      'Nilai & Penilaian → beri nilai Koor Busana (feedback atasan) & sesama Anggota (rekan)',
+    ],
+  },
+  'Anggota Tata Musik': {
+    title: 'Anggota Divisi Tata Musik & Suara',
+    icon: Music,
+    color: 'from-cyan-600 to-cyan-800',
+    desc: 'Musik, sound, instrumen',
+    steps: [
+      'Dashboard → lihat cue & tugas musik',
+      'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
+      'Cue Sheet → lihat & update cue audio',
+      'Presensi → isi kehadiran',
+      'Kas Saya → cek tagihan',
+      'Nilai & Penilaian → beri nilai Koor Musik (feedback atasan) & sesama Anggota (rekan)',
+    ],
+  },
+  'Pemain': {
+    title: 'Pemain (Aktor / Aktris)',
+    icon: Star,
+    color: 'from-rose-600 to-pink-800',
+    desc: 'Akting, hafalan dialog, blocking, refleksi',
+    steps: [
+      'Dashboard → lihat progress latihan & nilai sementara',
+      'Naskah & Blocking → baca naskah digital & lihat blocking 3x3',
+      'Rekam suara latihan dialog dengan fitur Perekam Suara',
+      'Ikuti 10 langkah latihan dialog',
+      'Tugas & Deadline → tekan "Tandai Selesai" & kirim hafalan via video jika diminta',
+      'Jadwal Latihan → konfirmasi kehadiran latihan',
+      'Presensi → isi kehadiran di setiap sesi',
+      'Nilai & Penilaian → beri nilai Sutradara & Astrada (pengarah langsung), serta sesama Pemain (rekan)',
+      'Nilai Saya → lihat rapor penilaian keaktoran',
+      'Refleksi Diri → isi refleksi setelah pementasan',
+    ],
+  },
+};
 
-const NAV_STORAGE_KEY = 'spppt-current-module';
-const VIEW_STORAGE_KEY = 'spppt-view';
+export const GuideModule: React.FC = () => {
+  const { user } = useAuth();
+  const [activeSection, setActiveSection] = useState<string>('my-role');
+  const [showAllRoles, setShowAllRoles] = useState(false);
 
-// Modul yang bisa diakses dari welcome (belum masuk kelas)
-const WELCOME_MODULES = [
-  'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
-  'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
-];
+  const myRole = user?.role || 'Pemain';
+  const myGuide = ROLE_GUIDES[myRole];
 
-// Modul yang WAJIB sudah masuk kelas
-const IN_CLASS_MODULES = [
-  'nilai', 'nilai-saya', 'absensi', 'statistik-absensi', 'kas', 'rab', 'tugas',
-  'progress-tugas', 'jadwal', 'master-timeline', 'content-schedule', 'division-schedule',
-  'director-timeline', 'properti', 'musik', 'rias', 'busana', 'broadcast', 'aduan',
-  'dokumen', 'struktur', 'studio', 'kelola-siswa', 'kelola-tahapan', 'jadwal-penilaian',
-  'moderasi', 'booking', 'admin-dashboard', 'rekap-nilai', 'template-hub',
-];
+  const SECTIONS: GuideSection[] = [
+    // ============================================
+    // 1. PANDUAN PERAN ANDA (dinamis berdasarkan login)
+    // ============================================
+    {
+      id: 'my-role',
+      title: `Panduan untuk Peran Anda: ${myRole}`,
+      icon: myGuide?.icon || UserCheck,
+      color: myGuide?.color || 'from-amber-600 to-orange-800',
+      content: (
+        <div className="space-y-4">
+          {myGuide ? (
+            <>
+              <div className={`p-4 rounded-2xl bg-gradient-to-r ${myGuide.color} text-white`}>
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-white/20 backdrop-blur-sm shrink-0">
+                    <myGuide.icon className="w-7 h-7" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black">{myGuide.title}</h3>
+                    <p className="text-xs opacity-90 mt-0.5">{myGuide.desc}</p>
+                  </div>
+                </div>
+              </div>
 
-const WelcomeLayout: React.FC<{
-  onEnterClass: (c: any) => void;
-  onNavigate: (m: string) => void;
-  currentModule: string;
-}> = ({ onEnterClass, onNavigate, currentModule }) => {
-  const { isGuruPengampu, isAdminRole } = useAuth();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  <p className="text-xs font-bold text-amber-900 dark:text-amber-200">
+                    Yang bisa Anda lakukan:
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {myGuide.steps.map((step, i) => (
+                    <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-amber-100 dark:border-amber-500/20">
+                      <span className="w-6 h-6 rounded-full bg-amber-500 text-white font-bold flex items-center justify-center text-[11px] shrink-0">
+                        {i + 1}
+                      </span>
+                      <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed pt-0.5">
+                        {step}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-  const renderWelcomeModule = () => {
-    switch (currentModule) {
-      case 'informasi': return <InformationModule />;
-      case 'notifikasi': return <NotificationPage />;
-      case 'aktivitas': return <ActivityLogModule />;
-      case 'notulensi': return <NotulensiModule />;
-      case 'backup': return <BackupModule />;
-      case 'panduan': return <GuideModule />;
-      case 'pengaturan': return <SettingsModule />;
-      case 'inter-class': return <InterClassCoordModule />;
-      case 'debug-users': return <DebugUsersModule />;
-      case 'welcome-broadcast': return <WelcomeBroadcastModule />;
-      case 'dashboard':
-      default:
-        return isGuruPengampu || isAdminRole ? (
-          <ManageClassModule embedded onEnterClass={onEnterClass} />
-        ) : (
-          <StudentWelcomePage onEnterClass={onEnterClass} onNavigate={onNavigate} />
-        );
-    }
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
+                  Panduan ini dapat dibuka berkali-kali kapan pun Anda butuh.
+                  Sidebar menu menampilkan fitur sesuai wewenang peran Anda.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-slate-500 italic text-center py-4">
+              Panduan untuk peran "{myRole}" belum tersedia.
+            </p>
+          )}
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 2. PENGANTAR SP-PPT
+    // ============================================
+    {
+      id: 'intro',
+      title: 'Pengantar SP-PPT',
+      icon: BookOpen,
+      color: 'from-slate-700 to-slate-900',
+      content: (
+        <div className="space-y-3 text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+          <p>
+            <strong>SP-PPT (Sistem Penilaian & Manajemen Proyek Produksi Teater)</strong> adalah platform
+            web resmi pembelajaran Seni Budaya (Seni Teater) Kelas IX di SMP Negeri 10 Samarinda.
+          </p>
+          <p>
+            Sistem ini mendokumentasikan, mengelola alur kerja, dan menilai proses produksi teater
+            secara holistik dari tahap <strong>Pra-Produksi → Pelaksanaan (3 bulan) → Show Time → Pasca-Produksi</strong>.
+          </p>
+          <div className="p-3 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-200 dark:border-amber-500/30">
+            <p className="text-amber-900 dark:text-amber-200 font-bold text-[11px] flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> Prinsip Utama:
+            </p>
+            <p className="text-amber-800 dark:text-amber-300 text-[11px] mt-1">
+              Penilaian tidak hanya melihat hari-H pertunjukan di panggung, tetapi menghargai setiap
+              tetes keringat proses latihan, koordinasi divisi, dan kedisiplinan kerja tim.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 3. SEMUA PERAN
+    // ============================================
+    {
+      id: 'all-roles',
+      title: 'Daftar Semua Peran & Wewenang',
+      icon: Users,
+      color: 'from-purple-700 to-indigo-900',
+      content: (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+            Sistem membedakan hak akses secara ketat berdasarkan hierarki kepanitiaan produksi.
+            Klik peran untuk melihat detail.
+          </p>
+          <button
+            onClick={() => setShowAllRoles(!showAllRoles)}
+            className="w-full p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 text-purple-800 dark:text-purple-300 font-bold text-xs flex items-center justify-between"
+          >
+            <span>{showAllRoles ? 'Sembunyikan Detail Semua Peran' : 'Tampilkan Detail Semua Peran'}</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showAllRoles ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showAllRoles && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[60vh] overflow-y-auto pr-1">
+              {Object.entries(ROLE_GUIDES).map(([roleKey, guide]) => {
+                const Icon = guide.icon;
+                const isMe = roleKey === myRole;
+                return (
+                  <div key={roleKey} className={`p-3 rounded-xl border-2 ${
+                    isMe ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                  }`}>
+                    <div className="flex items-start gap-2 mb-2">
+                      <div className={`p-2 rounded-lg bg-gradient-to-br ${guide.color} text-white shrink-0`}>
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-xs font-bold text-slate-900 dark:text-white">{guide.title}</p>
+                          {isMe && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">
+                              Anda
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{guide.desc}</p>
+                      </div>
+                    </div>
+                    <ul className="text-[10px] text-slate-600 dark:text-slate-400 space-y-0.5 pl-4 list-disc">
+                      {guide.steps.slice(0, 3).map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                      {guide.steps.length > 3 && (
+                        <li className="text-slate-400 italic">...dan {guide.steps.length - 3} langkah lain</li>
+                      )}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 4. CARA MENDAFTAR AKUN
+    // ============================================
+    {
+      id: 'register',
+      title: 'Cara Mendaftar Akun Baru',
+      icon: KeyRound,
+      color: 'from-blue-700 to-indigo-900',
+      content: (
+        <div className="space-y-3 text-xs leading-relaxed">
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
+              Yang dibutuhkan:
+            </p>
+            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
+              <li>Kode Kelas (dapat dari Guru Pengampu)</li>
+              <li>Nama lengkap sesuai data sekolah</li>
+              <li>Email aktif (boleh Gmail/email sekolah)</li>
+              <li>Nomor WhatsApp aktif (WAJIB — untuk koordinasi produksi)</li>
+              <li>Password minimal 6 karakter</li>
+              <li>Peran/Jabatan dalam kepanitiaan</li>
+            </ul>
+          </div>
+
+          <div className="space-y-2">
+            <p className="font-bold text-slate-900 dark:text-slate-200">Langkah pendaftaran:</p>
+            {[
+              'Buka halaman login SP-PPT',
+              'Pilih tab "Siswa"',
+              'Klik "Daftar Siswa" di bawah tombol masuk',
+              'Isi kode kelas yang diberikan guru (contoh: IXF-RAC97BK4)',
+              'Isi nama lengkap, email, nomor WhatsApp',
+              'Buat password & konfirmasi ulang',
+              'Pilih peran Anda dari dropdown (Pengurus Inti, Pemeran & Penyutradaraan, Koordinator Divisi, atau Anggota Divisi)',
+              'Klik "Daftarkan Akun Siswa"',
+              'Setelah berhasil, login kembali dengan email & password',
+              'Modal verifikasi akan muncul — klik "Ya, Saya Benar" untuk konfirmasi',
+            ].map((step, i) => (
+              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <span className="w-6 h-6 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center text-[11px] shrink-0">
+                  {i + 1}
+                </span>
+                <p className="text-slate-700 dark:text-slate-300 pt-0.5">{step}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed">
+              <strong>Perhatian:</strong> Nomor WhatsApp tidak boleh kosong — dipakai untuk koordinasi
+              mendadak (mis. perubahan jadwal gladi). Pastikan nomor Anda aktif.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 5. VERIFIKASI LOGIN
+    // ============================================
+    {
+      id: 'verify-login',
+      title: 'Verifikasi Login & Keamanan',
+      icon: ShieldCheck,
+      color: 'from-emerald-700 to-green-900',
+      content: (
+        <div className="space-y-3 text-xs">
+          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+            Setiap kali berhasil login, sistem akan menampilkan <strong>kartu verifikasi</strong>:
+            foto, nama, email, peran, dan kelas Anda.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+              <p className="font-bold text-emerald-800 dark:text-emerald-300 text-[11px] flex items-center gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5" /> Jika ini Anda
+              </p>
+              <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
+                Klik tombol hijau <strong>"Ya, Saya Benar"</strong> untuk lanjut ke dashboard.
+              </p>
+            </div>
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
+              <p className="font-bold text-rose-800 dark:text-rose-300 text-[11px] flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> Jika bukan Anda
+              </p>
+              <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-1">
+                Klik <strong>"Bukan Saya"</strong> untuk langsung logout & mencegah penyalahgunaan akun.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
+              Fitur keamanan tambahan:
+            </p>
+            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
+              <li>Auto-logout jika profil tidak ditemukan</li>
+              <li>Konfirmasi logout (Ya/Tidak) untuk mencegah klik tak sengaja</li>
+              <li>Kredensial dicatat Guru agar bisa dibantu reset password</li>
+              <li>Audit log mencatat semua aktivitas login/logout</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 6. SISTEM PENILAIAN 360
+    // ============================================
+    {
+      id: 'grading',
+      title: 'Sistem Penilaian 360',
+      icon: Award,
+      color: 'from-amber-600 to-orange-800',
+      content: (
+        <div className="space-y-3 text-xs">
+          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+            Setiap siswa dinilai dari dua sumber: <strong>skor otomatis</strong> dari data sistem
+            (tugas, kehadiran, dan kedisiplinan) dan <strong>penilaian manual</strong> dari penilai.
+          </p>
+
+          <div className="p-3.5 bg-slate-900 text-amber-300 rounded-xl font-mono text-[11px] text-center leading-relaxed">
+            Nilai Akhir = rata-rata tiap kategori penilai<br />
+            (Guru Pengampu, Koordinator, Rekan Kerja, Anggota Tim)<br />
+            dikalikan bobot yang berbeda untuk setiap peran
+          </div>
+
+          <div>
+            <p className="font-bold text-slate-900 dark:text-slate-200 mb-2 text-[11px]">Skala Penilaian Manual:</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+              {[
+                { score: 1, label: 'Kurang', color: 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30' },
+                { score: 2, label: 'Cukup', color: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' },
+                { score: 3, label: 'Baik', color: 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30' },
+                { score: 4, label: 'Sangat Baik', color: 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30' },
+              ].map(item => (
+                <div key={item.label} className={`p-2 rounded-lg border ${item.color}`}>
+                  <p className="font-bold text-xs text-slate-800 dark:text-slate-200">{item.label}</p>
+                  <p className="font-mono text-slate-500 dark:text-slate-400 text-[10px]">Nilai: {item.score}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
+              Skor otomatis (diisi sistem, tidak bisa diubah manual):
+            </p>
+            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1 pl-4 list-disc">
+              <li><strong>Tanggung Jawab</strong>: dihitung dari ketepatan waktu pengumpulan tugas. Tugas kritis yang terlambat atau belum dikerjakan menurunkan skor.</li>
+              <li><strong>Kehadiran</strong>: dihitung dari sesi presensi. Status Hadir, Izin, dan Sakit dihitung sebagai hadir. Alpa tiga kali atau lebih, atau alpa di sesi Gladi/Pementasan, membatasi skor maksimal.</li>
+              <li><strong>Kedisiplinan</strong>: hanya untuk peran Pemeran, merupakan rata-rata dari Tanggung Jawab dan Kehadiran.</li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
+            <p className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed font-bold flex items-center gap-1.5 mb-1">
+              <ShieldCheck className="w-3.5 h-3.5" /> Safety Net (Batas Maksimum Nilai)
+            </p>
+            <p className="text-[11px] text-rose-800 dark:text-rose-300 leading-relaxed mb-1">
+              Untuk menjaga keadilan, sistem membatasi nilai maksimum dalam kondisi berikut:
+            </p>
+            <ul className="text-[11px] text-rose-800 dark:text-rose-300 space-y-0.5 pl-4 list-disc">
+              <li>Jika siswa <strong>tidak mengerjakan tugas sama sekali</strong> (skor Tanggung Jawab = 1), nilai maksimal adalah <strong>70 (Predikat C)</strong>.</li>
+              <li>Jika siswa berperan sebagai <strong>Pemeran</strong> dan memiliki <strong>Kedisiplinan rendah</strong> (≤ 2), nilai maksimal adalah <strong>75</strong>.</li>
+              <li>Ini memastikan siswa tidak bisa mendapatkan nilai A hanya dari penilaian teman, jika ia malas mengerjakan tugas.</li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
+            <p className="font-bold text-purple-900 dark:text-purple-200 text-[11px] mb-1">
+              Jendela penilaian:
+            </p>
+            <ul className="text-[11px] text-purple-800 dark:text-purple-300 space-y-0.5 pl-4 list-disc">
+              <li>Guru mengatur jadwal buka dan tutup penilaian per tahap di menu Jadwal Penilaian.</li>
+              <li>Di luar rentang tanggal dan jam, penilai tidak bisa mengisi atau mengubah nilai, termasuk Guru.</li>
+              <li>Jika tanggal belum diisi, penilaian terbuka tanpa batas waktu.</li>
+              <li>Tahap yang dinonaktifkan di Kelola Tahapan juga mengunci penilaian tahap tersebut.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 7. TUGAS & DEADLINE
+    // ============================================
+    {
+      id: 'tasks',
+      title: 'Tugas & Deadline',
+      icon: CheckSquare,
+      color: 'from-blue-700 to-indigo-900',
+      content: (
+        <div className="space-y-3 text-xs">
+          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+            Guru dan pengurus dapat membuat tugas dari <strong>template</strong> yang sudah disiapkan,
+            atau menginput tugas secara manual. Siswa menandai tugasnya sebagai selesai di menu yang sama.
+          </p>
+
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1.5">
+              Cara membuat tugas dari template:
+            </p>
+            <ol className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1 pl-4 list-decimal">
+              <li>Buka menu Tugas & Deadline</li>
+              <li>Pilih <strong>Tahap Produksi</strong> (Persiapan / Pelaksanaan / Pertunjukan / Pasca)</li>
+              <li>Pilih satu atau beberapa <strong>template</strong></li>
+              <li>Pilih <strong>target</strong>: beberapa peran, beberapa divisi, atau semua siswa</li>
+              <li>Atur jatuh tempo: tetap, digeser, atau diganti tanggal tertentu (override)</li>
+              <li>Periksa jumlah penerima di langkah terakhir, lalu kirim</li>
+            </ol>
+            <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-2">
+              Tugas bisa ditandai <strong>Kritis</strong>. Tugas kritis memengaruhi skor Tanggung Jawab di penilaian.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+            <p className="font-bold text-emerald-900 dark:text-emerald-200 text-[11px] mb-1.5">
+              Cara siswa menandai tugas:
+            </p>
+            <ol className="text-[11px] text-emerald-800 dark:text-emerald-300 space-y-1 pl-4 list-decimal">
+              <li>Buka menu Tugas & Deadline</li>
+              <li>Lihat daftar tugas dengan badge prioritas dan countdown</li>
+              <li>Tekan <strong>"Tandai Selesai"</strong> jika tugas sudah dikerjakan. Tidak perlu link apa pun</li>
+              <li>Untuk menambahkan catatan atau link bukti (mis. Google Drive), pilih <strong>"Tambah Catatan"</strong>. Ini opsional</li>
+              <li>Tekan <strong>"Batalkan"</strong> jika status selesai perlu dibatalkan</li>
+            </ol>
+            <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-2">
+              Jika tugas sudah lewat deadline, tombol tetap bisa dipakai. Status akan tercatat sebagai <strong>Terlambat</strong>.
+              Countdown akan berhenti (DITAHAN) saat tugas ditahan oleh Guru.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+            <p className="font-bold text-amber-900 dark:text-amber-200 text-[11px] mb-1 flex items-center gap-1.5">
+              <History className="w-3.5 h-3.5" /> Tugas Tertinggal (dari Tahap Sebelumnya)
+            </p>
+            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed mb-1">
+              Jika Anda belum menyelesaikan tugas di tahap sebelumnya dan tahap baru sudah dibuka, tugas lama akan tetap muncul dengan label <strong>TERTINGGAL</strong>.
+            </p>
+            <ul className="text-[11px] text-amber-800 dark:text-amber-300 space-y-0.5 pl-4 list-disc">
+              <li>Anda <strong>tetap bisa mengumpulkannya</strong> sekarang.</li>
+              <li>Namun, sistem akan mencatatnya sebagai <strong>Terlambat</strong>.</li>
+              <li>Nilai Anda akan <strong>dikurangi</strong> pada penilaian Tanggung Jawab.</li>
+              <li>Jika tidak dikumpulkan, Anda akan mendapatkan <strong>Nilai 0</strong> untuk tugas tersebut.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 8. FAQ
+    // ============================================
+    {
+      id: 'faq',
+      title: 'FAQ & Troubleshooting',
+      icon: HelpCircle,
+      color: 'from-slate-700 to-slate-900',
+      content: (
+        <div className="space-y-3 text-xs">
+          {[
+            {
+              q: 'Lupa password, bagaimana?',
+              a: 'Hubungi Guru Pengampu. Guru bisa membuka menu Kelola Siswa: tombol "Lihat Pass" menampilkan email dan password Anda, sedangkan tombol "Reset" mengirim link reset password ke email Anda. Setelah membuka link, buat password baru sendiri.',
+            },
+            {
+              q: 'Saat login muncul "Profil tidak ditemukan"?',
+              a: 'Akun Anda mungkin terdaftar di Firebase Auth tapi profil Firestore hilang. Silakan daftar ulang dengan kode kelas, atau hubungi Guru untuk didaftarkan manual.',
+            },
+            {
+              q: 'Saat login muncul "Role tidak cocok dengan tab"?',
+              a: 'Anda login di tab yang salah. Contoh: akun siswa tapi login di tab Guru. Ikuti tombol "Ganti ke Tab [X]" yang muncul.',
+            },
+            {
+              q: 'Notifikasi tidak muncul di bell?',
+              a: 'Cek: (1) koneksi internet, (2) izin notifikasi browser, (3) refresh halaman. Notifikasi real-time dari Firestore biasanya muncul dalam 1-2 detik.',
+            },
+            {
+              q: 'Tidak bisa melihat menu Kas / RAB?',
+              a: 'Menu Kas & RAB hanya untuk Bendahara (edit) dan Admin/Guru (view RAB). Siswa hanya melihat "Kas Saya" (tagihan pribadi).',
+            },
+            {
+              q: 'Kenapa tombol Nilai tidak bisa dipakai?',
+              a: 'Ada tiga kemungkinan: tahap yang dipilih sedang nonaktif di Kelola Tahapan, penilaian tahap itu dinonaktifkan atau belum dibuka di Jadwal Penilaian, atau waktu penilaian sudah berakhir. Pesan di bagian atas halaman Penilaian 360 menjelaskan kondisinya.',
+            },
+            {
+              q: 'Bagaimana cara ganti nama kerabat kerja (nama produksi)?',
+              a: 'Guru Pengampu & Pimpinan Produksi bisa ubah di menu Struktur Kerabat → klik ikon pensil di samping nama kerabat.',
+            },
+          ].map((item, i) => (
+            <div key={i} className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+              <p className="font-bold text-slate-900 dark:text-white text-xs flex items-start gap-2">
+                <span className="text-amber-500 shrink-0">T:</span>
+                <span>{item.q}</span>
+              </p>
+              <p className="text-slate-600 dark:text-slate-400 text-[11px] mt-1.5 flex items-start gap-2 leading-relaxed">
+                <span className="text-emerald-500 font-bold shrink-0">J:</span>
+                <span>{item.a}</span>
+              </p>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 9. TENTANG APLIKASI
+    // ============================================
+    {
+      id: 'about',
+      title: 'Tentang SP-PPT',
+      icon: Info,
+      color: 'from-slate-700 to-slate-900',
+      content: (
+        <div className="space-y-3 text-xs leading-relaxed">
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border border-amber-200 dark:border-amber-500/30">
+            <p className="font-black text-slate-900 dark:text-white text-sm">{APP_CONFIG.appName}</p>
+            <p className="text-[11px] text-slate-700 dark:text-slate-300 mt-1">{APP_CONFIG.tagline}</p>
+            <div className="mt-3 space-y-1 text-[11px] text-slate-600 dark:text-slate-400">
+              <p><strong>Sekolah:</strong> {APP_CONFIG.schoolName}</p>
+              <p><strong>Tahun Ajaran:</strong> {APP_CONFIG.academicYear}</p>
+              <p><strong>Mata Pelajaran:</strong> Seni Budaya (Seni Teater)</p>
+              <p><strong>Kelas:</strong> IX (Sembilan)</p>
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
+              <strong>© 2026 {APP_CONFIG.schoolName}.</strong> Hak cipta dilindungi undang-undang.
+              Platform dikembangkan untuk pembelajaran Seni Teater secara terintegrasi.
+            </p>
+          </div>
+
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
+            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
+              <strong>Tips:</strong> Panduan ini bisa dibuka kapan pun dari menu Panduan & FAQ di sidebar.
+              Setiap peran memiliki akses yang berbeda sesuai tugas & tanggung jawabnya.
+            </p>
+          </div>
+        </div>
+      ),
+    },
+  ];
+
+  const toggleSection = (id: string) => {
+    setActiveSection(activeSection === id ? '' : id);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
-      <Navbar
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        onNavigate={onNavigate}
-        view="welcome"
-      />
-      <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        <Sidebar
-          currentModule={currentModule}
-          onNavigate={onNavigate}
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-          mode="welcome"
-        />
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-          {renderWelcomeModule()}
-        </main>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl border border-amber-500/20">
+        <div className="flex items-center gap-3">
+          <span className="p-3 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/30">
+            <HelpCircle className="w-7 h-7" />
+          </span>
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
+              Panduan Resmi
+            </span>
+            <h2 className="text-xl font-black text-white mt-1">Panduan Operasional SP-PPT</h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Pedoman lengkap untuk setiap peran — dapat dibuka berkali-kali
+            </p>
+          </div>
+        </div>
+
+        {/* Your role badge */}
+        {user && (
+          <div className="mt-4 p-3 rounded-2xl bg-white/10 border border-white/20 flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-500 text-slate-950">
+              <UserCheck className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                Login sebagai
+              </p>
+              <p className="text-sm font-black text-white truncate">
+                {user.displayName} — {myRole}
+                {user.divisionName && <span className="text-amber-200 font-normal"> • {user.divisionName}</span>}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Accordion Sections */}
+      <div className="space-y-3">
+        {SECTIONS.map(sec => {
+          const isOpen = activeSection === sec.id;
+          const Icon = sec.icon;
+
+          return (
+            <div
+              key={sec.id}
+              className={`rounded-3xl bg-white dark:bg-slate-900 border-2 shadow-sm overflow-hidden transition ${
+                isOpen
+                  ? 'border-amber-300 dark:border-amber-500/50 shadow-md'
+                  : 'border-slate-200 dark:border-slate-700'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => toggleSection(sec.id)}
+                className="w-full p-5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/60 transition"
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className={`p-2.5 rounded-xl bg-gradient-to-br ${sec.color} text-white shrink-0`}>
+                    <Icon className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
+                    {sec.title}
+                  </h3>
+                </div>
+
+                <ChevronDown
+                  className={`w-5 h-5 text-slate-400 transition-transform duration-200 shrink-0 ml-2 ${
+                    isOpen ? 'rotate-180 text-amber-600 dark:text-amber-400' : ''
+                  }`}
+                />
+              </button>
+
+              {isOpen && (
+                <div className="px-6 pb-6 pt-2 border-t border-slate-100 dark:border-slate-700 animate-in fade-in">
+                  {sec.content}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Footer note */}
+      <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-3">
+        <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+          <strong>Panduan ini dapat dibuka berkali-kali.</strong> Jika ada pertanyaan atau fitur yang belum
+          dipahami, hubungi Guru Pengampu atau Pimpinan Produksi kelas Anda.
+        </div>
       </div>
     </div>
   );
 };
-
-const MainLayout: React.FC = () => {
-  const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
-
-  const [currentModule, setCurrentModule] = useState<string>(() => {
-    try { return localStorage.getItem(NAV_STORAGE_KEY) || 'dashboard'; }
-    catch { return 'dashboard'; }
-  });
-  const [view, setView] = useState<'welcome' | 'in-class'>(() => {
-    try {
-      const saved = localStorage.getItem(VIEW_STORAGE_KEY);
-      if (saved === 'in-class' || saved === 'welcome') return saved;
-    } catch { /* ignore */ }
-    return 'welcome';
-  });
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [showLoginConfirm, setShowLoginConfirm] = useState(false);
-  const [showFloatingTools, setShowFloatingTools] = useState(false);
-  const viewInitRef = useRef(false);
-
-  const stateRef = useRef({ activeClass, isGuruPengampu, isAdminRole, view });
-  useEffect(() => {
-    stateRef.current = { activeClass, isGuruPengampu, isAdminRole, view };
-  }, [activeClass, isGuruPengampu, isAdminRole, view]);
-
-  useEffect(() => {
-    try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
-  }, [currentModule]);
-
-  useEffect(() => {
-    try { localStorage.setItem(VIEW_STORAGE_KEY, view); } catch { /* ignore */ }
-  }, [view]);
-
-  useEffect(() => {
-    if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
-      setShowLoginConfirm(true);
-    }
-  }, [user]);
-
-  useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
-
-  // AUTO-ENTER CLASS UNTUK SISWA
-  useEffect(() => {
-    if (!user) return;
-    if (viewInitRef.current) return;
-    const isGuruOrAdmin = isGuruPengampu || isAdminRole;
-    let savedView: 'welcome' | 'in-class' = 'welcome';
-    try {
-      const s = localStorage.getItem(VIEW_STORAGE_KEY);
-      if (s === 'in-class' || s === 'welcome') savedView = s;
-    } catch { /* ignore */ }
-
-    if (isGuruOrAdmin) {
-      if (activeClass && savedView === 'in-class') { setView('in-class'); viewInitRef.current = true; }
-      else if (activeClass && savedView === 'welcome') { setView('welcome'); viewInitRef.current = true; }
-    } else {
-      if (activeClass) {
-        setView('in-class');
-      } else {
-        setView('welcome');
-      }
-      viewInitRef.current = true;
-    }
-  }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
-
-  // AUTO-RUN REMINDER CHECKER
-  useEffect(() => {
-    if (!user || !activeClass) return;
-    const timer = setTimeout(() => {
-      import('./utils/reminder').then(({ runAllReminders }) => {
-        runAllReminders(activeClass.id).catch(err =>
-          console.warn('Reminder check error (non-fatal):', err)
-        );
-      }).catch(err => {
-        console.warn('Reminder import error (non-fatal):', err);
-      });
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [user?.uid, activeClass?.id]);
-
-  // HANDLER NAVIGASI TERPUSAT
-  const handleNavigate = useCallback((target: string) => {
-    const st = stateRef.current;
-    const needsClass = IN_CLASS_MODULES.includes(target);
-    const isWelcomeOnly = WELCOME_MODULES.includes(target);
-
-    if (needsClass && !st.activeClass) {
-      setView('welcome');
-      setCurrentModule(target);
-      return;
-    }
-
-    if (needsClass && st.activeClass) {
-      setView('in-class');
-      setCurrentModule(target);
-      return;
-    }
-
-    if (isWelcomeOnly) {
-      setCurrentModule(target);
-      return;
-    }
-
-    setCurrentModule(target);
-  }, []);
-
-  // Listener global untuk 'spppt-navigate'
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.module) handleNavigate(detail.module);
-    };
-    window.addEventListener('spppt-navigate', handler);
-    return () => window.removeEventListener('spppt-navigate', handler);
-  }, [handleNavigate]);
-
-  const handleEnterClass = (c: any) => {
-    setActiveClass(c);
-    setView('in-class');
-    setCurrentModule('dashboard');
-  };
-
-  const handleExitClass = () => {
-    setView('welcome');
-    setCurrentModule('dashboard');
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
-        <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <h2 className="text-lg font-black tracking-tight text-amber-400">Memuat SP-PPT...</h2>
-        <p className="text-xs text-slate-400 mt-1">Sistem Penilaian Produksi Teater SMPN 10 Samarinda</p>
-      </div>
-    );
-  }
-
-  if (!user) return <LoginModal />;
-
-  const handleLoginConfirmYes = () => {
-    try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
-    setShowLoginConfirm(false);
-  };
-
-  const handleLoginConfirmNo = async () => {
-    try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
-    setShowLoginConfirm(false);
-    await logout();
-  };
-
-  // =====================================================
-  // ADMIN LAYOUT
-  // =====================================================
-  if (isAdminRole) {
-    return (
-      <>
-        <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
-          <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={handleNavigate} />
-          <div className="flex-1 flex max-w-7xl w-full mx-auto">
-            <Sidebar currentModule={currentModule} onNavigate={handleNavigate}
-              isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-            <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-              {currentModule === 'pengaturan' ? <SettingsModule /> :
-               currentModule === 'backup' ? <BackupModule /> :
-               currentModule === 'informasi' ? <InformationModule /> :
-               currentModule === 'notifikasi' ? <NotificationPage /> :
-               currentModule === 'aktivitas' ? <ActivityLogModule /> :
-               currentModule === 'master-timeline' ? <MasterTimelineModule /> :
-               currentModule === 'content-schedule' ? <ContentScheduleModule /> :
-               currentModule === 'division-schedule' ? <DivisionScheduleModule /> :
-               currentModule === 'director-timeline' ? <DirectorTimelineModule /> :
-               currentModule === 'progress-tugas' ? <TaskProgressModule /> :
-               currentModule === 'notulensi' ? <NotulensiModule /> :
-               currentModule === 'booking' ? <BookingModule /> :
-               currentModule === 'inter-class' ? <InterClassCoordModule /> :
-               currentModule === 'debug-users' ? <DebugUsersModule /> :
-               currentModule === 'rab' ? <RABModule /> :
-               currentModule === 'rekap-nilai' ? <GradeRecapModule /> :
-               currentModule === 'template-hub' ? <TemplateHubModule /> :
-               <AdminModule />}
-            </main>
-          </div>
-        </div>
-        {showLoginConfirm && user && (
-          <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
-        )}
-      </>
-    );
-  }
-
-  // =====================================================
-  // WELCOME VIEW
-  // =====================================================
-  if (view === 'welcome') {
-    return (
-      <WelcomeLayout
-        onEnterClass={handleEnterClass}
-        onNavigate={handleNavigate}
-        currentModule={currentModule}
-      />
-    );
-  }
-
-  // =====================================================
-  // IN-CLASS MODULE ROUTER
-  // =====================================================
-  const renderCurrentModule = () => {
-    switch (currentModule) {
-      case 'dashboard': return <DashboardModule onNavigate={handleNavigate} />;
-      case 'nilai-saya': return <MyGradeModule />;
-      case 'nilai': return <AssessmentModule />;
-      case 'moderasi': return <ModerationModule />;
-      case 'rekap-nilai': return <GradeRecapModule />;
-      case 'absensi': return <AttendanceModule />;
-      case 'statistik-absensi': return <AttendanceStatsModule />;
-      case 'kas': return <KasModule />;
-      case 'rab': return <RABModule />;
-      case 'tugas': return <DeadlineModule />;
-      case 'progress-tugas': return <TaskProgressModule />;
-      case 'jadwal': return <ScheduleModule />;
-      case 'master-timeline': return <MasterTimelineModule />;
-      case 'content-schedule': return <ContentScheduleModule />;
-      case 'division-schedule': return <DivisionScheduleModule />;
-      case 'director-timeline': return <DirectorTimelineModule />;
-      case 'properti': return <PropertyModule />;
-      case 'musik': return <MusicCueModule />;
-      case 'rias': return <FaceChartModule />;
-      case 'busana': return <CostumeModule />;
-      case 'informasi': return <InformationModule />;
-      case 'notifikasi': return <NotificationPage />;
-      case 'broadcast': return <BroadcastModule />;
-      case 'aduan': return <ComplaintModule />;
-      case 'dokumen': return <DocumentModule />;
-      case 'struktur': return <StructureModule />;
-      case 'studio': return <StudioModule />;
-      case 'kelola-siswa': return <ManageStudentModule onNavigate={handleNavigate} />;
-      case 'kelola-tahapan': return <StageManagerModule />;
-      case 'jadwal-penilaian': return <AssessmentScheduleModule />;
-      case 'aktivitas': return <ActivityLogModule />;
-      case 'backup': return <BackupModule />;
-      case 'pengaturan': return <SettingsModule />;
-      case 'panduan': return <GuideModule />;
-      case 'notulensi': return <NotulensiModule />;
-      case 'booking': return <BookingModule />;
-      case 'inter-class': return <InterClassCoordModule />;
-      case 'debug-users': return <DebugUsersModule />;
-      case 'template-hub': return <TemplateHubModule />;
-      default: return <DashboardModule onNavigate={handleNavigate} />;
-    }
-  };
-
-  return (
-    <>
-      <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
-        <Navbar
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          onNavigate={handleNavigate}
-          view="in-class"
-          onExitClass={handleExitClass}
-        />
-        <div className="flex-1 flex max-w-7xl w-full mx-auto">
-          <Sidebar
-            currentModule={currentModule}
-            onNavigate={handleNavigate}
-            isOpen={isSidebarOpen}
-            onClose={() => setIsSidebarOpen(false)}
-            mode="in-class"
-          />
-          <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
-            {renderCurrentModule()}
-          </main>
-        </div>
-
-        <DashboardReminder onNavigate={handleNavigate} />
-
-        {/* FLOATING TOOLS — Bisa dibuka/tutup */}
-        <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 print:hidden flex flex-col items-end gap-2.5">
-          {/* Expanded Tools */}
-          {showFloatingTools && (
-            <>
-              <button onClick={() => { handleNavigate('informasi'); setShowFloatingTools(false); }}
-                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xl border-2 border-amber-400 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
-                title="Papan Pengumuman">
-                <Megaphone className="w-4 h-4" />
-                <span className="text-[11px] font-bold whitespace-nowrap">Papan Info</span>
-              </button>
-              <button onClick={() => { handleNavigate('struktur'); setShowFloatingTools(false); }}
-                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-amber-400 shadow-xl border-2 border-amber-500/40 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
-                title="Kerabat Kerja">
-                <Users className="w-4 h-4" />
-                <span className="text-[11px] font-bold whitespace-nowrap">Kerabat Kerja</span>
-              </button>
-              <button onClick={() => { handleNavigate('aduan'); setShowFloatingTools(false); }}
-                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
-                title="Aduan Cepat">
-                <MessageSquare className="w-4 h-4" />
-                <span className="text-[11px] font-bold whitespace-nowrap">Aduan Cepat</span>
-              </button>
-            </>
-          )}
-
-          {/* Main Toggle FAB */}
-          <button
-            onClick={() => setShowFloatingTools(!showFloatingTools)}
-            className={`p-3.5 rounded-full shadow-2xl border-2 flex items-center justify-center transition-all duration-300 hover:scale-105 ${
-              showFloatingTools
-                ? 'bg-slate-900 text-white border-amber-400'
-                : 'bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 border-amber-400'
-            }`}
-            title={showFloatingTools ? 'Tutup menu cepat' : 'Buka menu cepat'}
-          >
-            {showFloatingTools ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
-          </button>
-        </div>
-
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
-          <button onClick={() => handleNavigate('dashboard')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Home className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Beranda</span>
-          </button>
-          <button onClick={() => handleNavigate('informasi')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Megaphone className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Info</span>
-          </button>
-          <button onClick={() => handleNavigate('notifikasi')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Bell className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Notif</span>
-          </button>
-          <button onClick={() => handleNavigate('kas')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Wallet className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Kas</span>
-          </button>
-          <button onClick={() => handleNavigate('rab')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'rab' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Calculator className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">RAB</span>
-          </button>
-        </div>
-      </div>
-
-      {showLoginConfirm && user && (
-        <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
-      )}
-    </>
-  );
-};
-
-export default function App() {
-  return (
-    <ThemeProvider>
-      <ToastProvider>
-        <AuthProvider>
-          <MainLayout />
-        </AuthProvider>
-      </ToastProvider>
-    </ThemeProvider>
-  );
-}
