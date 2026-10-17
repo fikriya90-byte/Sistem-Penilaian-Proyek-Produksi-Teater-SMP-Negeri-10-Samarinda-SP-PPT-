@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square, X } from 'lucide-react';
+import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square, X, UserCog } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
   PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES,
@@ -8,7 +8,7 @@ import {
 } from '../../core/constants';
 import { AssessmentRecord, ProductionStage, UserProfile } from '../../core/types';
 import { fetchUsersByClass, fetchAllUsers, recordAuditLog, saveAssessment, subscribeAssessments, subscribeAttendanceSessions, subscribeAllAttendanceRecords } from '../../services/firestoreService';
-import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, deleteDoc, getDocs, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { useToast } from '../common/Toast';
 import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
@@ -156,10 +156,12 @@ export const AssessmentModule: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null);
   const [selectedStage, setSelectedStage] = useState<ProductionStage>('PELAKSANAAN');
   const [searchQuery, setSearchQuery] = useState('');
+  
   const [isGradingOpen, setIsGradingOpen] = useState(false);
   const [manualScores, setManualScores] = useState<Record<string, number>>({});
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
   const [stageConfig, setStageConfig] = useState<any>(null);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState('');
@@ -167,6 +169,14 @@ export const AssessmentModule: React.FC = () => {
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [selectedPeerIds, setSelectedPeerIds] = useState<string[]>([]);
   const [showCommentsFor, setShowCommentsFor] = useState<UserProfile | null>(null);
+  
+  // ✅ NEW: State untuk Detail & Edit Nilai Per Orang
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [detailStudent, setDetailStudent] = useState<UserProfile | null>(null);
+  const [editingRecord, setEditingRecord] = useState<AssessmentRecord | null>(null);
+  const [editRecordScore, setEditRecordScore] = useState<number>(80);
+  const [editRecordComment, setEditRecordComment] = useState('');
+
   const [, setTick] = useState(0);
 
   useEffect(() => { const t = setInterval(() => setTick(n => n + 1), 30000); return () => clearInterval(t); }, []);
@@ -361,11 +371,7 @@ export const AssessmentModule: React.FC = () => {
     return { finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs, roleBreakdown };
   };
 
-  // ============================================================
-  // ✅ FIX: Guru/Admin bypass semua lock (tahap & jadwal penilaian)
-  // ============================================================
   const openGrading = (s: UserProfile) => {
-    // Guru & Admin: bisa mengisi/edit nilai meskipun tahap/penilaian ditutup
     if (!canManageAll) {
       if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan oleh Guru.', 'error'); return; }
       if (isStageLocked) { showToast(`Tahap ${selectedStage} belum dibuka.`, 'warning'); return; }
@@ -393,7 +399,6 @@ export const AssessmentModule: React.FC = () => {
   const handleSave = async () => {
     if (!user || !selectedStudent || !activeClass) return;
 
-    // ✅ Guru/Admin bypass semua lock saat menyimpan
     if (!canManageAll) {
       if (isDirectDisabled()) { showToast('Penilaian tahap ini dinonaktifkan. Tidak bisa menyimpan.', 'error'); return; }
       if (isStageLocked || isAssessmentLocked) { showToast('Penilaian terkunci.', 'warning'); return; }
@@ -436,6 +441,39 @@ export const AssessmentModule: React.FC = () => {
       showToast(`Penilaian ${selectedStudent.displayName} disimpan!`, 'success');
       setIsGradingOpen(false);
     } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); } finally { setIsSubmitting(false); }
+  };
+
+  // ✅ NEW: Handler untuk buka detail penilaian (siapa saja yang menilai)
+  const openDetail = (s: UserProfile) => {
+    setDetailStudent(s);
+    setIsDetailOpen(true);
+  };
+
+  // ✅ NEW: Handler untuk edit nilai spesifik per orang
+  const openEditRecord = (r: AssessmentRecord) => {
+    setEditingRecord(r);
+    setEditRecordScore(r.totalScore);
+    setEditRecordComment(r.comment || '');
+  };
+
+  // ✅ NEW: Handler simpan edit nilai per orang
+  const handleSaveRecord = async () => {
+    if (!editingRecord || !user) return;
+    try {
+      await updateDoc(doc(db, 'assessments', editingRecord.id), {
+        totalScore: editRecordScore,
+        comment: editRecordComment.trim(),
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.displayName,
+      });
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'Assessment', targetId: editingRecord.id,
+        details: `Edit nilai ${editingRecord.studentName} oleh ${editingRecord.assessorName} (${editingRecord.assessorCategory}) dari ${editingRecord.totalScore} menjadi ${editRecordScore}`,
+      });
+      showToast('Nilai berhasil diperbarui!', 'success');
+      setEditingRecord(null);
+    } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); }
   };
 
   const handleReset = async () => {
@@ -606,7 +644,6 @@ export const AssessmentModule: React.FC = () => {
           <div className="mt-3 p-3 rounded-xl bg-slate-50 border-2 border-slate-300 flex items-start gap-2"><AlertTriangle className="w-4 h-4 text-slate-600 shrink-0 mt-0.5" /><div className="text-[11px] text-slate-800"><p className="font-bold">Penilaian dinonaktifkan</p></div></div>
         )}
 
-        {/* ✅ BANNER BYPASS UNTUK GURU/ADMIN */}
         {canManageAll && (isStageLocked || isAssessmentLocked) && (
           <div className="mt-3 p-3 rounded-xl bg-purple-50 border-2 border-purple-300 flex items-start gap-2">
             <ShieldAlert className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
@@ -808,7 +845,6 @@ export const AssessmentModule: React.FC = () => {
               ) : (
                 filtered.map(s => {
                   const ag = getAgg(s.uid, s.role);
-                  // ✅ Guru/Admin: tombol Edit/Nilai tetap muncul meskipun locked
                   const cg = canGradeStudent(s) && (canManageAll || (!isStageLocked && !isAssessmentLocked));
                   const ps = getPeerStatus(s);
                   const commentCount = assessments.filter(a =>
@@ -848,7 +884,13 @@ export const AssessmentModule: React.FC = () => {
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.atasan != null ? ag.atasan.toFixed(1) : '-'}</td>
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.rekan != null ? ag.rekan.toFixed(1) : '-'}</td>
                       <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">{ag?.bawahan != null ? ag.bawahan.toFixed(1) : '-'}</td>
-                      <td className="py-3.5 px-4 text-center">{ag ? <span className="text-sm font-black text-slate-900 font-mono">{ag.finalVal}</span> : <span className="text-xs text-slate-400">-</span>}</td>
+                      <td className="py-3.5 px-4 text-center">
+                        {ag ? (
+                          <button onClick={() => openDetail(s)} className="text-sm font-black text-slate-900 font-mono hover:text-blue-600 transition underline decoration-dotted underline-offset-2" title="Klik untuk edit detail nilai">
+                            {ag.finalVal}
+                          </button>
+                        ) : <span className="text-xs text-slate-400">-</span>}
+                      </td>
                       <td className="py-3.5 px-4">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
                           {cg ? (
@@ -1066,111 +1108,95 @@ export const AssessmentModule: React.FC = () => {
         </div>
       )}
 
-      {showCommentsFor && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
-            <div className="p-5 bg-gradient-to-r from-purple-700 to-indigo-800 text-white shrink-0">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="p-2.5 rounded-xl bg-white/20 backdrop-blur-sm">
-                    <MessageCircle className="w-5 h-5" />
-                  </span>
+      {/* ================================================= */}
+      {/* ✅ NEW: MODAL DETAIL & EDIT NILAI PER ORANG      */}
+      {/* ================================================= */}
+      {isDetailOpen && detailStudent && (() => {
+        const ag = getAgg(detailStudent.uid, detailStudent.role);
+        if (!ag) return null;
+        return (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+            <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
+              <div className="p-5 bg-gradient-to-r from-blue-700 to-indigo-800 text-white shrink-0">
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider opacity-90">
-                      Komentar Penilaian • {selectedStage}
-                    </p>
-                    <h3 className="text-base font-black mt-0.5">{showCommentsFor.displayName}</h3>
-                    <p className="text-[11px] opacity-90">
-                      {showCommentsFor.role}
-                      {showCommentsFor.divisionName ? ` • ${showCommentsFor.divisionName}` : ''}
-                    </p>
+                    <h3 className="text-base font-black">Rincian Penilaian</h3>
+                    <p className="text-xs opacity-90">{detailStudent.displayName} ({detailStudent.role})</p>
                   </div>
+                  <button onClick={() => setIsDetailOpen(false)} className="p-1.5 rounded-lg hover:bg-white/20">
+                    <X className="w-5 h-5" />
+                  </button>
                 </div>
-                <button onClick={() => setShowCommentsFor(null)}
-                  className="p-1.5 rounded-lg hover:bg-white/20">
-                  <X className="w-5 h-5" />
-                </button>
+              </div>
+              <div className="p-5 overflow-y-auto flex-1 space-y-3">
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 font-semibold flex items-center gap-2">
+                  <Info className="w-4 h-4 shrink-0" />
+                  Klik "Edit Nilai" untuk mengubah nilai spesifik dari penilai tersebut. Perubahan akan langsung memperbarui total nilai.
+                </div>
+                {ag.records.map(r => (
+                  <div key={r.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-bold text-slate-900 dark:text-white">{r.assessorName} <span className="text-[10px] text-slate-500 font-normal">({r.assessorRole})</span></p>
+                      <p className="text-[9px] font-bold text-blue-600 dark:text-blue-400 mb-1">{CATEGORY_LABEL[((r as any).assessorCategory as AssessorCategory) || 'REKAN']}</p>
+                      <p className="text-xs italic text-slate-600 dark:text-slate-300">"{r.comment || '-'}"</p>
+                    </div>
+                    <div className="text-right shrink-0 flex flex-col items-end justify-center">
+                      <p className="text-lg font-black font-mono text-slate-900 dark:text-white">{r.totalScore}</p>
+                      <button onClick={() => openEditRecord(r)} className="mt-1 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 text-[10px] font-bold transition flex items-center gap-1">
+                        <Edit3 className="w-3 h-3" /> Edit Nilai
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end shrink-0">
+                <button onClick={() => setIsDetailOpen(false)} className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs">Tutup</button>
               </div>
             </div>
+          </div>
+        );
+      })()}
 
-            <div className="p-5 overflow-y-auto flex-1 space-y-3">
-              {(() => {
-                const comments = assessments
-                  .filter(a =>
-                    a.studentId === showCommentsFor.uid &&
-                    a.stage === selectedStage &&
-                    a.comment && a.comment.trim()
-                  )
-                  .sort((a, b) =>
-                    new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
-                  );
-
-                if (comments.length === 0) {
-                  return (
-                    <div className="p-8 text-center">
-                      <MessageCircle className="w-12 h-12 mx-auto text-slate-300 mb-3" />
-                      <p className="text-sm font-bold text-slate-600">Belum ada komentar</p>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Penilai belum mengisi komentar untuk tahap {selectedStage}.
-                      </p>
-                    </div>
-                  );
-                }
-
-                return (
-                  <>
-                    <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
-                      <p className="text-[11px] text-purple-900 dark:text-purple-200 leading-relaxed">
-                        <strong>{comments.length} komentar</strong> dari berbagai penilai untuk tahap <strong>{selectedStage}</strong>.
-                      </p>
-                    </div>
-
-                    {comments.map((c, idx) => {
-                      const cat = ((c as any).assessorCategory as AssessorCategory) || 'REKAN';
-                      const catColor =
-                        cat === 'GURU' ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                        cat === 'ATASAN' ? 'bg-blue-100 text-blue-800 border-blue-300' :
-                        cat === 'REKAN' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
-                        'bg-purple-100 text-purple-800 border-purple-300';
-                      return (
-                        <div key={c.id || idx}
-                          className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                          <div className="flex items-center gap-2 flex-wrap mb-2">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${catColor}`}>
-                              {CATEGORY_LABEL[cat]}
-                            </span>
-                            <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                              {c.assessorName}
-                            </span>
-                            <span className="text-[10px] text-slate-500">
-                              ({c.assessorRole})
-                            </span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-mono ml-auto">
-                              Nilai: {c.totalScore}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic">
-                            "{c.comment}"
-                          </p>
-                          <p className="text-[10px] text-slate-400 mt-2">
-                            {new Date(c.createdAt || 0).toLocaleString('id-ID', {
-                              day: 'numeric', month: 'long', year: 'numeric',
-                              hour: '2-digit', minute: '2-digit',
-                            })}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </>
-                );
-              })()}
+      {/* ================================================= */}
+      {/* ✅ NEW: MODAL EDIT NILAI SPESIFIK (PER ORANG)    */}
+      {/* ================================================= */}
+      {editingRecord && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-6 space-y-4">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <UserCog className="w-4 h-4 text-blue-600" /> Edit Nilai Spesifik
+              </h3>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Mengubah nilai untuk <strong>{editingRecord.studentName}</strong> dari <strong>{editingRecord.assessorName}</strong>.
+              </p>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nilai (0 - 100)</label>
+              <input 
+                type="number" 
+                min="0" max="100" 
+                value={editRecordScore} 
+                onChange={(e) => setEditRecordScore(parseInt(e.target.value) || 0)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-black text-slate-900 dark:text-white" 
+              />
             </div>
 
-            <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end shrink-0">
-              <button onClick={() => setShowCommentsFor(null)}
-                className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs">
-                Tutup
-              </button>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Komentar</label>
+              <textarea 
+                rows={3} 
+                value={editRecordComment} 
+                onChange={(e) => setEditRecordComment(e.target.value)}
+                placeholder="Alasan perubahan nilai..."
+                className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" 
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button onClick={() => setEditingRecord(null)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
+              <button onClick={handleSaveRecord} className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-sm">Simpan Perubahan</button>
             </div>
           </div>
         </div>
