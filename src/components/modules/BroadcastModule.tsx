@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Radio, Send, Search, Filter, Megaphone, AlertTriangle, Users,
+  Radio, Send, Search, Megaphone, AlertTriangle, Users,
   User, Target, CheckSquare, Square, ChevronDown, ChevronRight,
   MessageSquare, Reply, X, Shield, Clock, Trash2, Check,
   RefreshCw, Building2, Crown, Star, Pause, Play, Ban, Eye,
+  Camera, ImagePlus,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -16,6 +17,7 @@ import { db } from '../../core/firebase';
 import {
   recordAuditLog, fetchUsersByClass,
 } from '../../services/firestoreService';
+import { PhotoUploadModal } from '../common/PhotoUploadModal';
 
 // =====================================================
 // TIPE DATA
@@ -50,6 +52,7 @@ interface BroadcastMessage {
   targetDivisions: string[];
   recipientIds: string[];
   status: BroadcastStatus;
+  photoUrl?: string;
   closedAt?: string;
   createdAt: string;
 }
@@ -170,6 +173,11 @@ export const BroadcastModule: React.FC = () => {
   const [composeTargetDivisions, setComposeTargetDivisions] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
+  // FOTO OPSIONAL
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
+
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replySending, setReplySending] = useState(false);
@@ -258,6 +266,26 @@ export const BroadcastModule: React.FC = () => {
 
   const previewRecipientCount = computeRecipients().length;
 
+  const resetCompose = () => {
+    setComposeTitle('');
+    setComposeContent('');
+    setComposePriority('NORMAL');
+    setComposeTargetScope('SEMUA');
+    setComposeTargetRoles([]);
+    setComposeTargetDivisions([]);
+    setPhotoUrl('');
+  };
+
+  const closeCompose = () => {
+    setIsComposeOpen(false);
+    resetCompose();
+  };
+
+  const openCompose = () => {
+    resetCompose();
+    setIsComposeOpen(true);
+  };
+
   const handleSendBroadcast = async () => {
     if (!user || !activeClass) return;
 
@@ -301,6 +329,7 @@ export const BroadcastModule: React.FC = () => {
         targetRoles: composeTargetRoles,
         targetDivisions: composeTargetDivisions,
         recipientIds,
+        photoUrl: photoUrl || '',
         status: 'ACTIVE',
         createdAt: new Date().toISOString(),
       });
@@ -314,9 +343,10 @@ export const BroadcastModule: React.FC = () => {
             id: notifRef.id,
             userId: uid,
             classId: activeClass.id,
+            // TANPA EMOJI
             title: composePriority === 'URGENT'
-              ? `🚨 BROADCAST URGENT: ${composeTitle.trim()}`
-              : `📢 ${composeTitle.trim()}`,
+              ? `BROADCAST URGENT: ${composeTitle.trim()}`
+              : composeTitle.trim(),
             message: `${user.displayName} (${user.role}): ${composeContent.trim().slice(0, 150)}`,
             category: composePriority === 'URGENT' ? 'Urgent' : 'Pengumuman',
             read: false,
@@ -330,17 +360,11 @@ export const BroadcastModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'Broadcast', targetId: newRef.id,
-        details: `Broadcast "${composeTitle}" → ${recipientIds.length} penerima (${composeTargetScope})`,
+        details: `Broadcast "${composeTitle}" → ${recipientIds.length} penerima (${composeTargetScope})${photoUrl ? ' + foto' : ''}`,
       });
 
-      showToast(`Broadcast terkirim ke ${recipientIds.length} penerima!`, 'success');
-      setIsComposeOpen(false);
-      setComposeTitle('');
-      setComposeContent('');
-      setComposePriority('NORMAL');
-      setComposeTargetScope('SEMUA');
-      setComposeTargetRoles([]);
-      setComposeTargetDivisions([]);
+      showToast(`Broadcast terkirim ke ${recipientIds.length} penerima.`, 'success');
+      closeCompose();
     } catch (err: any) {
       showToast('Gagal kirim broadcast: ' + (err?.message || 'Unknown'), 'error');
     } finally {
@@ -406,7 +430,7 @@ export const BroadcastModule: React.FC = () => {
         });
       }
 
-      showToast('Balasan terkirim!', 'success');
+      showToast('Balasan terkirim.', 'success');
       setReplyText('');
       setReplyTarget(null);
     } catch (err: any) {
@@ -464,6 +488,7 @@ export const BroadcastModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl border border-indigo-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -486,7 +511,7 @@ export const BroadcastModule: React.FC = () => {
             </div>
           </div>
           {canBroadcast && (
-            <button onClick={() => setIsComposeOpen(true)}
+            <button onClick={openCompose}
               className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
               <Megaphone className="w-4 h-4" /> Buat Broadcast
             </button>
@@ -504,6 +529,7 @@ export const BroadcastModule: React.FC = () => {
         )}
       </div>
 
+      {/* SEARCH + FILTER */}
       <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
@@ -513,23 +539,28 @@ export const BroadcastModule: React.FC = () => {
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
           {([
-            { val: 'ALL', label: `Semua (${broadcasts.length})` },
-            { val: 'MINE', label: 'Dari Saya' },
-            { val: 'TO_ME', label: 'Untuk Saya' },
-            { val: 'URGENT', label: `🚨 Urgent (${unreadUrgentCount})` },
-          ] as { val: typeof filter; label: string }[]).map(f => (
-            <button key={f.val} onClick={() => setFilter(f.val)}
-              className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                filter === f.val
-                  ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
-              }`}>
-              {f.label}
-            </button>
-          ))}
+            { val: 'ALL', label: `Semua (${broadcasts.length})`, icon: null },
+            { val: 'MINE', label: 'Dari Saya', icon: null },
+            { val: 'TO_ME', label: 'Untuk Saya', icon: null },
+            { val: 'URGENT', label: `Urgent (${unreadUrgentCount})`, icon: AlertTriangle },
+          ] as { val: typeof filter; label: string; icon: any }[]).map(f => {
+            const Icon = f.icon;
+            return (
+              <button key={f.val} onClick={() => setFilter(f.val)}
+                className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${
+                  filter === f.val
+                    ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm'
+                    : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                }`}>
+                {Icon && <Icon className="w-3 h-3" />}
+                {f.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
+      {/* LIST */}
       {loading ? (
         <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
           <RefreshCw className="w-6 h-6 mx-auto mb-2 animate-spin text-slate-300" />
@@ -586,6 +617,11 @@ export const BroadcastModule: React.FC = () => {
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/40 flex items-center gap-1">
                           <Target className="w-2.5 h-2.5" /> {targetInfo}
                         </span>
+                        {b.photoUrl && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/40 flex items-center gap-1">
+                            <ImagePlus className="w-2.5 h-2.5" /> FOTO
+                          </span>
+                        )}
                         {b.status === 'CLOSED' && (
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 flex items-center gap-1">
                             <Ban className="w-2.5 h-2.5" /> Ditutup
@@ -616,6 +652,18 @@ export const BroadcastModule: React.FC = () => {
                       <p className="text-xs text-slate-700 dark:text-slate-300 mt-2.5 leading-relaxed whitespace-pre-line">
                         {b.content}
                       </p>
+
+                      {/* FOTO */}
+                      {b.photoUrl && (
+                        <div className="mt-3">
+                          <img
+                            src={b.photoUrl}
+                            alt="Foto broadcast"
+                            onClick={() => setPreviewPhoto(b.photoUrl!)}
+                            className="rounded-xl max-h-64 w-auto object-contain border border-slate-200 dark:border-slate-700 cursor-pointer hover:opacity-90 transition"
+                          />
+                        </div>
+                      )}
 
                       <div className="flex items-center gap-2 mt-3 flex-wrap">
                         <button onClick={() => setExpandedId(isExpanded ? null : b.id)}
@@ -704,8 +752,9 @@ export const BroadcastModule: React.FC = () => {
 
                 {isExpanded && (
                   <div className="px-5 pb-5 border-t border-slate-100 dark:border-slate-700 pt-4">
-                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3">
-                      💬 Balasan ({bReplies.length})
+                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <MessageSquare className="w-3 h-3" />
+                      Balasan ({bReplies.length})
                     </p>
                     {bReplies.length === 0 ? (
                       <p className="text-xs text-slate-400 italic text-center py-4">
@@ -753,6 +802,7 @@ export const BroadcastModule: React.FC = () => {
         </div>
       )}
 
+      {/* COMPOSE MODAL */}
       {isComposeOpen && canBroadcast && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[95vh] flex flex-col overflow-hidden">
@@ -768,7 +818,7 @@ export const BroadcastModule: React.FC = () => {
                     <h3 className="text-lg font-black mt-0.5">Buat Pesan Siaran</h3>
                   </div>
                 </div>
-                <button onClick={() => setIsComposeOpen(false)}
+                <button onClick={closeCompose}
                   className="p-1.5 rounded-lg hover:bg-white/20 transition">
                   <X className="w-5 h-5" />
                 </button>
@@ -939,6 +989,42 @@ export const BroadcastModule: React.FC = () => {
                 </div>
               </div>
 
+              {/* FOTO OPSIONAL */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                  <ImagePlus className="w-3.5 h-3.5" />
+                  Foto Pendukung <span className="text-slate-400 font-normal">(Opsional)</span>
+                </label>
+
+                {photoUrl ? (
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+                    <img src={photoUrl} alt="Foto broadcast"
+                      className="w-full max-h-56 object-contain bg-slate-100 dark:bg-slate-900" />
+                    <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                      <button type="button" onClick={() => setIsPhotoModalOpen(true)}
+                        className="p-2 rounded-lg bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 shadow-md hover:bg-white"
+                        title="Ganti foto">
+                        <Camera className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={() => setPhotoUrl('')}
+                        className="p-2 rounded-lg bg-rose-600 text-white shadow-md hover:bg-rose-700"
+                        title="Hapus foto">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setIsPhotoModalOpen(true)}
+                    className="w-full p-6 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition flex flex-col items-center gap-2">
+                    <ImagePlus className="w-8 h-8 text-slate-400" />
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Tambah Foto</span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">
+                      Upload dari perangkat (auto-kompres) atau tempel link Google Drive
+                    </span>
+                  </button>
+                )}
+              </div>
+
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/40 flex items-center gap-2">
                 <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                 <p className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
@@ -950,7 +1036,7 @@ export const BroadcastModule: React.FC = () => {
               <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/40 flex items-start gap-2">
                 <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <p className="text-[10px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                  <strong>Catatan:</strong> Penerima dapat membalas maksimal 3× per broadcast.
+                  <strong>Catatan:</strong> Penerima dapat membalas maksimal 3x per broadcast.
                   Balasan Anda sebagai pengirim akan terlihat oleh semua penerima.
                 </p>
               </div>
@@ -958,7 +1044,7 @@ export const BroadcastModule: React.FC = () => {
             </div>
 
             <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2 shrink-0">
-              <button type="button" onClick={() => setIsComposeOpen(false)}
+              <button type="button" onClick={closeCompose}
                 className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
                 Batal
               </button>
@@ -972,6 +1058,41 @@ export const BroadcastModule: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PHOTO UPLOAD MODAL */}
+      {isPhotoModalOpen && (
+        <PhotoUploadModal
+          currentPhotoUrl={photoUrl}
+          userName={user?.displayName || 'Guru'}
+          onSave={async (url) => {
+            setPhotoUrl(url);
+            setIsPhotoModalOpen(false);
+          }}
+          onClose={() => setIsPhotoModalOpen(false)}
+        />
+      )}
+
+      {/* PHOTO LIGHTBOX */}
+      {previewPhoto && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <button
+            onClick={() => setPreviewPhoto(null)}
+            className="absolute top-4 right-4 p-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition"
+            title="Tutup"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={previewPhoto}
+            alt="Foto broadcast"
+            className="max-w-full max-h-[92vh] object-contain rounded-2xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
