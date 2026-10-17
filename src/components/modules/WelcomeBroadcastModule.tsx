@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Radio, Megaphone, Send, AlertTriangle, Users, Check,
-  Shield, Clock, Trash2, Search,
+  Shield, Clock, Trash2, Search, Camera, ImagePlus, X,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -9,9 +9,9 @@ import {
   collection, query, onSnapshot, doc, setDoc, writeBatch,
   orderBy, limit, deleteDoc,
 } from 'firebase/firestore';
-//           ^^^^^^ ✅ FIX: "query" ditambahkan di sini
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
+import { PhotoUploadModal } from '../common/PhotoUploadModal';
 
 type Priority = 'NORMAL' | 'PENTING' | 'URGENT';
 
@@ -23,6 +23,7 @@ interface CrossBroadcast {
   title: string;
   content: string;
   priority: Priority;
+  photoUrl?: string;
   targetClassIds: string[];
   targetClassNames: string[];
   totalRecipients: number;
@@ -49,6 +50,10 @@ export const WelcomeBroadcastModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
+  // ✅ NEW: Foto state
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+
   const canSend = isGuruPengampu || isAdminRole;
 
   useEffect(() => {
@@ -74,6 +79,15 @@ export const WelcomeBroadcastModule: React.FC = () => {
     setSendToAll(next);
     if (next) setSelectedClassIds(classes.map(c => c.id));
     else setSelectedClassIds([]);
+  };
+
+  const handleReset = () => {
+    setTitle('');
+    setContent('');
+    setPriority('NORMAL');
+    setSelectedClassIds([]);
+    setSendToAll(false);
+    setPhotoUrl('');
   };
 
   const handleSend = async () => {
@@ -104,6 +118,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
         id: crossRef.id,
         senderId: user.uid, senderName: user.displayName, senderRole: user.role,
         title: title.trim(), content: content.trim(), priority,
+        photoUrl: photoUrl || '',
         targetClassIds: selectedClassIds, targetClassNames, totalRecipients,
         createdAt: new Date().toISOString(),
       });
@@ -115,6 +130,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
           senderId: user.uid, senderName: user.displayName, senderRole: user.role,
           title: title.trim(), content: content.trim(),
           priority,
+          photoUrl: photoUrl || '',
           targetScope: 'SEMUA',
           targetRoles: [], targetDivisions: [],
           recipientIds: userIds,
@@ -124,6 +140,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
         });
       }
 
+      // Notifikasi — judul TANPA emoji
       const batch = writeBatch(db);
       const now = new Date().toISOString();
       recipients.forEach(({ classId, userIds }) => {
@@ -131,7 +148,9 @@ export const WelcomeBroadcastModule: React.FC = () => {
           const nRef = doc(collection(db, 'notifications'));
           batch.set(nRef, {
             id: nRef.id, userId: uid, classId,
-            title: priority === 'URGENT' ? `🚨 URGENT: ${title.trim()}` : `📢 ${title.trim()}`,
+            title: priority === 'URGENT'
+              ? `URGENT: ${title.trim()}`
+              : title.trim(),
             message: `${user.displayName} (${user.role}): ${content.trim().slice(0, 150)}`,
             category: priority === 'URGENT' ? 'Urgent' : 'Pengumuman',
             read: false, link: 'broadcast',
@@ -144,12 +163,11 @@ export const WelcomeBroadcastModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'CrossClassBroadcast', targetId: crossRef.id,
-        details: `Broadcast lintas kelas: "${title}" → ${selectedClassIds.length} kelas (${totalRecipients} siswa)`,
+        details: `Broadcast lintas kelas: "${title}" → ${selectedClassIds.length} kelas (${totalRecipients} siswa)${photoUrl ? ' + foto' : ''}`,
       });
 
-      showToast(`Broadcast terkirim ke ${selectedClassIds.length} kelas (${totalRecipients} siswa) ✅`, 'success');
-      setTitle(''); setContent(''); setPriority('NORMAL');
-      setSelectedClassIds([]); setSendToAll(false);
+      showToast(`Broadcast terkirim ke ${selectedClassIds.length} kelas (${totalRecipients} siswa)`, 'success');
+      handleReset();
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     } finally { setSending(false); }
@@ -181,6 +199,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-rose-900 via-slate-900 to-slate-800 text-white shadow-xl border border-rose-500/20">
         <div className="flex items-start gap-3">
           <span className="p-3 rounded-2xl bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0">
@@ -192,18 +211,20 @@ export const WelcomeBroadcastModule: React.FC = () => {
             </span>
             <h2 className="text-xl font-black text-white mt-1">Kirim Pengumuman ke Semua Kelas</h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Satu pesan untuk beberapa/semua kelas IX sekaligus.
+              Satu pesan untuk beberapa/semua kelas IX sekaligus, bisa disertai foto.
             </p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {/* FORM KIRI */}
         <div className="lg:col-span-3 p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm space-y-4">
           <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
             <Megaphone className="w-5 h-5 text-rose-500" /> Buat Broadcast Baru
           </h3>
 
+          {/* JUDUL */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Judul <span className="text-rose-500">*</span>
@@ -215,6 +236,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
             <p className="text-[10px] text-slate-400 mt-0.5">{title.length}/100</p>
           </div>
 
+          {/* PRIORITAS */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Prioritas</label>
             <div className="grid grid-cols-3 gap-2">
@@ -234,6 +256,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
             </div>
           </div>
 
+          {/* KELAS TUJUAN */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
               Kelas Tujuan <span className="text-rose-500">*</span>
@@ -248,11 +271,14 @@ export const WelcomeBroadcastModule: React.FC = () => {
               }`}>
                 {sendToAll && <Check className="w-3.5 h-3.5" />}
               </div>
-              <div className="flex-1 text-left">
-                <p className="text-xs font-extrabold text-slate-900 dark:text-white">📢 SEMUA KELAS</p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Kirim ke seluruh {classes.length} kelas sekaligus
-                </p>
+              <div className="flex-1 text-left flex items-center gap-2">
+                <Megaphone className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <div>
+                  <p className="text-xs font-extrabold text-slate-900 dark:text-white">SEMUA KELAS</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                    Kirim ke seluruh {classes.length} kelas sekaligus
+                  </p>
+                </div>
               </div>
             </button>
 
@@ -288,6 +314,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
             </p>
           </div>
 
+          {/* ISI PESAN */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Isi Pesan <span className="text-rose-500">*</span>
@@ -299,14 +326,57 @@ export const WelcomeBroadcastModule: React.FC = () => {
             <p className="text-[10px] text-slate-400 mt-0.5">{content.length}/500</p>
           </div>
 
+          {/* ✅ FOTO BUKTI (OPSIONAL) */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+              <ImagePlus className="w-3.5 h-3.5" />
+              Foto Pendukung <span className="text-slate-400 font-normal">(Opsional)</span>
+            </label>
+
+            {photoUrl ? (
+              <div className="relative rounded-2xl overflow-hidden border-2 border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+                <img src={photoUrl} alt="Foto broadcast"
+                  className="w-full max-h-56 object-contain bg-slate-100 dark:bg-slate-900" />
+                <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                  <button type="button" onClick={() => setIsPhotoModalOpen(true)}
+                    className="p-2 rounded-lg bg-white/90 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 shadow-md hover:bg-white"
+                    title="Ganti foto">
+                    <Camera className="w-4 h-4" />
+                  </button>
+                  <button type="button" onClick={() => setPhotoUrl('')}
+                    className="p-2 rounded-lg bg-rose-600 text-white shadow-md hover:bg-rose-700"
+                    title="Hapus foto">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setIsPhotoModalOpen(true)}
+                className="w-full p-6 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 transition flex flex-col items-center gap-2">
+                <ImagePlus className="w-8 h-8 text-slate-400" />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Tambah Foto</span>
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">
+                  Upload dari perangkat (auto-kompres) atau tempel link Google Drive
+                </span>
+              </button>
+            )}
+          </div>
+
+          {/* INFO BOX */}
           <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
             <Users className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
             <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
               Broadcast dikirim ke <strong>seluruh siswa</strong> di kelas terpilih. Setiap siswa menerima notifikasi.
+              Foto akan tampil di halaman Broadcast kelas.
             </p>
           </div>
 
-          <div className="flex justify-end">
+          {/* AKSI */}
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+            <button type="button" onClick={handleReset}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+              Reset Form
+            </button>
             <button onClick={handleSend}
               disabled={sending || selectedClassIds.length === 0 || !title.trim() || !content.trim()}
               className="px-6 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-black text-sm shadow-lg disabled:opacity-50 flex items-center gap-2">
@@ -316,6 +386,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
           </div>
         </div>
 
+        {/* RIWAYAT KANAN */}
         <div className="lg:col-span-2 space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
@@ -354,6 +425,11 @@ export const WelcomeBroadcastModule: React.FC = () => {
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200">
                         {h.targetClassIds.length} kelas
                       </span>
+                      {h.photoUrl && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 flex items-center gap-1">
+                          <ImagePlus className="w-2.5 h-2.5" /> FOTO
+                        </span>
+                      )}
                       <span className="text-[9px] text-slate-400 ml-auto">
                         {new Date(h.createdAt).toLocaleString('id-ID', {
                           day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
@@ -362,13 +438,17 @@ export const WelcomeBroadcastModule: React.FC = () => {
                     </div>
                     <p className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2">{h.title}</p>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{h.content}</p>
+                    {h.photoUrl && (
+                      <img src={h.photoUrl} alt="Foto"
+                        className="mt-2 w-full max-h-24 object-cover rounded-lg border border-slate-200 dark:border-slate-700" />
+                    )}
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100 dark:border-slate-700">
-                      <span className="text-[10px] text-slate-500">
-                        <Users className="w-3 h-3 inline mr-1" /> {h.totalRecipients} penerima
+                      <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                        <Users className="w-3 h-3" /> {h.totalRecipients} penerima
                       </span>
                       <button onClick={() => handleDeleteHistory(h)}
-                        className="text-[10px] font-bold text-rose-500 hover:underline">
-                        <Trash2 className="w-3 h-3 inline" /> Hapus
+                        className="text-[10px] font-bold text-rose-500 hover:underline flex items-center gap-1">
+                        <Trash2 className="w-3 h-3" /> Hapus
                       </button>
                     </div>
                   </div>
@@ -378,6 +458,19 @@ export const WelcomeBroadcastModule: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* ✅ MODAL UPLOAD FOTO */}
+      {isPhotoModalOpen && (
+        <PhotoUploadModal
+          currentPhotoUrl={photoUrl}
+          userName={user?.displayName || 'Guru'}
+          onSave={async (url) => {
+            setPhotoUrl(url);
+            setIsPhotoModalOpen(false);
+          }}
+          onClose={() => setIsPhotoModalOpen(false)}
+        />
+      )}
     </div>
   );
 };
