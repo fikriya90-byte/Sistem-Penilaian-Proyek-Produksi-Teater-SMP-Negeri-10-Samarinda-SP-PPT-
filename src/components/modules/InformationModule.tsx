@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Megaphone, PlusCircle, Search, X, Save, Trash2, AlertTriangle,
   Pin, Clock, User, Filter, Bell, Sparkles, PinOff,
-  Camera, ImagePlus,
+  Camera, ImagePlus, Link2,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -11,7 +11,6 @@ import {
   collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-import { PhotoUploadModal } from '../common/PhotoUploadModal';
 
 interface Information {
   id: string;
@@ -21,7 +20,8 @@ interface Information {
   category: 'PENGUMUMAN' | 'INFO' | 'URGENT' | 'JADWAL' | 'KEUANGAN';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   isPinned: boolean;
-  photoUrl?: string;
+  photoUrls?: string[]; // Array untuk multiple photos
+  photoUrl?: string;    // Backward compatibility untuk data lama
   authorId: string;
   authorName: string;
   authorRole: string;
@@ -42,9 +42,39 @@ const CAN_POST_ROLES = [
   'Pimpinan Produksi', 'Sekretaris', 'Sutradara', 'Asisten Sutradara', 'Bendahara',
 ];
 
+// Helper kompres gambar
+const compressImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        const MAX_WIDTH = 800;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas tidak tersedia'));
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6)); // Kualitas 0.6 agar ringan
+      };
+      img.onerror = () => reject(new Error('Gagal memuat gambar'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file'));
+    reader.readAsDataURL(file);
+  });
+};
+
 export const InformationModule: React.FC = () => {
   const { user, activeClass, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [items, setItems] = useState<Information[]>([]);
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
@@ -60,9 +90,9 @@ export const InformationModule: React.FC = () => {
   const [priority, setPriority] = useState<Information['priority']>('MEDIUM');
   const [isPinned, setIsPinned] = useState(false);
   
-  // FOTO
-  const [photoUrl, setPhotoUrl] = useState('');
-  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  // FOTO (Array)
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [photoUrlInput, setPhotoUrlInput] = useState('');
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const canPost = user && (CAN_POST_ROLES.includes(user.role) || user.role.startsWith('Koordinator '));
@@ -85,7 +115,7 @@ export const InformationModule: React.FC = () => {
     setEditing(null);
     setTitle(''); setContent('');
     setCategory('PENGUMUMAN'); setPriority('MEDIUM'); setIsPinned(false);
-    setPhotoUrl('');
+    setPhotoUrls([]); setPhotoUrlInput('');
     setIsModalOpen(true);
   };
 
@@ -93,8 +123,61 @@ export const InformationModule: React.FC = () => {
     setEditing(item);
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
-    setPhotoUrl(item.photoUrl || '');
+    
+    // Handle legacy single photo
+    const existingPhotos = item.photoUrls || (item.photoUrl ? [item.photoUrl] : []);
+    setPhotoUrls(existingPhotos);
+    setPhotoUrlInput('');
+    
     setIsModalOpen(true);
+  };
+
+  // Handler Upload File (Bisa Multiple)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    if (photoUrls.length + files.length > 5) {
+      showToast('Maksimal 5 foto. Anda sudah memiliki ' + photoUrls.length + ' foto.', 'warning');
+      e.target.value = '';
+      return;
+    }
+
+    const newPhotos: string[] = [];
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('File ' + file.name + ' terlalu besar (maks 5MB).', 'warning');
+        continue;
+      }
+      try {
+        const base64 = await compressImage(file);
+        newPhotos.push(base64);
+      } catch (err) {
+        console.warn('Gagal kompres:', err);
+      }
+    }
+
+    setPhotoUrls(prev => [...prev, ...newPhotos]);
+    e.target.value = ''; // Reset input
+  };
+
+  const handleAddPhotoUrl = () => {
+    if (!photoUrlInput.trim()) return;
+    if (!photoUrlInput.startsWith('http')) {
+      showToast('URL foto harus dimulai dengan http:// atau https://', 'warning');
+      return;
+    }
+    if (photoUrls.length >= 5) {
+      showToast('Maksimal 5 foto.', 'warning');
+      return;
+    }
+    setPhotoUrls(prev => [...prev, photoUrlInput.trim()]);
+    setPhotoUrlInput('');
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotoUrls(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -111,22 +194,25 @@ export const InformationModule: React.FC = () => {
         id, classId: activeClass.id,
         title: title.trim(), content: content.trim(),
         category, priority, isPinned,
-        photoUrl: photoUrl || '',
+        photoUrls: photoUrls,
+        photoUrl: '', // Clear legacy field to avoid duplication
         authorId: user.uid, authorName: user.displayName, authorRole: user.role,
         createdAt: editing?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      
       await setDoc(doc(db, 'information', id), data, { merge: true });
+      
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: editing ? 'UPDATE' : 'CREATE',
         targetType: 'Information', targetId: id,
-        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"${photoUrl ? ' + foto' : ''}`,
+        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"${photoUrls.length > 0 ? ` + ${photoUrls.length} foto` : ''}`,
       });
+
       if (!editing && (priority === 'HIGH' || category === 'URGENT')) {
         try {
           await notifyTeachers(activeClass.id, {
-            // HAPUS EMOJI
             title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
             message: `${user.displayName} (${user.role}) memposting informasi penting.`,
             category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
@@ -236,6 +322,12 @@ export const InformationModule: React.FC = () => {
             const cfg = CATEGORY_CONFIG[it.category];
             const Icon = cfg.icon;
             const canEdit = isGuruPengampu || isAdminRole || it.authorId === user?.uid;
+            
+            // Gabungkan legacy photoUrl & new photoUrls
+            const allPhotos = it.photoUrls && it.photoUrls.length > 0 
+              ? it.photoUrls 
+              : (it.photoUrl ? [it.photoUrl] : []);
+
             return (
               <div key={it.id} className={`p-5 rounded-3xl border shadow-sm transition ${
                 it.isPinned ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200' :
@@ -256,9 +348,9 @@ export const InformationModule: React.FC = () => {
                           <Pin className="w-3 h-3" /> DISEMATKAN
                         </span>
                       )}
-                      {it.photoUrl && (
+                      {allPhotos.length > 0 && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                          <ImagePlus className="w-3 h-3" /> FOTO
+                          <ImagePlus className="w-3 h-3" /> {allPhotos.length} FOTO
                         </span>
                       )}
                       {it.priority === 'HIGH' && (
@@ -273,15 +365,23 @@ export const InformationModule: React.FC = () => {
                     <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
                     <p className="text-xs text-slate-700 mt-1.5 leading-relaxed whitespace-pre-line">{it.content}</p>
                     
-                    {/* FOTO TAMPIL DI SINI */}
-                    {it.photoUrl && (
-                      <div className="mt-3">
-                        <img
-                          src={it.photoUrl}
-                          alt="Foto informasi"
-                          onClick={() => setPreviewPhoto(it.photoUrl!)}
-                          className="rounded-xl max-h-64 w-auto object-contain border border-slate-200 cursor-pointer hover:opacity-90 transition"
-                        />
+                    {/* GALERI FOTO - LANGSUNG TERLIHAT */}
+                    {allPhotos.length > 0 && (
+                      <div className={`mt-3 grid gap-2 ${
+                        allPhotos.length === 1 ? 'grid-cols-1 sm:grid-cols-2' : 
+                        allPhotos.length === 2 ? 'grid-cols-2' : 
+                        'grid-cols-2 sm:grid-cols-3'
+                      }`}>
+                        {allPhotos.map((url, idx) => (
+                          <div key={idx} className="relative aspect-video sm:aspect-square md:aspect-video rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
+                            <img
+                              src={url}
+                              alt={`Foto ${idx + 1}`}
+                              onClick={() => setPreviewPhoto(url)}
+                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
+                            />
+                          </div>
+                        ))}
                       </div>
                     )}
 
@@ -369,36 +469,76 @@ export const InformationModule: React.FC = () => {
                   className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 leading-relaxed" />
               </div>
               
-              {/* UPLOAD FOTO */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                  <ImagePlus className="w-3.5 h-3.5" />
-                  Foto Pendukung <span className="text-slate-400 font-normal">(Opsional)</span>
-                </label>
-                {photoUrl ? (
-                  <div className="relative rounded-2xl overflow-hidden border-2 border-slate-200 bg-slate-50">
-                    <img src={photoUrl} alt="Foto informasi"
-                      className="w-full max-h-56 object-contain bg-slate-100" />
-                    <div className="absolute top-2 right-2 flex items-center gap-1.5">
-                      <button type="button" onClick={() => setIsPhotoModalOpen(true)}
-                        className="p-2 rounded-lg bg-white/90 text-slate-700 shadow-md hover:bg-white"
-                        title="Ganti foto">
-                        <Camera className="w-4 h-4" />
-                      </button>
-                      <button type="button" onClick={() => setPhotoUrl('')}
-                        className="p-2 rounded-lg bg-rose-600 text-white shadow-md hover:bg-rose-700"
-                        title="Hapus foto">
-                        <X className="w-4 h-4" />
+              {/* UPLOAD FOTO MULTIPLE */}
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <ImagePlus className="w-4 h-4 text-amber-600" />
+                    Foto Pendukung <span className="text-slate-400 font-normal">({photoUrls.length}/5)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-500">Maks 5 foto</span>
+                </div>
+
+                {/* Grid Foto yang sudah diupload */}
+                {photoUrls.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+                    {photoUrls.map((url, idx) => (
+                      <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-white group">
+                        <img src={url} alt={`Foto ${idx+1}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removePhoto(idx)}
+                          className="absolute top-1 right-1 p-1 rounded-md bg-rose-600 text-white opacity-0 group-hover:opacity-100 transition shadow-sm"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Tombol Upload */}
+                {photoUrls.length < 5 && (
+                  <div className="space-y-2">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full py-3 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex flex-col items-center gap-1 transition"
+                    >
+                      <Camera className="w-5 h-5" />
+                      Pilih Foto dari Perangkat
+                      <span className="text-[10px] font-normal text-amber-600">Bisa pilih lebih dari 1 file sekaligus</span>
+                    </button>
+                    
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Link2 className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                        <input
+                          type="url"
+                          placeholder="Atau tempel link foto (Drive/URL)"
+                          value={photoUrlInput}
+                          onChange={(e) => setPhotoUrlInput(e.target.value)}
+                          className="w-full pl-8 pr-2 py-2 rounded-lg border border-slate-200 text-[11px]"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddPhotoUrl}
+                        disabled={!photoUrlInput.trim()}
+                        className="px-3 py-2 rounded-lg bg-slate-800 text-white font-bold text-[11px] disabled:opacity-50"
+                      >
+                        Tambah
                       </button>
                     </div>
                   </div>
-                ) : (
-                  <button type="button" onClick={() => setIsPhotoModalOpen(true)}
-                    className="w-full p-6 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 transition flex flex-col items-center gap-2">
-                    <ImagePlus className="w-8 h-8 text-slate-400" />
-                    <span className="text-xs font-bold text-slate-700">Tambah Foto</span>
-                    <span className="text-[10px] text-slate-500 text-center">Upload dari perangkat (auto-kompres) atau tempel link Google Drive</span>
-                  </button>
                 )}
               </div>
 
@@ -424,19 +564,6 @@ export const InformationModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL UPLOAD FOTO */}
-      {isPhotoModalOpen && (
-        <PhotoUploadModal
-          currentPhotoUrl={photoUrl}
-          userName={user?.displayName || 'Guru'}
-          onSave={async (url) => {
-            setPhotoUrl(url);
-            setIsPhotoModalOpen(false);
-          }}
-          onClose={() => setIsPhotoModalOpen(false)}
-        />
-      )}
-
       {/* LIGHTBOX FOTO */}
       {previewPhoto && (
         <div
@@ -452,7 +579,7 @@ export const InformationModule: React.FC = () => {
           </button>
           <img
             src={previewPhoto}
-            alt="Foto informasi"
+            alt="Preview Foto"
             className="max-w-full max-h-[92vh] object-contain rounded-2xl shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
