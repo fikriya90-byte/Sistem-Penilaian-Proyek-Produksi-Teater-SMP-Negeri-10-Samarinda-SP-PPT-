@@ -2,15 +2,16 @@ import React, { useState, useEffect } from 'react';
 import {
   Megaphone, PlusCircle, Search, X, Save, Trash2, AlertTriangle,
   Pin, Clock, User, Filter, Bell, Sparkles, PinOff,
+  Camera, ImagePlus,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { recordAuditLog, notifyTeachers } from '../../services/firestoreService';
 import {
   collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc,
-  getDocs, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+import { PhotoUploadModal } from '../common/PhotoUploadModal';
 
 interface Information {
   id: string;
@@ -20,6 +21,7 @@ interface Information {
   category: 'PENGUMUMAN' | 'INFO' | 'URGENT' | 'JADWAL' | 'KEUANGAN';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   isPinned: boolean;
+  photoUrl?: string;
   authorId: string;
   authorName: string;
   authorRole: string;
@@ -37,8 +39,7 @@ const CATEGORY_CONFIG = {
 
 const CAN_POST_ROLES = [
   'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin',
-  'Pimpinan Produksi', 'Sekretaris', 'Sutradara', 'Asisten Sutradara',
-  'Bendahara',
+  'Pimpinan Produksi', 'Sekretaris', 'Sutradara', 'Asisten Sutradara', 'Bendahara',
 ];
 
 export const InformationModule: React.FC = () => {
@@ -58,21 +59,19 @@ export const InformationModule: React.FC = () => {
   const [category, setCategory] = useState<Information['category']>('PENGUMUMAN');
   const [priority, setPriority] = useState<Information['priority']>('MEDIUM');
   const [isPinned, setIsPinned] = useState(false);
+  
+  // FOTO
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
-  const canPost = user && (
-    CAN_POST_ROLES.includes(user.role) ||
-    (user.role.startsWith('Koordinator '))
-  );
+  const canPost = user && (CAN_POST_ROLES.includes(user.role) || user.role.startsWith('Koordinator '));
 
   useEffect(() => {
     if (!activeClass) return;
-    const q = query(
-      collection(db, 'information'),
-      where('classId', '==', activeClass.id)
-    );
+    const q = query(collection(db, 'information'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as Information));
-      // Pinned dulu, lalu terbaru
       list.sort((a, b) => {
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -84,21 +83,17 @@ export const InformationModule: React.FC = () => {
 
   const openCreate = () => {
     setEditing(null);
-    setTitle('');
-    setContent('');
-    setCategory('PENGUMUMAN');
-    setPriority('MEDIUM');
-    setIsPinned(false);
+    setTitle(''); setContent('');
+    setCategory('PENGUMUMAN'); setPriority('MEDIUM'); setIsPinned(false);
+    setPhotoUrl('');
     setIsModalOpen(true);
   };
 
   const openEdit = (item: Information) => {
     setEditing(item);
-    setTitle(item.title);
-    setContent(item.content);
-    setCategory(item.category);
-    setPriority(item.priority);
-    setIsPinned(item.isPinned);
+    setTitle(item.title); setContent(item.content);
+    setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
+    setPhotoUrl(item.photoUrl || '');
     setIsModalOpen(true);
   };
 
@@ -109,59 +104,42 @@ export const InformationModule: React.FC = () => {
       showToast('Judul dan isi wajib diisi.', 'warning');
       return;
     }
-
     setSubmitting(true);
     try {
       const id = editing?.id || doc(collection(db, 'information')).id;
       const data: Information = {
-        id,
-        classId: activeClass.id,
-        title: title.trim(),
-        content: content.trim(),
-        category,
-        priority,
-        isPinned,
-        authorId: user.uid,
-        authorName: user.displayName,
-        authorRole: user.role,
+        id, classId: activeClass.id,
+        title: title.trim(), content: content.trim(),
+        category, priority, isPinned,
+        photoUrl: photoUrl || '',
+        authorId: user.uid, authorName: user.displayName, authorRole: user.role,
         createdAt: editing?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-
       await setDoc(doc(db, 'information', id), data, { merge: true });
-
       await recordAuditLog({
-        userId: user.uid,
-        userName: user.displayName,
-        role: user.role,
+        userId: user.uid, userName: user.displayName, role: user.role,
         action: editing ? 'UPDATE' : 'CREATE',
-        targetType: 'Information',
-        targetId: id,
-        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"`,
+        targetType: 'Information', targetId: id,
+        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"${photoUrl ? ' + foto' : ''}`,
       });
-
-      // Notif ke wali kelas (guru) jika ini baru & urgent
       if (!editing && (priority === 'HIGH' || category === 'URGENT')) {
         try {
           await notifyTeachers(activeClass.id, {
-            title: `📢 ${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
+            // HAPUS EMOJI
+            title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
             message: `${user.displayName} (${user.role}) memposting informasi penting.`,
             category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
             link: 'informasi',
             senderName: user.displayName,
           });
-        } catch (err) {
-          console.warn('Notif gagal:', err);
-        }
+        } catch (err) { console.warn(err); }
       }
-
       showToast(`Informasi berhasil ${editing ? 'diperbarui' : 'diposting'}!`, 'success');
       setIsModalOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
 
   const handleDelete = async (item: Information) => {
@@ -169,39 +147,30 @@ export const InformationModule: React.FC = () => {
     try {
       await deleteDoc(doc(db, 'information', item.id));
       showToast('Informasi dihapus.', 'info');
-    } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   const togglePin = async (item: Information) => {
     try {
       await updateDoc(doc(db, 'information', item.id), {
-        isPinned: !item.isPinned,
-        updatedAt: new Date().toISOString(),
+        isPinned: !item.isPinned, updatedAt: new Date().toISOString(),
       });
       showToast(item.isPinned ? 'Info dilepas dari pin.' : 'Info disematkan.', 'info');
-    } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   const filtered = items.filter((it) => {
     if (filterCategory !== 'ALL' && it.category !== filterCategory) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      return (
-        it.title.toLowerCase().includes(q) ||
-        it.content.toLowerCase().includes(q) ||
-        it.authorName.toLowerCase().includes(q)
-      );
+      return it.title.toLowerCase().includes(q) || it.content.toLowerCase().includes(q) ||
+        it.authorName.toLowerCase().includes(q);
     }
     return true;
   });
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl border border-amber-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -212,62 +181,40 @@ export const InformationModule: React.FC = () => {
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
                 Papan Informasi
               </span>
-              <h2 className="text-xl font-black text-white mt-1">
-                Pengumuman & Informasi Produksi
-              </h2>
-              <p className="text-xs text-slate-300 mt-0.5">
-                Semua pengumuman resmi tim teater {activeClass?.name || ''}
-              </p>
+              <h2 className="text-xl font-black text-white mt-1">Pengumuman & Informasi Produksi</h2>
+              <p className="text-xs text-slate-300 mt-0.5">Semua pengumuman resmi tim teater {activeClass?.name || ''}</p>
             </div>
           </div>
-
           {canPost && (
-            <button
-              onClick={openCreate}
-              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg"
-            >
+            <button onClick={openCreate}
+              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
               <PlusCircle className="w-4 h-4" /> Posting Informasi
             </button>
           )}
         </div>
       </div>
 
-      {/* Filter & Search */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Cari informasi..."
-            value={searchQuery}
+          <input type="text" placeholder="Cari informasi..." value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800"
-          />
+            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800" />
         </div>
-
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          <button
-            onClick={() => setFilterCategory('ALL')}
+          <button onClick={() => setFilterCategory('ALL')}
             className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-              filterCategory === 'ALL'
-                ? 'bg-slate-900 text-white'
-                : 'bg-white text-slate-600 border border-slate-200'
-            }`}
-          >
+              filterCategory === 'ALL' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border border-slate-200'
+            }`}>
             Semua ({items.length})
           </button>
           {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => {
             const count = items.filter((i) => i.category === key).length;
             return (
-              <button
-                key={key}
-                onClick={() => setFilterCategory(key)}
+              <button key={key} onClick={() => setFilterCategory(key)}
                 className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                  filterCategory === key
-                    ? 'bg-amber-500 text-slate-950'
-                    : 'bg-white text-slate-600 border border-slate-200'
-                }`}
-              >
+                  filterCategory === key ? 'bg-amber-500 text-slate-950' : 'bg-white text-slate-600 border border-slate-200'
+                }`}>
                 {cfg.label} ({count})
               </button>
             );
@@ -275,7 +222,6 @@ export const InformationModule: React.FC = () => {
         </div>
       </div>
 
-      {/* List */}
       {filtered.length === 0 ? (
         <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
           <Megaphone className="w-12 h-12 mx-auto text-slate-300 mb-3" />
@@ -290,23 +236,16 @@ export const InformationModule: React.FC = () => {
             const cfg = CATEGORY_CONFIG[it.category];
             const Icon = cfg.icon;
             const canEdit = isGuruPengampu || isAdminRole || it.authorId === user?.uid;
-
             return (
-              <div
-                key={it.id}
-                className={`p-5 rounded-3xl border shadow-sm transition ${
-                  it.isPinned
-                    ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200'
-                    : it.category === 'URGENT'
-                    ? 'bg-rose-50 border-rose-300'
-                    : 'bg-white border-slate-200'
-                }`}
-              >
+              <div key={it.id} className={`p-5 rounded-3xl border shadow-sm transition ${
+                it.isPinned ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200' :
+                it.category === 'URGENT' ? 'bg-rose-50 border-rose-300' :
+                'bg-white border-slate-200'
+              }`}>
                 <div className="flex items-start gap-3">
                   <span className={`p-2.5 rounded-xl border shrink-0 ${cfg.color}`}>
                     <Icon className="w-5 h-5" />
                   </span>
-
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${cfg.color}`}>
@@ -317,25 +256,34 @@ export const InformationModule: React.FC = () => {
                           <Pin className="w-3 h-3" /> DISEMATKAN
                         </span>
                       )}
-                      {it.priority === 'HIGH' && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white">
-                          PENTING
+                      {it.photoUrl && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                          <ImagePlus className="w-3 h-3" /> FOTO
                         </span>
+                      )}
+                      {it.priority === 'HIGH' && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white">PENTING</span>
                       )}
                       <span className="text-[10px] text-slate-400 ml-auto">
                         {new Date(it.createdAt).toLocaleString('id-ID', {
-                          day: 'numeric', month: 'short', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit',
+                          day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
                         })}
                       </span>
                     </div>
-
-                    <h3 className="text-sm font-extrabold text-slate-900 leading-snug">
-                      {it.title}
-                    </h3>
-                    <p className="text-xs text-slate-700 mt-1.5 leading-relaxed whitespace-pre-line">
-                      {it.content}
-                    </p>
+                    <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
+                    <p className="text-xs text-slate-700 mt-1.5 leading-relaxed whitespace-pre-line">{it.content}</p>
+                    
+                    {/* FOTO TAMPIL DI SINI */}
+                    {it.photoUrl && (
+                      <div className="mt-3">
+                        <img
+                          src={it.photoUrl}
+                          alt="Foto informasi"
+                          onClick={() => setPreviewPhoto(it.photoUrl!)}
+                          className="rounded-xl max-h-64 w-auto object-contain border border-slate-200 cursor-pointer hover:opacity-90 transition"
+                        />
+                      </div>
+                    )}
 
                     <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
                       <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
@@ -343,31 +291,22 @@ export const InformationModule: React.FC = () => {
                         <strong className="text-slate-700">{it.authorName}</strong>
                         <span className="text-slate-400">({it.authorRole})</span>
                       </span>
-
                       {canPost && (
                         <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => togglePin(it)}
+                          <button onClick={() => togglePin(it)}
                             className={`px-2.5 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1 transition ${
-                              it.isPinned
-                                ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
+                              it.isPinned ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                            }`}>
                             {it.isPinned ? <><PinOff className="w-3 h-3" /> Lepas</> : <><Pin className="w-3 h-3" /> Sematkan</>}
                           </button>
                           {canEdit && (
                             <>
-                              <button
-                                onClick={() => openEdit(it)}
-                                className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-[10px]"
-                              >
+                              <button onClick={() => openEdit(it)}
+                                className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px]">
                                 Edit
                               </button>
-                              <button
-                                onClick={() => handleDelete(it)}
-                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50"
-                              >
+                              <button onClick={() => handleDelete(it)}
+                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </>
@@ -383,46 +322,31 @@ export const InformationModule: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Form */}
+      {/* MODAL FORM */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 max-h-[92vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 my-auto max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <Megaphone className="w-5 h-5 text-amber-500" />
                 {editing ? 'Edit Informasi' : 'Posting Informasi Baru'}
               </h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"
-              >
+              <button onClick={() => setIsModalOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <form onSubmit={handleSave} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Judul Informasi <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                <label className="block text-xs font-bold text-slate-700 mb-1">Judul Informasi *</label>
+                <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)}
                   placeholder="Contoh: Rapat Pleno Darurat Besok Pukul 14.00"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
-                />
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
               </div>
-
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value as Information['category'])}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white"
-                  >
+                  <select value={category} onChange={(e) => setCategory(e.target.value as Information['category'])}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white">
                     {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
                       <option key={key} value={key}>{cfg.label}</option>
                     ))}
@@ -430,67 +354,108 @@ export const InformationModule: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Prioritas</label>
-                  <select
-                    value={priority}
-                    onChange={(e) => setPriority(e.target.value as Information['priority'])}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white"
-                  >
+                  <select value={priority} onChange={(e) => setPriority(e.target.value as Information['priority'])}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white">
                     <option value="LOW">Rendah</option>
                     <option value="MEDIUM">Sedang</option>
                     <option value="HIGH">Tinggi (Penting)</option>
                   </select>
                 </div>
               </div>
-
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Isi Informasi <span className="text-rose-500">*</span>
-                </label>
-                <textarea
-                  rows={5}
-                  required
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
+                <label className="block text-xs font-bold text-slate-700 mb-1">Isi Informasi *</label>
+                <textarea rows={4} required value={content} onChange={(e) => setContent(e.target.value)}
                   placeholder="Tuliskan pengumuman lengkap dengan waktu, lokasi, dan hal yang perlu dibawa..."
-                  className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 leading-relaxed"
-                />
+                  className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 leading-relaxed" />
+              </div>
+              
+              {/* UPLOAD FOTO */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                  <ImagePlus className="w-3.5 h-3.5" />
+                  Foto Pendukung <span className="text-slate-400 font-normal">(Opsional)</span>
+                </label>
+                {photoUrl ? (
+                  <div className="relative rounded-2xl overflow-hidden border-2 border-slate-200 bg-slate-50">
+                    <img src={photoUrl} alt="Foto informasi"
+                      className="w-full max-h-56 object-contain bg-slate-100" />
+                    <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                      <button type="button" onClick={() => setIsPhotoModalOpen(true)}
+                        className="p-2 rounded-lg bg-white/90 text-slate-700 shadow-md hover:bg-white"
+                        title="Ganti foto">
+                        <Camera className="w-4 h-4" />
+                      </button>
+                      <button type="button" onClick={() => setPhotoUrl('')}
+                        className="p-2 rounded-lg bg-rose-600 text-white shadow-md hover:bg-rose-700"
+                        title="Hapus foto">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => setIsPhotoModalOpen(true)}
+                    className="w-full p-6 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100 transition flex flex-col items-center gap-2">
+                    <ImagePlus className="w-8 h-8 text-slate-400" />
+                    <span className="text-xs font-bold text-slate-700">Tambah Foto</span>
+                    <span className="text-[10px] text-slate-500 text-center">Upload dari perangkat (auto-kompres) atau tempel link Google Drive</span>
+                  </button>
+                )}
               </div>
 
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-amber-900">
-                  <input
-                    type="checkbox"
-                    checked={isPinned}
-                    onChange={(e) => setIsPinned(e.target.checked)}
-                    className="rounded border-amber-300 text-amber-500"
-                  />
+                  <input type="checkbox" checked={isPinned} onChange={(e) => setIsPinned(e.target.checked)}
+                    className="rounded border-amber-300 text-amber-500" />
                   <Pin className="w-3.5 h-3.5" />
                   Sematkan di paling atas (pin)
                 </label>
-                <p className="text-[10px] text-amber-700 mt-1 pl-6">
-                  Info yang disematkan akan selalu tampil paling atas untuk semua pengguna.
-                </p>
               </div>
-
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5"
-                >
+                <button type="button" onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
+                <button type="submit" disabled={submitting}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                   <Save className="w-3.5 h-3.5" />
                   {submitting ? 'Menyimpan...' : (editing ? 'Perbarui' : 'Posting')}
                 </button>
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* MODAL UPLOAD FOTO */}
+      {isPhotoModalOpen && (
+        <PhotoUploadModal
+          currentPhotoUrl={photoUrl}
+          userName={user?.displayName || 'Guru'}
+          onSave={async (url) => {
+            setPhotoUrl(url);
+            setIsPhotoModalOpen(false);
+          }}
+          onClose={() => setIsPhotoModalOpen(false)}
+        />
+      )}
+
+      {/* LIGHTBOX FOTO */}
+      {previewPhoto && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <button
+            onClick={() => setPreviewPhoto(null)}
+            className="absolute top-4 right-4 p-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition"
+            title="Tutup"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={previewPhoto}
+            alt="Foto informasi"
+            className="max-w-full max-h-[92vh] object-contain rounded-2xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
