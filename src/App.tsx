@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
+  Plus, X,
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './core/authContext';
@@ -143,6 +144,7 @@ const MainLayout: React.FC = () => {
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showLoginConfirm, setShowLoginConfirm] = useState(false);
+  const [showFloatingTools, setShowFloatingTools] = useState(false);
   const viewInitRef = useRef(false);
 
   const stateRef = useRef({ activeClass, isGuruPengampu, isAdminRole, view });
@@ -400,21 +402,43 @@ const MainLayout: React.FC = () => {
 
         <DashboardReminder onNavigate={handleNavigate} />
 
-        <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 flex flex-col gap-2.5 print:hidden">
-          <button onClick={() => handleNavigate('informasi')}
-            className="p-3 sm:p-3.5 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xl border border-amber-400 flex items-center justify-center transition group hover:scale-105"
-            title="Papan Pengumuman">
-            <Megaphone className="w-5 h-5" />
-          </button>
-          <button onClick={() => handleNavigate('struktur')}
-            className="p-3 sm:p-3.5 rounded-full bg-slate-900 dark:bg-slate-800 text-amber-400 shadow-xl border border-amber-500/30 flex items-center justify-center transition group hover:scale-105"
-            title="Kerabat Kerja">
-            <Users className="w-5 h-5" />
-          </button>
-          <button onClick={() => handleNavigate('aduan')}
-            className="p-3 sm:p-3.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl flex items-center justify-center transition group hover:scale-105"
-            title="Aduan Cepat">
-            <MessageSquare className="w-5 h-5" />
+        {/* FLOATING TOOLS — Bisa dibuka/tutup */}
+        <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 print:hidden flex flex-col items-end gap-2.5">
+          {/* Expanded Tools */}
+          {showFloatingTools && (
+            <>
+              <button onClick={() => { handleNavigate('informasi'); setShowFloatingTools(false); }}
+                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xl border-2 border-amber-400 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
+                title="Papan Pengumuman">
+                <Megaphone className="w-4 h-4" />
+                <span className="text-[11px] font-bold whitespace-nowrap">Papan Info</span>
+              </button>
+              <button onClick={() => { handleNavigate('struktur'); setShowFloatingTools(false); }}
+                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-amber-400 shadow-xl border-2 border-amber-500/40 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
+                title="Kerabat Kerja">
+                <Users className="w-4 h-4" />
+                <span className="text-[11px] font-bold whitespace-nowrap">Kerabat Kerja</span>
+              </button>
+              <button onClick={() => { handleNavigate('aduan'); setShowFloatingTools(false); }}
+                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
+                title="Aduan Cepat">
+                <MessageSquare className="w-4 h-4" />
+                <span className="text-[11px] font-bold whitespace-nowrap">Aduan Cepat</span>
+              </button>
+            </>
+          )}
+
+          {/* Main Toggle FAB */}
+          <button
+            onClick={() => setShowFloatingTools(!showFloatingTools)}
+            className={`p-3.5 rounded-full shadow-2xl border-2 flex items-center justify-center transition-all duration-300 hover:scale-105 ${
+              showFloatingTools
+                ? 'bg-slate-900 text-white border-amber-400'
+                : 'bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 border-amber-400'
+            }`}
+            title={showFloatingTools ? 'Tutup menu cepat' : 'Buka menu cepat'}
+          >
+            {showFloatingTools ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
           </button>
         </div>
 
