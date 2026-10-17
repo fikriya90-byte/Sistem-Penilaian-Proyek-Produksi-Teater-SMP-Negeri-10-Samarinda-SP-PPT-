@@ -120,7 +120,8 @@ const WelcomeLayout: React.FC<{
           onClose={() => setIsSidebarOpen(false)}
           mode="welcome"
         />
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
+        {/* ✅ FIX: Tambah pb-32 lg:pb-24 agar konten tidak tertutup FAB */}
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
           {renderWelcomeModule()}
         </main>
       </div>
@@ -288,7 +289,8 @@ const MainLayout: React.FC = () => {
           <div className="flex-1 flex max-w-7xl w-full mx-auto">
             <Sidebar currentModule={currentModule} onNavigate={handleNavigate}
               isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-            <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
+            {/* ✅ FIX: Tambah pb-32 lg:pb-24 */}
+            <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
               {currentModule === 'pengaturan' ? <SettingsModule /> :
                currentModule === 'backup' ? <BackupModule /> :
                currentModule === 'informasi' ? <InformationModule /> :
@@ -395,7 +397,8 @@ const MainLayout: React.FC = () => {
             onClose={() => setIsSidebarOpen(false)}
             mode="in-class"
           />
-          <main className="flex-1 p-3 sm:p-6 lg:p-8 overflow-y-auto max-w-full">
+          {/* ✅ FIX: Tambah pb-32 lg:pb-24 */}
+          <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
             {renderCurrentModule()}
           </main>
         </div>
