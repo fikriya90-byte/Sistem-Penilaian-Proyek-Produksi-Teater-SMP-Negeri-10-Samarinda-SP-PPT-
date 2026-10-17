@@ -4,7 +4,6 @@ import { useAuth } from '../../core/authContext';
 import {
   PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES,
   getAssessorWeights, getAssessmentMatrix, AUTO_SCORE_THRESHOLDS,
-  // ✅ FIX: Helper baru dari constants
   normalizeUserRole, isPemeranRole, getAssessorCategoryFor, getCriteriaForRole,
 } from '../../core/constants';
 import { AssessmentRecord, ProductionStage, UserProfile } from '../../core/types';
@@ -16,7 +15,6 @@ import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
 type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
-// Label yang humanis untuk UI & Modal
 const CATEGORY_LABEL: Record<AssessorCategory, string> = {
   GURU: 'Guru Pengampu', ATASAN: 'Koordinator', REKAN: 'Rekan Kerja', BAWAHAN: 'Anggota Tim',
 };
@@ -175,7 +173,6 @@ export const AssessmentModule: React.FC = () => {
 
   const canManageAll = isGuruPengampu || isAdminRole;
 
-  // ✅ FIX: canGradeStudent pakai helper terpusat (matrix sisi target + normalisasi role)
   const canGradeStudent = (s: UserProfile) => {
     if (canManageAll) return true;
     if (!user || s.uid === user.uid) return false;
@@ -274,7 +271,33 @@ export const AssessmentModule: React.FC = () => {
       sum += (SCORE_SCALE[sc]?.score100 || 80) * c.weight;
       w += c.weight;
     });
-    return w > 0 ? Math.round((sum / w) * 10) / 10 : 80;
+    let finalScore = w > 0 ? Math.round((sum / w) * 10) / 10 : 80;
+
+    // ============================================
+    // SAFETY NET — Batas Maksimum Nilai
+    // ============================================
+    const taskScore = auto.tanggung_jawab;
+    const disciplineScore = auto.kedisiplinan;
+
+    if (taskScore === 1) {
+      finalScore = Math.min(finalScore, 70);
+    } else if (isPemeranRole(selectedStudent.role) && disciplineScore !== undefined && disciplineScore <= 2) {
+      finalScore = Math.min(finalScore, 75);
+    }
+
+    return finalScore;
+  };
+
+  const getSafetyNetInfo = () => {
+    if (!selectedStudent) return { active: false, cap: 100, reason: '' };
+    const { auto } = autoScoresFor(selectedStudent, selectedStage);
+    if (auto.tanggung_jawab === 1) {
+      return { active: true, cap: 70, reason: 'Tugas tidak dikerjakan (Tanggung Jawab = 1)' };
+    }
+    if (isPemeranRole(selectedStudent.role) && auto.kedisiplinan !== undefined && auto.kedisiplinan <= 2) {
+      return { active: true, cap: 75, reason: 'Kedisiplinan rendah (≤ 2)' };
+    }
+    return { active: false, cap: 100, reason: '' };
   };
 
   const getStudentTasks = (s: UserProfile) => {
@@ -338,11 +361,7 @@ export const AssessmentModule: React.FC = () => {
     if (rk !== null && w.REKAN > 0) { sum += rk * w.REKAN; wt += w.REKAN; }
     if (bw !== null && w.BAWAHAN > 0) { sum += bw * w.BAWAHAN; wt += w.BAWAHAN; }
 
-    return {
-      finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0,
-      guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs,
-      roleBreakdown
-    };
+    return { finalVal: wt > 0 ? Math.round((sum / wt) * 10) / 10 : 0, guru: g, atasan: at, rekan: rk, bawahan: bw, count: recs.length, records: recs, roleBreakdown };
   };
 
   const openGrading = (s: UserProfile) => {
@@ -379,7 +398,6 @@ export const AssessmentModule: React.FC = () => {
       const { auto } = autoScoresFor(selectedStudent, selectedStage);
       const total = calcTotal();
 
-      // ✅ FIX: kategori penilai via helper terpusat
       let cat: AssessorCategory;
       if (canManageAll) {
         cat = 'GURU';
@@ -582,7 +600,7 @@ export const AssessmentModule: React.FC = () => {
 
         <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
           <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja. Klik icon 💬 di sebelah nama untuk lihat komentar.</p></div>
+          <div className="text-[11px] text-blue-900 leading-relaxed"><p className="font-bold">Guru bisa edit nilai siapa saja. Klik icon pesan di sebelah nama untuk lihat komentar.</p></div>
         </div>
       </div>
 
@@ -830,7 +848,19 @@ export const AssessmentModule: React.FC = () => {
             <div className="p-6 bg-slate-900 text-white shrink-0">
               <div className="flex items-center justify-between">
                 <div><span className="text-xs font-bold text-amber-400 uppercase">Penilaian 360 • {selectedStage}</span><h3 className="text-lg font-black mt-0.5">{selectedStudent.displayName}</h3><p className="text-xs text-slate-400">{selectedStudent.role}{selectedStudent.divisionName ? ` • ${selectedStudent.divisionName}` : ''}</p></div>
-                <div className="text-right"><p className="text-[10px] text-slate-400">Perkiraan</p><p className="text-3xl font-black text-amber-400 font-mono">{calcTotal()}</p></div>
+                <div className="text-right">
+                  <p className="text-[10px] text-slate-400">Perkiraan</p>
+                  <p className="text-3xl font-black text-amber-400 font-mono">{calcTotal()}</p>
+                  {(() => {
+                    const sn = getSafetyNetInfo();
+                    if (!sn.active) return null;
+                    return (
+                      <p className="text-[9px] font-bold text-rose-300 bg-rose-500/20 px-1.5 py-0.5 rounded mt-1 flex items-center gap-1 justify-end">
+                        <ShieldAlert className="w-2.5 h-2.5" /> Dibatasi {sn.cap}
+                      </p>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
             <div className="p-6 space-y-5 overflow-y-auto flex-1">
@@ -920,7 +950,6 @@ export const AssessmentModule: React.FC = () => {
                       })}
                     </div>
 
-                    {/* Komentar pihak lain di dalam modal */}
                     {(() => {
                       const others = assessments.filter(a =>
                         a.studentId === selectedStudent.uid &&
@@ -931,8 +960,8 @@ export const AssessmentModule: React.FC = () => {
                       if (others.length === 0) return null;
                       return (
                         <div className="mt-4 pt-4 border-t border-slate-200">
-                          <p className="text-[10px] font-black text-slate-600 uppercase mb-2">
-                            💬 Komentar dari penilai lain ({others.length})
+                          <p className="text-[10px] font-black text-slate-600 uppercase mb-2 flex items-center gap-1">
+                            <MessageCircle className="w-3 h-3" /> Komentar dari penilai lain ({others.length})
                           </p>
                           <div className="space-y-2 max-h-48 overflow-y-auto">
                             {others.map((o, i) => {
@@ -995,11 +1024,9 @@ export const AssessmentModule: React.FC = () => {
         </div>
       )}
 
-      {/* ✅ MODAL KOMENTAR — fitur baru untuk lihat komentar dari semua penilai */}
       {showCommentsFor && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
-            {/* Header */}
             <div className="p-5 bg-gradient-to-r from-purple-700 to-indigo-800 text-white shrink-0">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1024,7 +1051,6 @@ export const AssessmentModule: React.FC = () => {
               </div>
             </div>
 
-            {/* Body */}
             <div className="p-5 overflow-y-auto flex-1 space-y-3">
               {(() => {
                 const comments = assessments
@@ -1098,7 +1124,6 @@ export const AssessmentModule: React.FC = () => {
               })()}
             </div>
 
-            {/* Footer */}
             <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end shrink-0">
               <button onClick={() => setShowCommentsFor(null)}
                 className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs">
