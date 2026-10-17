@@ -44,10 +44,8 @@ export const DIVISIONS: { id: DivisionType; color: string; badgeColor: string; d
 ];
 
 // =====================================================
-// NORMALISASI ROLE — SATU SUMBER KEBENARAN
+// NORMALISASI ROLE
 // =====================================================
-// Ini dipakai oleh: firestoreService, authContext, AssessmentModule, dll.
-// Tujuan: semua tempat melihat role KANONIK yang sama, tidak ada drift.
 export function normalizeUserRole(role: string | undefined | null): UserRole {
   if (!role) return 'Pemeran';
   if (role === 'Guru Pembina') return 'Guru Pengampu';
@@ -56,7 +54,7 @@ export function normalizeUserRole(role: string | undefined | null): UserRole {
 }
 
 // =====================================================
-// KRITERIA PEMERAN (6 poin, 5 manual + 1 otomatis)
+// KRITERIA PEMERAN
 // =====================================================
 export const PEMERAN_CRITERIA = [
   { key: 'hafalan', label: 'Hafalan Dialog', weight: 20, source: 'MANUAL' as const, desc: 'Hafal dialog pada/sebelum tenggat tanpa dibisiki' },
@@ -68,7 +66,7 @@ export const PEMERAN_CRITERIA = [
 ];
 
 // =====================================================
-// KRITERIA NON-PEMERAN (5 poin, 3 manual + 2 otomatis)
+// KRITERIA NON-PEMERAN
 // =====================================================
 export const GENERAL_CRITERIA = [
   { key: 'kerja_sama', label: 'Kerja Sama Tim', weight: 25, source: 'MANUAL' as const, desc: 'Hasil & informasi sampai tepat tenggat, mau menerima arahan' },
@@ -110,7 +108,7 @@ export const ASSESSOR_WEIGHTS: Record<string, AssessorWeightConfig> = {
 };
 
 // =====================================================
-// MATRIKS PENILAI 360°
+// MATRIKS PENILAIAN 360°
 // =====================================================
 export interface AssessorRelationship {
   category: AssessorCategory;
@@ -129,7 +127,6 @@ export const ASSESSMENT_MATRIX: Record<string, AssessorRelationship[]> = {
     { category: 'BAWAHAN', roles: [
       'Asisten Sutradara',
       'Koordinator Tata Panggung', 'Koordinator Tata Busana', 'Koordinator Tata Rias', 'Koordinator Tata Musik',
-      'Anggota Tata Panggung', 'Anggota Tata Busana', 'Anggota Tata Rias', 'Anggota Tata Musik',
       'Pemeran',
     ] },
   ],
@@ -277,10 +274,6 @@ export function getAssessmentMatrix(targetRole: string): AssessorRelationship[] 
   return ASSESSMENT_MATRIX[normalized] || [];
 }
 
-/**
- * Tentukan kategori seorang penilai (asesor) terhadap target tertentu.
- * Return null kalau asesor memang tidak berhak menilai.
- */
 export function getAssessorCategoryFor(
   targetRole: string,
   assessorRole: string
@@ -292,25 +285,15 @@ export function getAssessorCategoryFor(
   return null;
 }
 
-/**
- * Cek apakah asesor berhak menilai target.
- * Ini SATU-SATUNYA sumber kebenaran — semua modul harus pakai ini.
- */
 export function canRoleAssessTarget(targetRole: string, assessorRole: string): boolean {
   return getAssessorCategoryFor(targetRole, assessorRole) !== null;
 }
 
-/**
- * Cek apakah target adalah aktor/pemeran (role legacy 'Pemain' ditangani).
- */
 export function isPemeranRole(role: string | undefined | null): boolean {
   const normalized = normalizeUserRole(role);
   return normalized === 'Pemeran';
 }
 
-/**
- * Ambil kriteria penilaian yang sesuai untuk target.
- */
 export function getCriteriaForRole(role: string | undefined | null) {
   return isPemeranRole(role) ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
 }
