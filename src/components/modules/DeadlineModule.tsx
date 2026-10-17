@@ -5,7 +5,7 @@ import {
   Sparkles, Target, ListChecks, Square, CheckSquare, User, Briefcase,
   Copy, FilePlus, Wand2, Loader2, Trash2, Pencil, Pause, Play, Ban,
   XCircle, Info, Save, Star, FileText, Link2, MessageSquare, Calendar,
-  Camera,
+  Camera, History, ArrowRightCircle,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -21,7 +21,6 @@ import {
 import { db } from '../../core/firebase';
 import { recordAuditLog, fetchUsersByClass } from '../../services/firestoreService';
 import { DEADLINE_TEMPLATES, STAGE_INFO } from '../../core/deadlineTemplates';
-// ✅ NEW: Import photo uploader
 import { PhotoEvidenceUploader, PhotoEvidence, checkPhotoContent } from '../common/PhotoEvidenceUploader';
 
 const PRIORITY_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
@@ -49,6 +48,8 @@ const DIVISION_LIST: DivisionType[] = [
   'Pengurus Inti', 'Pemeran', 'Perlengkapan', 'Publikasi & Dokumentasi',
   'Tata Panggung', 'Tata Rias', 'Tata Busana', 'Tata Musik & Suara',
 ];
+
+const STAGE_ORDER: ProductionStage[] = ['PERSIAPAN', 'PELAKSANAAN', 'PERTUNJUKAN', 'PASCA'];
 
 interface TargetItem {
   type: 'PERAN' | 'DIVISI';
@@ -456,7 +457,7 @@ const DeadlineCopyModal: React.FC<{
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => setShiftDays(prev => prev - 1)}
                         className="p-2 rounded-lg bg-white dark:bg-slate-700 border border-purple-200 dark:border-purple-500/40 text-purple-700 dark:text-purple-300 font-bold hover:bg-purple-100 transition">
-                        −
+                        -
                       </button>
                       <input type="number" value={shiftDays}
                         onChange={(e) => setShiftDays(parseInt(e.target.value) || 0)}
@@ -614,11 +615,11 @@ export const DeadlineModule: React.FC = () => {
   const [filterStage, setFilterStage] = useState<'ALL' | ProductionStage>('ALL');
   const [now, setNow] = useState(new Date());
   const [submitting, setSubmitting] = useState(false);
+  const [stageConfig, setStageConfig] = useState<any>(null);
 
   const [isNoteOpen, setIsNoteOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteLink, setNoteLink] = useState('');
-  // ✅ NEW: state foto bukti
   const [notePhotos, setNotePhotos] = useState<PhotoEvidence[]>([]);
 
   const [confirmDoneItem, setConfirmDoneItem] = useState<DeadlineItem | null>(null);
@@ -678,7 +679,14 @@ export const DeadlineModule: React.FC = () => {
       setDeadlines(items);
     });
     fetchUsersByClass(activeClass.id).then(setUsers);
-    return () => unsub();
+
+    // Fetch Stage Config to determine current active stage
+    const stageRef = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
+    const unsubStage = onSnapshot(stageRef, snap => {
+      if (snap.exists()) setStageConfig(snap.data());
+    });
+
+    return () => { unsub(); unsubStage(); };
   }, [activeClass]);
 
   useEffect(() => {
@@ -704,7 +712,7 @@ export const DeadlineModule: React.FC = () => {
       return { text: 'DIBATALKAN', color: 'text-slate-600 bg-slate-100 border-slate-300 dark:bg-slate-800 dark:text-slate-400' };
     }
     if (status === 'HOLD') {
-      return { text: 'DITAHAN — countdown di-pause', color: 'text-amber-800 bg-amber-50 border-amber-300 dark:bg-amber-500/20 dark:text-amber-300' };
+      return { text: 'DITAHAN - countdown di-pause', color: 'text-amber-800 bg-amber-50 border-amber-300 dark:bg-amber-500/20 dark:text-amber-300' };
     }
     if (!dueDate) return { text: 'Tanpa deadline', color: 'text-slate-700 bg-slate-50 border-slate-200' };
     const diff = new Date(dueDate).getTime() - now.getTime();
@@ -722,7 +730,6 @@ export const DeadlineModule: React.FC = () => {
 
   const handleQuickDone = async (d: DeadlineItem) => {
     if (!user || !activeClass) return;
-    // ✅ Jika PELAKSANAAN → buka modal catatan + foto (wajib foto)
     const isPelaksanaan = (d as any).stage === 'PELAKSANAAN';
     if (isPelaksanaan) {
       handleOpenNote(d);
@@ -760,7 +767,7 @@ export const DeadlineModule: React.FC = () => {
         details: `Tandai selesai: "${d.title}"${isLate ? ' (terlambat)' : ''}`,
       });
 
-      showToast(isLate ? `✅ Tandai selesai (terlambat).` : `✅ Mantap! Tugas selesai.`, 'success');
+      showToast(isLate ? `Tandai selesai (terlambat).` : `Mantap! Tugas selesai.`, 'success');
       setConfirmDoneItem(null);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
@@ -786,7 +793,6 @@ export const DeadlineModule: React.FC = () => {
     setSelectedDeadline(d);
     setNoteText(existing?.proofNote || '');
     setNoteLink(existing?.proofUrl || '');
-    // ✅ Load foto yang sudah ada
     setNotePhotos(((existing as any)?.evidencePhotos || []) as PhotoEvidence[]);
     setIsNoteOpen(true);
   };
@@ -794,14 +800,12 @@ export const DeadlineModule: React.FC = () => {
   const handleSaveNote = async () => {
     if (!user || !activeClass || !selectedDeadline) return;
 
-    // ✅ VALIDASI: Foto wajib untuk tahap PELAKSANAAN
     const isPelaksanaan = (selectedDeadline as any).stage === 'PELAKSANAAN';
     if (isPelaksanaan && notePhotos.length === 0) {
       showToast('Tahap PELAKSANAAN wajib menyertakan minimal 1 foto bukti!', 'error');
       return;
     }
 
-    // ✅ Validasi caption
     for (const p of notePhotos) {
       if (p.caption) {
         const check = checkPhotoContent(p.caption);
@@ -812,7 +816,6 @@ export const DeadlineModule: React.FC = () => {
       }
     }
 
-    // ✅ Validasi total ukuran foto
     const totalPhotoKB = notePhotos.reduce((s, p) => s + p.sizeKB, 0);
     if (totalPhotoKB > 900) {
       showToast(`Total foto terlalu besar (${totalPhotoKB}KB). Maks 900KB.`, 'error');
@@ -855,7 +858,7 @@ export const DeadlineModule: React.FC = () => {
         details: `Bukti tersimpan: "${selectedDeadline.title}" (${notePhotos.length} foto)`,
       });
 
-      showToast(`✅ Bukti tersimpan dengan ${notePhotos.length} foto!`, 'success');
+      showToast(`Bukti tersimpan dengan ${notePhotos.length} foto!`, 'success');
       setIsNoteOpen(false);
       setNoteText('');
       setNoteLink('');
@@ -1064,7 +1067,7 @@ export const DeadlineModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'UPDATE', targetType: 'Deadline', targetId: editingDeadline.id,
-        details: `Edit deadline: ${editTitle} — target: ${editTargetScope} (${recipientIds.size} penerima)`,
+        details: `Edit deadline: ${editTitle} - target: ${editTargetScope} (${recipientIds.size} penerima)`,
       });
 
       showToast(`Deadline diperbarui! Target: ${recipientIds.size} penerima.`, 'success');
@@ -1446,7 +1449,7 @@ export const DeadlineModule: React.FC = () => {
             <Camera className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-300" />
             <span>
               <strong>Info:</strong> Tugas di tahap <strong>PELAKSANAAN wajib melampirkan foto bukti</strong>.
-              Foto auto-kompres (≤300KB/foto). Kalau tidak ada foto, tugas tidak bisa ditandai selesai.
+              Foto auto-kompres (maks 300KB/foto). Kalau tidak ada foto, tugas tidak bisa ditandai selesai.
             </span>
           </div>
         )}
@@ -1505,18 +1508,43 @@ export const DeadlineModule: React.FC = () => {
             const isPelaksanaan = dStage === 'PELAKSANAAN';
             const photos = ((mySub as any)?.evidencePhotos || []) as any[];
 
+            // CEK TAHAP TERTINGGAL
+            const activeStageId = stageConfig?.currentStage || 'PELAKSANAAN';
+            const currentStageIndex = STAGE_ORDER.indexOf(activeStageId);
+            const taskStageIndex = dStage ? STAGE_ORDER.indexOf(dStage) : -1;
+            const isPastStage = taskStageIndex !== -1 && taskStageIndex < currentStageIndex;
+            const isOverdue = !isDone && new Date(d.dueDate).getTime() < Date.now();
+            const isLateSubmission = mySub?.status === 'TERLAMBAT';
+
             return (
               <div key={d.id} className={`p-5 rounded-3xl border-2 transition shadow-sm space-y-3 ${
                 isDone
                   ? 'bg-emerald-50 dark:bg-emerald-500/5 border-emerald-300 dark:border-emerald-500/40'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-rose-300'
+                  : isPastStage && !isDone
+                    ? 'bg-amber-50 dark:bg-amber-500/5 border-amber-300 dark:border-amber-500/40'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 hover:border-rose-300'
               }`}>
+                
+                {/* BADGE SECTION */}
                 <div className="flex items-center gap-2 flex-wrap">
                   {stageInfo && dStage && (
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md bg-gradient-to-r ${stageInfo.gradient} text-white`}>
                       {dStage}
                     </span>
                   )}
+                  
+                  {/* BADGE TERTINGGAL & TERLAMBAT */}
+                  {isPastStage && !isDone && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 flex items-center gap-1 shadow-sm">
+                      <History className="w-3 h-3" /> TERTINGGAL
+                    </span>
+                  )}
+                  {(isOverdue || isLateSubmission) && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white flex items-center gap-1 shadow-sm animate-pulse">
+                      <AlertTriangle className="w-3 h-3" /> TERLAMBAT
+                    </span>
+                  )}
+
                   {isCritical && (
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-500/40 flex items-center gap-1">
                       <Star className="w-3 h-3" /> KRITIS
@@ -1537,8 +1565,10 @@ export const DeadlineModule: React.FC = () => {
                     {priority.label}
                   </span>
                   {isDone && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-500 text-white border border-emerald-600 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3" /> SELESAI
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md text-white border flex items-center gap-1 ${
+                      mySub?.status === 'TERLAMBAT' ? 'bg-rose-500 border-rose-600' : 'bg-emerald-500 border-emerald-600'
+                    }`}>
+                      <CheckCircle className="w-3 h-3" /> {mySub?.status === 'TERLAMBAT' ? 'SELESAI (TELAT)' : 'SELESAI'}
                     </span>
                   )}
                   {(d as any).status === 'HOLD' && (
@@ -1551,21 +1581,21 @@ export const DeadlineModule: React.FC = () => {
                       <Ban className="w-3 h-3" /> DIBATALKAN
                     </span>
                   )}
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 flex items-center gap-1">
-                    {d.targetScope === 'SEMUA' ? (
-                      <>Semua Siswa</>
-                    ) : d.targetScope === 'PERAN' && (d as any).targetRole ? (
-                      <><User className="w-3 h-3" /> {(d as any).targetRole}</>
-                    ) : d.targetScope === 'DIVISI' && (d as any).targetDivision ? (
-                      <><Users className="w-3 h-3" /> {(d as any).targetDivision}</>
-                    ) : (
-                      <>{targetCount} penerima</>
-                    )}
-                  </span>
                 </div>
 
-                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">{d.title}</h3>
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1">{d.title}</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-3">{d.description}</p>
+
+                {/* PERINGATAN TERTINGGAL */}
+                {isPastStage && !isDone && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2 mt-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-rose-800 leading-relaxed">
+                      Tugas ini berasal dari tahap <strong>{dStage}</strong>. Anda masih bisa mengumpulkannya sekarang,
+                      tetapi sistem akan mencatatnya sebagai <strong>Terlambat</strong> dan <strong>skor Anda akan dikurangi</strong> pada penilaian Tanggung Jawab.
+                    </p>
+                  </div>
+                )}
 
                 <div className={`p-3 rounded-xl border text-xs font-bold text-center flex items-center justify-center gap-1 ${cd.color}`}>
                   <Clock className="w-4 h-4" /> {cd.text}
@@ -1597,25 +1627,29 @@ export const DeadlineModule: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <div className="p-3 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-500/40 flex items-center gap-2">
-                          <CheckCircle className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <div className={`p-3 rounded-xl border flex items-center gap-2 ${
+                          mySub?.status === 'TERLAMBAT' 
+                            ? 'bg-rose-100 border-rose-300 text-rose-900' 
+                            : 'bg-emerald-100 border-emerald-300 text-emerald-900'
+                        }`}>
+                          <CheckCircle className="w-5 h-5 shrink-0" />
                           <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
+                            <p className="text-xs font-bold">
                               Anda sudah menandai tugas ini selesai
                             </p>
-                            <p className="text-[10px] text-emerald-700 dark:text-emerald-300">
-                              {mySub.status === 'TERLAMBAT' ? '⚠️ Dikerjakan terlambat' : '✅ Tepat waktu'} -{' '}
+                            <p className="text-[10px] opacity-80">
+                              {mySub.status === 'TERLAMBAT' ? 'Dikerjakan terlambat' : 'Tepat waktu'} -{' '}
                               {mySub.submittedAt ? new Date(mySub.submittedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
                               {photos.length > 0 && ` - ${photos.length} foto`}
                             </p>
                           </div>
                         </div>
 
-                        {/* ✅ TAMPILKAN FOTO BUKTI */}
+                        {/* TAMPILKAN FOTO BUKTI */}
                         {photos.length > 0 && (
                           <div className="grid grid-cols-3 gap-1.5">
                             {photos.map((p, i) => (
-                              <div key={p.id || i} className="relative rounded-lg overflow-hidden border border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-slate-800">
+                              <div key={p.id || i} className="relative rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
                                 <img src={p.dataUrl} alt={p.caption || `Foto ${i + 1}`}
                                   className="w-full h-20 object-cover cursor-pointer hover:opacity-90 transition"
                                   onClick={() => {
@@ -1799,7 +1833,7 @@ export const DeadlineModule: React.FC = () => {
                 <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                    <p className="font-black">🔴 Tahap PELAKSANAAN - FOTO WAJIB!</p>
+                    <p className="font-black">Tahap PELAKSANAAN - FOTO WAJIB!</p>
                     <p className="mt-0.5">
                       Tugas di tahap ini <strong>harus disertai minimal 1 foto bukti</strong>.
                       Foto otomatis dikompres agar hemat kuota.
@@ -1820,7 +1854,6 @@ export const DeadlineModule: React.FC = () => {
                 )}
               </div>
 
-              {/* ✅ FOTO UPLOADER */}
               <PhotoEvidenceUploader
                 photos={notePhotos}
                 onChange={setNotePhotos}
@@ -1962,7 +1995,7 @@ export const DeadlineModule: React.FC = () => {
                     placeholder="Contoh: Foto properti yang dikerjakan + hasil akhir, foto tampak depan dan samping."
                     className="w-full p-2.5 rounded-lg border border-blue-200 dark:border-blue-500/40 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
                   <p className="text-[10px] text-blue-700 dark:text-blue-300">
-                    💡 Tahap PELAKSANAAN otomatis wajib foto bukti. Isi panduan ini supaya siswa tahu foto apa yang perlu diambil.
+                    Tahap PELAKSANAAN otomatis wajib foto bukti. Isi panduan ini supaya siswa tahu foto apa yang perlu diambil.
                   </p>
                 </div>
               )}
@@ -2622,7 +2655,7 @@ export const DeadlineModule: React.FC = () => {
 
                   <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
                     <p className="text-[10px] text-emerald-900 dark:text-emerald-200 font-bold">
-                      ℹ️ Penerima dihitung ulang otomatis saat Simpan.
+                      Penerima dihitung ulang otomatis saat Simpan.
                     </p>
                   </div>
                 </div>
