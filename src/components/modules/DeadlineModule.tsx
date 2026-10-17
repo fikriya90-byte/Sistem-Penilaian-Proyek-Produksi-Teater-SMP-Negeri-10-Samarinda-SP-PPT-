@@ -5,7 +5,7 @@ import {
   Sparkles, Target, ListChecks, Square, CheckSquare, User, Briefcase,
   Copy, FilePlus, Wand2, Loader2, Trash2, Pencil, Pause, Play, Ban,
   XCircle, Info, Save, Star, FileText, Link2, MessageSquare, Calendar,
-  Camera, History, ArrowRightCircle,
+  Camera, History, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -680,7 +680,6 @@ export const DeadlineModule: React.FC = () => {
     });
     fetchUsersByClass(activeClass.id).then(setUsers);
 
-    // Fetch Stage Config to determine current active stage
     const stageRef = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
     const unsubStage = onSnapshot(stageRef, snap => {
       if (snap.exists()) setStageConfig(snap.data());
@@ -1360,7 +1359,7 @@ export const DeadlineModule: React.FC = () => {
       await updateDoc(doc(db, 'deadlineSubmissions', sub.id), {
         feedback: feedbackText.trim() || sub.feedback,
         rating: feedbackRating || sub.rating,
-        extensionApproved: approveExt ? true : sub.extensionApproved,
+        extensionApproved: approveExt ? true : sub.approvedExt,
         updatedAt: new Date().toISOString(),
       });
       showToast('Feedback tersimpan!', 'success');
@@ -1378,10 +1377,27 @@ export const DeadlineModule: React.FC = () => {
   };
 
   const visibleDeadlines = deadlines.filter(d => {
-    if (filterStage !== 'ALL') {
-      const dStage = (d as any).stage;
-      if (dStage && dStage !== filterStage) return false;
+    const dStage = (d as any).stage as ProductionStage | undefined;
+    const mySub = mySubmissions[d.id];
+    const isDone = !!mySub;
+
+    // 1. Logika Filter Tahapan
+    if (filterStage !== 'ALL' && dStage && dStage !== filterStage) {
+      // PAKSA TAMPIL: Untuk siswa, jika tugas dari tahap sebelumnya belum selesai, tetap tampilkan meski beda tab
+      if (!canCreate) {
+        const activeStageId = stageConfig?.currentStage || 'PELAKSANAAN';
+        const currentStageIndex = STAGE_ORDER.indexOf(activeStageId);
+        const taskStageIndex = STAGE_ORDER.indexOf(dStage);
+        const isPastStage = taskStageIndex !== -1 && taskStageIndex < currentStageIndex;
+
+        if (!isPastStage || isDone) return false;
+      } else {
+        // Untuk Guru/Admin, filter berjalan normal
+        return false;
+      }
     }
+
+    // 2. Logika Visibilitas Target
     if (canCreate) return true;
     if ((d as any).status === 'CANCELLED') return false;
     if (!user) return false;
@@ -1586,14 +1602,17 @@ export const DeadlineModule: React.FC = () => {
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1">{d.title}</h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-3">{d.description}</p>
 
-                {/* PERINGATAN TERTINGGAL */}
+                {/* PERINGATAN TERTINGGAL & KONSEKUENSI NILAI */}
                 {isPastStage && !isDone && (
                   <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2 mt-2">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    <p className="text-[10px] text-rose-800 leading-relaxed">
-                      Tugas ini berasal dari tahap <strong>{dStage}</strong>. Anda masih bisa mengumpulkannya sekarang,
-                      tetapi sistem akan mencatatnya sebagai <strong>Terlambat</strong> dan <strong>skor Anda akan dikurangi</strong> pada penilaian Tanggung Jawab.
-                    </p>
+                    <div className="text-[10px] text-rose-800 leading-relaxed">
+                      <p className="font-bold mb-0.5">Tugas ini tertinggal dari tahap {dStage}.</p>
+                      <ul className="list-disc pl-3.5 space-y-0.5">
+                        <li><strong>Jika dikumpulkan sekarang:</strong> Status menjadi <strong>Terlambat</strong>, nilai akan dikurangi.</li>
+                        <li><strong>Jika tidak dikumpulkan:</strong> Anda mendapatkan <strong>Nilai 0</strong> untuk tugas ini.</li>
+                      </ul>
+                    </div>
                   </div>
                 )}
 
@@ -2628,7 +2647,7 @@ export const DeadlineModule: React.FC = () => {
                                 className={`p-1.5 rounded-md text-[10px] font-bold transition text-left truncate ${
                                   sel ? 'bg-blue-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                                 }`}>
-                                {sel ? '✓ ' : ''}{r}
+                                {sel ? 'OK ' : ''}{r}
                               </button>
                             );
                           })}
@@ -2644,7 +2663,7 @@ export const DeadlineModule: React.FC = () => {
                                 className={`p-1.5 rounded-md text-[10px] font-bold transition text-left truncate ${
                                   sel ? 'bg-purple-500 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
                                 }`}>
-                                {sel ? '✓ ' : ''}{d}
+                                {sel ? 'OK ' : ''}{d}
                               </button>
                             );
                           })}
