@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square, X, UserCog } from 'lucide-react';
+import { Award, Lock, Unlock, Search, Edit3, RefreshCw, AlertCircle, Timer, ListChecks, Clock, AlertTriangle, MessageCircle, Send, Download, Trash2, RotateCcw, ShieldAlert, Bot, ExternalLink, CheckSquare, Square, X, UserCog, Info } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
   PEMERAN_CRITERIA, GENERAL_CRITERIA, SCORE_SCALE, STAGES,
