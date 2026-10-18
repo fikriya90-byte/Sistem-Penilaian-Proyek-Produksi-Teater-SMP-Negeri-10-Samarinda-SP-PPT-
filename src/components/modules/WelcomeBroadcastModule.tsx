@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Radio, Megaphone, Send, AlertTriangle, Users, Check,
   Shield, Clock, Trash2, Search, Camera, ImagePlus, X,
+  Link2, ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -24,6 +25,8 @@ interface CrossBroadcast {
   content: string;
   priority: Priority;
   photoUrl?: string;
+  linkUrl?: string;      // ✅ BARU: Link pendukung
+  linkLabel?: string;    // ✅ BARU: Label tombol custom
   targetClassIds: string[];
   targetClassNames: string[];
   totalRecipients: number;
@@ -35,6 +38,40 @@ const PRIORITY_CONFIG: Record<Priority, { label: string; color: string; icon: an
   PENTING: { label: 'Penting', color: 'bg-amber-100 text-amber-800 border-amber-300', icon: AlertTriangle },
   URGENT: { label: 'URGENT', color: 'bg-rose-100 text-rose-800 border-rose-300', icon: AlertTriangle },
 };
+
+// ✅ Helper sanitasi URL
+function sanitizeUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  const trimmed = String(url).trim();
+  if (!trimmed) return null;
+  if (!/^https?:\/\/[^\s]+$/i.test(trimmed)) return null;
+  return trimmed;
+}
+
+// ✅ Helper deteksi URL dalam teks (auto-linkify)
+const URL_REGEX = /(https?:\/\/[^\s<>"']+)/gi;
+
+function renderTextWithLinks(text: string): React.ReactNode {
+  if (!text) return null;
+  const parts = text.split(URL_REGEX);
+  return parts.map((part, i) => {
+    if (URL_REGEX.test(part)) {
+      URL_REGEX.lastIndex = 0;
+      const safe = sanitizeUrl(part);
+      if (safe) {
+        return (
+          <a key={i} href={safe} target="_blank" rel="noopener noreferrer"
+            className="text-blue-600 dark:text-blue-400 font-semibold underline decoration-dotted break-all"
+            onClick={(e) => e.stopPropagation()}>
+            {part}
+          </a>
+        );
+      }
+    }
+    URL_REGEX.lastIndex = 0;
+    return <span key={i}>{part}</span>;
+  });
+}
 
 export const WelcomeBroadcastModule: React.FC = () => {
   const { user, classes, isGuruPengampu, isAdminRole } = useAuth();
@@ -50,9 +87,13 @@ export const WelcomeBroadcastModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // ✅ NEW: Foto state
+  // FOTO OPSIONAL
   const [photoUrl, setPhotoUrl] = useState('');
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+
+  // ✅ LINK PENDUKUNG (BARU)
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkLabel, setLinkLabel] = useState('');
 
   const canSend = isGuruPengampu || isAdminRole;
 
@@ -88,12 +129,20 @@ export const WelcomeBroadcastModule: React.FC = () => {
     setSelectedClassIds([]);
     setSendToAll(false);
     setPhotoUrl('');
+    setLinkUrl('');
+    setLinkLabel('');
   };
 
   const handleSend = async () => {
     if (!user) return;
     if (!title.trim() || !content.trim()) { showToast('Judul & isi wajib diisi.', 'warning'); return; }
     if (selectedClassIds.length === 0) { showToast('Pilih minimal 1 kelas.', 'warning'); return; }
+
+    // ✅ Validasi link
+    if (linkUrl.trim() && !sanitizeUrl(linkUrl)) {
+      showToast('Link pendukung harus dimulai dengan http:// atau https://', 'warning');
+      return;
+    }
 
     if (!confirm(`Kirim broadcast ke ${selectedClassIds.length} kelas?`)) return;
     setSending(true);
@@ -113,16 +162,21 @@ export const WelcomeBroadcastModule: React.FC = () => {
         .map(id => classes.find(c => c.id === id)?.name || '-')
         .filter(Boolean);
 
+      const safeLink = sanitizeUrl(linkUrl);
+
       const crossRef = doc(collection(db, 'crossClassBroadcasts'));
       await setDoc(crossRef, {
         id: crossRef.id,
         senderId: user.uid, senderName: user.displayName, senderRole: user.role,
         title: title.trim(), content: content.trim(), priority,
         photoUrl: photoUrl || '',
+        linkUrl: safeLink || '',
+        linkLabel: linkLabel.trim() || '',
         targetClassIds: selectedClassIds, targetClassNames, totalRecipients,
         createdAt: new Date().toISOString(),
       });
 
+      // Distribusikan ke masing-masing kelas
       for (const { classId, userIds } of recipients) {
         const bRef = doc(collection(db, 'broadcasts'));
         await setDoc(bRef, {
@@ -131,6 +185,8 @@ export const WelcomeBroadcastModule: React.FC = () => {
           title: title.trim(), content: content.trim(),
           priority,
           photoUrl: photoUrl || '',
+          linkUrl: safeLink || '',
+          linkLabel: linkLabel.trim() || '',
           targetScope: 'SEMUA',
           targetRoles: [], targetDivisions: [],
           recipientIds: userIds,
@@ -140,7 +196,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
         });
       }
 
-      // Notifikasi — judul TANPA emoji
+      // Notifikasi
       const batch = writeBatch(db);
       const now = new Date().toISOString();
       recipients.forEach(({ classId, userIds }) => {
@@ -163,7 +219,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'CrossClassBroadcast', targetId: crossRef.id,
-        details: `Broadcast lintas kelas: "${title}" → ${selectedClassIds.length} kelas (${totalRecipients} siswa)${photoUrl ? ' + foto' : ''}`,
+        details: `Broadcast lintas kelas: "${title}" → ${selectedClassIds.length} kelas (${totalRecipients} siswa)${photoUrl ? ' + foto' : ''}${safeLink ? ' + link' : ''}`,
       });
 
       showToast(`Broadcast terkirim ke ${selectedClassIds.length} kelas (${totalRecipients} siswa)`, 'success');
@@ -186,6 +242,11 @@ export const WelcomeBroadcastModule: React.FC = () => {
     const q = searchQuery.toLowerCase();
     return h.title.toLowerCase().includes(q) || h.content.toLowerCase().includes(q);
   });
+
+  // ✅ Preview Link
+  const safePreviewLink = sanitizeUrl(linkUrl);
+  const previewLinkLabel = linkLabel.trim()
+    || (safePreviewLink ? (() => { try { return new URL(safePreviewLink).hostname.replace(/^www\./, ''); } catch { return ''; } })() : '');
 
   if (!canSend) {
     return (
@@ -211,7 +272,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
             </span>
             <h2 className="text-xl font-black text-white mt-1">Kirim Pengumuman ke Semua Kelas</h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Satu pesan untuk beberapa/semua kelas IX sekaligus, bisa disertai foto.
+              Satu pesan untuk beberapa/semua kelas IX sekaligus, bisa disertai foto & link.
             </p>
           </div>
         </div>
@@ -224,7 +285,6 @@ export const WelcomeBroadcastModule: React.FC = () => {
             <Megaphone className="w-5 h-5 text-rose-500" /> Buat Broadcast Baru
           </h3>
 
-          {/* JUDUL */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Judul <span className="text-rose-500">*</span>
@@ -236,7 +296,6 @@ export const WelcomeBroadcastModule: React.FC = () => {
             <p className="text-[10px] text-slate-400 mt-0.5">{title.length}/100</p>
           </div>
 
-          {/* PRIORITAS */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Prioritas</label>
             <div className="grid grid-cols-3 gap-2">
@@ -256,7 +315,6 @@ export const WelcomeBroadcastModule: React.FC = () => {
             </div>
           </div>
 
-          {/* KELAS TUJUAN */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
               Kelas Tujuan <span className="text-rose-500">*</span>
@@ -314,7 +372,6 @@ export const WelcomeBroadcastModule: React.FC = () => {
             </p>
           </div>
 
-          {/* ISI PESAN */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
               Isi Pesan <span className="text-rose-500">*</span>
@@ -324,9 +381,60 @@ export const WelcomeBroadcastModule: React.FC = () => {
               maxLength={500}
               className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
             <p className="text-[10px] text-slate-400 mt-0.5">{content.length}/500</p>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 italic">
+              💡 URL di dalam teks otomatis bisa diklik
+            </p>
           </div>
 
-          {/* ✅ FOTO BUKTI (OPSIONAL) */}
+          {/* ✅ FITUR LINK PENDUKUNG BARU */}
+          <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/40 space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <Link2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <label className="block text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                Link Pendukung <span className="text-slate-500 font-normal">(Opsional)</span>
+              </label>
+            </div>
+            <input
+              type="url"
+              value={linkUrl}
+              onChange={(e) => setLinkUrl(e.target.value)}
+              placeholder="https://forms.gle/... atau https://drive.google.com/..."
+              className="w-full px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-500/40 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white"
+            />
+            <input
+              type="text"
+              value={linkLabel}
+              onChange={(e) => setLinkLabel(e.target.value)}
+              placeholder="Label tombol (opsional) — mis. Daftar Hadir"
+              maxLength={40}
+              className="w-full px-3 py-2 rounded-lg border border-indigo-200 dark:border-indigo-500/40 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white"
+            />
+
+            {safePreviewLink && (
+              <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-500/40">
+                <p className="text-[9px] font-bold text-indigo-700 dark:text-indigo-300 uppercase mb-1">Preview tombol:</p>
+                <a
+                  href={safePreviewLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-blue-600 text-white font-bold text-[10px] shadow-sm"
+                >
+                  <Link2 className="w-3 h-3" />
+                  {previewLinkLabel || 'Buka Link'}
+                  <ExternalLink className="w-2.5 h-2.5 opacity-80" />
+                </a>
+              </div>
+            )}
+
+            {linkUrl.trim() && !safePreviewLink && (
+              <div className="p-2 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
+                <p className="text-[10px] text-rose-900 dark:text-rose-200 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Link harus dimulai dengan <strong>http://</strong> atau <strong>https://</strong>
+                </p>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
               <ImagePlus className="w-3.5 h-3.5" />
@@ -356,29 +464,28 @@ export const WelcomeBroadcastModule: React.FC = () => {
                 <ImagePlus className="w-8 h-8 text-slate-400" />
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Tambah Foto</span>
                 <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center">
-                  Upload dari perangkat (auto-kompres) atau tempel link Google Drive
+                  Upload dari perangkat atau tempel link Drive
                 </span>
               </button>
             )}
           </div>
 
-          {/* INFO BOX */}
           <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
             <Users className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
             <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
               Broadcast dikirim ke <strong>seluruh siswa</strong> di kelas terpilih. Setiap siswa menerima notifikasi.
-              Foto akan tampil di halaman Broadcast kelas.
+              Foto & link akan tampil di halaman Broadcast kelas.
             </p>
           </div>
 
-          {/* AKSI */}
           <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
             <button type="button" onClick={handleReset}
               className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
               Reset Form
             </button>
             <button onClick={handleSend}
-              disabled={sending || selectedClassIds.length === 0 || !title.trim() || !content.trim()}
+              disabled={sending || selectedClassIds.length === 0 || !title.trim() || !content.trim() ||
+                (linkUrl.trim() && !sanitizeUrl(linkUrl))}
               className="px-6 py-3 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-black text-sm shadow-lg disabled:opacity-50 flex items-center gap-2">
               <Send className="w-4 h-4" />
               {sending ? 'Mengirim...' : `Kirim ke ${selectedClassIds.length} Kelas`}
@@ -413,6 +520,9 @@ export const WelcomeBroadcastModule: React.FC = () => {
             <div className="space-y-2 max-h-[70vh] overflow-y-auto">
               {filteredHistory.map(h => {
                 const cfg = PRIORITY_CONFIG[h.priority];
+                const safeLink = sanitizeUrl(h.linkUrl);
+                const finalLabel = h.linkLabel?.trim()
+                  || (safeLink ? (() => { try { return new URL(safeLink).hostname.replace(/^www\./, ''); } catch { return 'Buka Link'; } })() : '');
                 return (
                   <div key={h.id}
                     className={`p-3 rounded-2xl bg-white dark:bg-slate-900 border-2 ${
@@ -430,6 +540,11 @@ export const WelcomeBroadcastModule: React.FC = () => {
                           <ImagePlus className="w-2.5 h-2.5" /> FOTO
                         </span>
                       )}
+                      {safeLink && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 flex items-center gap-1">
+                          <Link2 className="w-2.5 h-2.5" /> LINK
+                        </span>
+                      )}
                       <span className="text-[9px] text-slate-400 ml-auto">
                         {new Date(h.createdAt).toLocaleString('id-ID', {
                           day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
@@ -437,7 +552,24 @@ export const WelcomeBroadcastModule: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-xs font-bold text-slate-900 dark:text-white line-clamp-2">{h.title}</p>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{h.content}</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">
+                      {renderTextWithLinks(h.content)}
+                    </p>
+
+                    {/* ✅ TOMBOL LINK DI RIWAYAT */}
+                    {safeLink && (
+                      <a
+                        href={safeLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-[10px] shadow-sm"
+                      >
+                        <Link2 className="w-2.5 h-2.5" />
+                        {finalLabel}
+                        <ExternalLink className="w-2.5 h-2.5 opacity-80" />
+                      </a>
+                    )}
+
                     {h.photoUrl && (
                       <img src={h.photoUrl} alt="Foto"
                         className="mt-2 w-full max-h-24 object-cover rounded-lg border border-slate-200 dark:border-slate-700" />
@@ -459,7 +591,7 @@ export const WelcomeBroadcastModule: React.FC = () => {
         </div>
       </div>
 
-      {/* ✅ MODAL UPLOAD FOTO */}
+      {/* MODAL UPLOAD FOTO */}
       {isPhotoModalOpen && (
         <PhotoUploadModal
           currentPhotoUrl={photoUrl}
