@@ -18,7 +18,7 @@ import {
 import { db } from '../../core/firebase';
 
 // =====================================================
-// ROLE GROUP — tanpa emoji (optgroup tidak support icon)
+// ROLE GROUP
 // =====================================================
 const ROLE_OPTIONS: { group: string; roles: UserRole[] }[] = [
   {
@@ -214,12 +214,18 @@ export const StructureModule: React.FC = () => {
     return true;
   });
 
+  // ✅ FIX: Format pesan WhatsApp sesuai permintaan
   const getWhatsAppLink = (phone?: string, name?: string) => {
     if (!phone) return '#';
     let clean = phone.replace(/\D/g, '');
     if (clean.startsWith('0')) clean = '62' + clean.slice(1);
+    
+    const namaGuru = user?.displayName || 'Guru Pengampu';
+    const namaKelas = activeClass?.name || 'IX';
+    const namaKerabat = activeClass?.kerabatKerja || '-';
+
     const msg = encodeURIComponent(
-      `Halo ${name || 'Rekan'}, salam dari tim produksi teater SP-PPT SMPN 10 Samarinda. Saya ${user?.displayName || 'rekan kerja'}.`
+      `Halo ${name || 'Siswa'},\n\nSaya ${namaGuru} guru pengampu Kelas ${namaKelas} sekaligus pembimbing Kerabat Kerja ${namaKerabat}`
     );
     return `https://wa.me/${clean}?text=${msg}`;
   };
