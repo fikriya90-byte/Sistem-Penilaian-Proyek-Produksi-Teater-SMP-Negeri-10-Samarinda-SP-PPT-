@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   X, Save, FileDown, RefreshCw, AlertTriangle, CheckCircle,
-  Info, Eye, RotateCcw, Sparkles, FileText, Calculator,
+  Info, Eye, RotateCcw, Sparkles, FileText, Calculator, Plus, Trash2
 } from 'lucide-react';
 import { useToast } from '../common/Toast';
 import { useAuth } from '../../core/authContext';
@@ -42,7 +42,6 @@ export const TemplateFillModal: React.FC<Props> = ({
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
 
-  // RAB items sudah di-pass dari HubModule
   const rabItems = ctx.rabItems || [];
 
   useEffect(() => {
@@ -157,9 +156,112 @@ export const TemplateFillModal: React.FC<Props> = ({
     setData({});
   };
 
+  // ==========================================
+  // FUNGSI UNTUK TABEL DINAMIS (TANPA PIPA)
+  // ==========================================
+  const parseTableData = (rawString: string, columns: string[]) => {
+    if (!rawString) return [];
+    return rawString.split('\n').filter(Boolean).map(line => {
+      const parts = line.split('|').map(s => s.trim());
+      const rowObj: Record<string, string> = {};
+      columns.forEach((col, i) => { rowObj[col] = parts[i] || ''; });
+      return rowObj;
+    });
+  };
+
+  const stringifyTableData = (rows: Record<string, string>[], columns: string[]) => {
+    return rows.map(row => columns.map(col => row[col] || '').join(' | ')).join('\n');
+  };
+
   const renderField = (f: FormField) => {
     const value = data[f.key] ?? '';
     const baseInput = 'w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500';
+
+    if (f.type === 'table' && f.columns) {
+      const rows = parseTableData(value, f.columns);
+
+      const handleAddRow = () => {
+        const newRow: Record<string, string> = {};
+        f.columns!.forEach(c => newRow[c] = '');
+        const newRows = [...rows, newRow];
+        update(f.key, stringifyTableData(newRows, f.columns!));
+      };
+
+      const handleRemoveRow = (idx: number) => {
+        const newRows = rows.filter((_, i) => i !== idx);
+        update(f.key, stringifyTableData(newRows, f.columns!));
+      };
+
+      const handleCellChange = (idx: number, col: string, val: string) => {
+        const newRows = [...rows];
+        newRows[idx] = { ...newRows[idx], [col]: val };
+        update(f.key, stringifyTableData(newRows, f.columns!));
+      };
+
+      return (
+        <div className="space-y-3 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/30">
+          {rows.length === 0 ? (
+            <p className="text-xs text-center text-slate-400 italic py-2">Belum ada data. Klik tombol di bawah untuk menambah.</p>
+          ) : (
+            <div className="space-y-2">
+              {/* HEADER TAMPILAN DESKTOP (Tabel) */}
+              <div className="hidden md:flex gap-2 px-1">
+                {f.columns.map(col => (
+                  <div key={col} className="flex-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wide">
+                    {col}
+                  </div>
+                ))}
+                <div className="w-16"></div> {/* Spacer untuk tombol hapus */}
+              </div>
+
+              {/* BARIS INPUT */}
+              {rows.map((row, rowIdx) => (
+                <div key={rowIdx} className="flex flex-col md:flex-row gap-2 md:items-center p-2 md:p-0 bg-white dark:bg-slate-800 md:bg-transparent md:dark:bg-transparent rounded-xl md:rounded-none border border-slate-200 dark:border-slate-700 md:border-0">
+                  
+                  {/* Kolom-kolom Input */}
+                  <div className="flex flex-col md:flex-row flex-1 gap-2">
+                    {f.columns!.map(col => (
+                      <div key={col} className="flex-1">
+                        {/* Label Mobile (Hanya muncul di HP) */}
+                        <label className="block md:hidden text-[10px] font-bold text-slate-500 mb-1">{col}</label>
+                        <input
+                          type="text"
+                          value={row[col] || ''}
+                          onChange={(e) => handleCellChange(rowIdx, col, e.target.value)}
+                          placeholder={`${col}...`}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white focus:outline-none focus:border-indigo-400"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Tombol Hapus */}
+                  <div className="flex justify-end md:justify-center md:w-16">
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRow(rowIdx)}
+                      className="px-3 py-2 md:p-2 rounded-lg bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-500/30 font-bold text-xs flex items-center gap-1 transition"
+                      title="Hapus baris ini"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span className="md:hidden">Hapus</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleAddRow}
+            className="w-full md:w-auto mt-2 px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center justify-center md:justify-start gap-1.5 shadow-sm transition"
+          >
+            <Plus className="w-4 h-4" /> Tambah {f.label.split(' ')[0]}
+          </button>
+        </div>
+      );
+    }
 
     switch (f.type) {
       case 'textarea':
@@ -197,7 +299,7 @@ export const TemplateFillModal: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-sm overflow-y-auto">
-      <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[97vh] flex flex-col overflow-hidden">
+      <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[97vh] flex flex-col overflow-hidden">
 
         {/* HEADER */}
         <div className="p-5 bg-gradient-to-r from-indigo-700 via-purple-700 to-pink-700 text-white shrink-0">
@@ -257,14 +359,14 @@ export const TemplateFillModal: React.FC<Props> = ({
                       {rabItems.length} item RAB terdeteksi di sistem
                     </p>
                     <p className="mt-0.5">
-                      RAB Anda akan otomatis dimuat lengkap di dokumen, termasuk tabel per kategori, subtotal, dan grand total. Tidak perlu input manual.
+                      RAB Anda akan otomatis dimuat lengkap di dokumen.
                     </p>
                   </div>
                 ) : (
                   <div className="text-amber-900 dark:text-amber-200">
                     <p className="font-bold">RAB Digital masih kosong</p>
                     <p className="mt-0.5">
-                      Sebaiknya isi dulu di menu RAB Digital supaya tabel RAB bisa dicantumkan otomatis di dokumen. Kalau sudah punya file RAB final, Anda bisa pakai field "Link RAB Final" di bawah.
+                      Sebaiknya isi dulu di menu RAB Digital supaya tabel RAB bisa dicantumkan otomatis.
                     </p>
                   </div>
                 )}
@@ -279,8 +381,7 @@ export const TemplateFillModal: React.FC<Props> = ({
               <ul className="list-disc pl-4 space-y-0.5">
                 <li>Draft otomatis tersimpan tiap 30 detik. Bisa ditinggal dan dilanjutkan kapan saja.</li>
                 <li>Field wajib (bertanda bintang merah) harus diisi sebelum generate.</li>
-                <li>Field bertanda "satu per baris": setiap baris = 1 item.</li>
-                <li>Field dengan format "A | B": pisahkan kolom dengan tanda pipe ( | ).</li>
+                <li>Pada bagian tabel, Anda tidak perlu mengetik tanda (|). Isi kolomnya saja.</li>
               </ul>
             </div>
           </div>
