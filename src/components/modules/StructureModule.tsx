@@ -214,7 +214,7 @@ export const StructureModule: React.FC = () => {
     return true;
   });
 
-  // ✅ FIX: Format pesan WhatsApp sesuai permintaan
+  // ✅ FUNGSI WA YANG SUDAH DIPERBARUI
   const getWhatsAppLink = (phone?: string, name?: string) => {
     if (!phone) return '#';
     let clean = phone.replace(/\D/g, '');
