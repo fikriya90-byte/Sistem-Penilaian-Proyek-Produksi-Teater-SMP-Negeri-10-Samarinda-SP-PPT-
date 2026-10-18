@@ -1,6 +1,6 @@
 // =====================================================
 // FORM DEFINITIONS — bahasa sederhana untuk siswa
-// Field yang datanya sudah ada di sistem dihilangkan dari form
+// Revisi: sesuai panduan-form-sp-ppt-revisi.md
 // =====================================================
 
 export type FieldType = 'text' | 'textarea' | 'date' | 'time' | 'number' | 'select' | 'list';
@@ -81,7 +81,7 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
           key: 'tanggalPengesahan',
           label: 'Tanggal Pengesahan',
           type: 'text',
-          placeholder: 'Contoh: 15 Agustus 2026',
+          placeholder: 'Contoh: 15 November 2026',
         },
       ],
     },
@@ -284,7 +284,7 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
           type: 'list',
           required: true,
           rows: 4,
-          placeholder: 'Waktu latihan terbatas | Menambah latihan di hari Sabtu\nSound system error saat gladi | Tim musik langsung memperbaiki\nKostum pemain utama belum selesai | Lembur 2 hari sebelum pementasan',
+          placeholder: 'Waktu latihan terbatas | Menambah latihan di hari Sabtu\nSound system error saat gladi | Tim musik langsung memperbaiki\nKostum pemeran utama belum selesai | Lembur 2 hari sebelum pementasan',
           help: 'Format: Kendala | Solusi. Satu baris = satu pasang kendala & solusi.',
         },
       ],
@@ -342,87 +342,217 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
 
   // ═══════════════════════════════════════════════════
   // 5. SKETSA PANGGUNG
+  // Revisi: tambah denah per adegan, ubah urutan pasang jadi pasang & bongkar per pergantian
   // ═══════════════════════════════════════════════════
   'sketsa-panggung': [
     {
+      title: 'Bagian A: Denah Dasar (diisi sekali)',
       fields: [
-        { key: 'konsep', label: 'Konsep Tata Panggung', type: 'textarea', required: true, rows: 4, placeholder: 'Contoh: Panggung bergaya rumah adat Kalimantan dengan latar belakang kayu dan kain warna cerah.' },
+        {
+          key: 'konsep',
+          label: 'Konsep Tata Panggung',
+          type: 'textarea',
+          required: true,
+          rows: 4,
+          placeholder: 'Contoh: Istana Kutai abad ke-16. Latar kayu ulin cokelat tua, kain tenun merah-emas di belakang singgasana, satu tangga tinggi di sisi kanan.',
+          help: '2-4 kalimat. Sebutkan tempat, waktu cerita, bahan utama, dan warna dominan.',
+        },
         {
           key: 'denahZona',
-          label: 'Denah 9 Zona (Opsional — otomatis dari Prompt Book)',
+          label: 'Denah 9 Zona (kondisi tetap) — format: kode | isi zona',
           type: 'list',
           rows: 9,
-          placeholder: 'UL | pintu masuk aktor\nUC | singgasana\nUR | backdrop istana\nCL | ruang tunggu\nC | area utama dialog\nCR | meja tamu\nDL | tangga panggung\nDC | area sorot\nDR | area konflik',
-          help: 'Kosongkan jika sudah ada data grid di Prompt Book.',
+          placeholder: 'UL | pintu masuk aktor\nUC | singgasana\nUR | backdrop istana\nC | area utama dialog\nDC | area sorot\nDL | area konflik',
+          help: 'Baris atas = belakang panggung (UL, UC, UR), tengah (CL, C, CR), bawah (DL, DC, DR). L=kiri, R=kanan dari posisi aktor. Kosongkan jika sudah diisi di Prompt Book.',
         },
-        { key: 'sketsaLink', label: 'Link Sketsa Visual (Google Drive)', type: 'text', placeholder: 'https://drive.google.com/...' },
         {
-          key: 'cueLampu',
-          label: 'Cue Lampu (Opsional — otomatis dari Prompt Book)',
+          key: 'sketsaLink',
+          label: 'Link Sketsa Visual (Google Drive)',
+          type: 'text',
+          placeholder: 'https://drive.google.com/...',
+          help: 'Akses: "Siapa saja yang memiliki link".',
+        },
+      ],
+    },
+    {
+      title: 'Bagian B: Denah per Adegan',
+      fields: [
+        {
+          key: 'denahPerAdegan',
+          label: 'Denah per Adegan — format: Adegan | Latar | Set masuk | Set keluar | Posisi awal aktor | Cue lampu | Kru bergerak | Waktu ganti',
+          type: 'list',
+          required: true,
+          rows: 6,
+          placeholder: 'Adegan 1 | Istana, siang | - | - | UC: Ratu; CR: Dayang | CUE-01 | - | -\nAdegan 2 | Hutan, malam | Pohon besar di DL | Singgasana ke UR | DC: Raja | CUE-02 | Andi: singgasana UC ke UR; Budi: pohon masuk DL | 2 menit\nAdegan 3 | Istana, pagi | Singgasana kembali di UC | Pohon di DL keluar | UC: Ratu | CUE-03 | Budi: pohon keluar DL ke kanan belakang; Andi: singgasana kembali ke UC | 3 menit',
+          help: 'Kerjakan berurutan. Tulis hanya yang berubah dari adegan sebelumnya. Kalau tidak ada perubahan, tulis "-". Kode zona harus sama dengan Denah Dasar.',
+        },
+      ],
+    },
+    {
+      title: 'Bagian C: Pasang dan Bongkar per Pergantian',
+      fields: [
+        {
+          key: 'pasangBongkar',
+          label: 'Pasang & Bongkar (satu langkah per baris)',
           type: 'list',
           rows: 5,
-          placeholder: 'CUE-01 | Spotlight kiri | Kuning hangat | Pembukaan\nCUE-02 | Fill center | Biru redup | Konflik',
+          placeholder: 'Adegan 1 ke 2: Citra bongkar dua properti kecil (target 1 menit)\nAdegan 1 ke 2: Budi pasang pohon besar di DL (target 2 menit)\nAdegan 2 ke 3: Andi pindahkan singgasana ke UC (target 3 menit)',
+          help: 'Format: [Pergantian]: [Nama kru] [aksi] (target [waktu]). Nama kru dari Daftar Kru.',
         },
-        { key: 'urutanPasang', label: 'Urutan Pasang & Bongkar (satu per baris)', type: 'list', rows: 5, placeholder: 'Target pasang set: < 10 menit\nTarget strike: < 5 menit\nTim: 8 orang' },
       ],
     },
   ],
 
   // ═══════════════════════════════════════════════════
-  // 6. PROMPT BOOK
+  // 6. PROMPT BOOK (Revisi Lengkap)
+  // Revisi: tambah daftar kru, alat stage manager, daftar adegan
   // ═══════════════════════════════════════════════════
   'prompt-book': [
     {
-      title: 'Catatan Sutradara',
-      fields: [
-        { key: 'stageManager', label: 'Nama Stage Manager', type: 'text', placeholder: 'Nama lengkap stage manager' },
-        { key: 'tanggalMulai', label: 'Tanggal Mulai Latihan', type: 'text', placeholder: '1 Agustus 2026' },
-        { key: 'catatanBlocking', label: 'Catatan Blocking Penting', type: 'textarea', rows: 5, placeholder: 'Contoh: Ratu tidak turun dari singgasana sampai adegan 3.' },
-        { key: 'catatanTeknis', label: 'Catatan Teknis (satu per baris)', type: 'list', rows: 5, placeholder: 'Standby ASM di sisi panggung kiri\nSound check wajib 30 menit sebelum opening\nCek cue lampu sebelum adegan 1' },
-      ],
-    },
-  ],
-
-  // ═══════════════════════════════════════════════════
-  // 7. CUE SHEET MUSIK
-  // ═══════════════════════════════════════════════════
-  'cue-sheet': [
-    {
-      title: 'Checklist Sound Check',
+      title: 'A. Jadwal dan Stage Manager',
       fields: [
         {
-          key: 'checklist',
-          label: 'Checklist Persiapan (satu per baris)',
+          key: 'stageManager',
+          label: 'Nama Stage Manager',
+          type: 'text',
+          required: true,
+          placeholder: 'Nama lengkap stage manager',
+          help: 'Orang yang memegang jalannya latihan dan pentas di belakang panggung. Dia yang memberi aba-aba cue.',
+        },
+        {
+          key: 'tanggalMulai',
+          label: 'Tanggal Mulai Latihan',
+          type: 'text',
+          required: true,
+          placeholder: 'Contoh: 1 November 2026',
+          help: 'Tanggal latihan pertama, ditulis lengkap.',
+        },
+      ],
+    },
+    {
+      title: 'B. Daftar Kru (satu per baris)',
+      fields: [
+        {
+          key: 'daftarKru',
+          label: 'Daftar Kru — format: Nama | Divisi | Posisi standby | Jalur gerak saat pergantian | Tugas utama',
           type: 'list',
-          rows: 7,
-          placeholder: 'Semua mic on dan balance\nBacking track tersedia offline\nMixer preset tersimpan\nMonitor speaker dan feedback terkontrol\nBackup laptop dan USB\nLagu darurat siap\nSound check 30 menit sebelum opening',
-          help: 'Daftar cue dan operator diambil otomatis dari menu Cue Sheet Musik.',
+          required: true,
+          rows: 8,
+          placeholder: 'Andi | Tata Panggung | Sisi kiri belakang | Kiri belakang ke tengah, lewat jalur bawah | Pasang dan bongkar singgasana\nBudi | Tata Panggung | Sisi kanan belakang | Kanan belakang ke DR | Pasang backdrop dan pohon\nCitra | Tata Busana | Ruang ganti kiri | Ruang ganti ke sisi kiri | Pergantian kostum cepat\nDimas | Tata Musik | Ruang operator | Tetap di tempat | Menjalankan cue audio',
+          help: 'Nama sesuai absen. Satu orang boleh lebih dari satu tugas — tulis tugas utamanya saja. Data ini dipakai form Sketsa dan Breakdown Properti.',
+        },
+      ],
+    },
+    {
+      title: 'C. Alat Stage Manager dan Kru (satu per baris)',
+      fields: [
+        {
+          key: 'alatStageManager',
+          label: 'Alat — format: Alat | Jumlah | Dibawa oleh | Fungsi',
+          type: 'list',
+          rows: 6,
+          placeholder: 'Headset intercom | 4 | Stage manager, ASM, dua kru | Komunikasi antar posisi tanpa suara panggung\nWalkie-talkie | 3 | Stage manager, kru pergantian | Komunikasi jarak jauh di belakang panggung\nSenter kecil | 2 | Stage manager, kru bawah | Penerangan jalur gerak saat blackout\nStopwatch | 1 | Stage manager | Menghitung waktu pergantian dan durasi adegan\nLakban warna | 1 rol | Kru properti | Penanda posisi di lantai',
+          help: 'Alat yang dibawa bergerak di panggung. Setiap baris wajib ada fungsi.',
+        },
+      ],
+    },
+    {
+      title: 'D. Daftar Adegan (satu per baris)',
+      fields: [
+        {
+          key: 'daftarAdegan',
+          label: 'Daftar Adegan — format: Adegan | Latar | Durasi perkiraan',
+          type: 'list',
+          required: true,
+          rows: 6,
+          placeholder: 'Adegan 1 | Istana, siang | 6 menit\nAdegan 2 | Hutan, malam | 4 menit\nAdegan 3 | Istana, pagi | 5 menit',
+          help: 'Urutan adegan yang dipakai form Sketsa dan Breakdown Properti. Tulis sekali dengan benar.',
+        },
+      ],
+    },
+    {
+      title: 'E. Catatan Blocking Penting (satu aturan per baris)',
+      fields: [
+        {
+          key: 'catatanBlocking',
+          label: 'Aturan Blocking',
+          type: 'list',
+          rows: 4,
+          placeholder: 'Ratu tidak turun dari singgasana sampai adegan 3.\nDayang selalu masuk dari pintu kiri belakang.',
+          help: 'Tulis aturan gerak aktor + sebutkan adegannya. Tidak perlu gerakan tiap detik. Hindari deskripsi umum seperti "aktor bergerak bagus".',
+        },
+      ],
+    },
+    {
+      title: 'F. Catatan Teknis (satu per baris)',
+      fields: [
+        {
+          key: 'catatanTeknis',
+          label: 'Catatan Teknis',
+          type: 'list',
+          rows: 4,
+          placeholder: 'Standby stage manager di sisi panggung kiri\nHeadset semua posisi sudah dicek sebelum latihan\nSound check wajib 30 menit sebelum opening\nCek cue lampu sebelum adegan 1',
         },
       ],
     },
   ],
 
   // ═══════════════════════════════════════════════════
-  // 8. PROPERTI
+  // 7. CUE SHEET (Revisi)
+  // Revisi: format checklist dengan timestamp
+  // ═══════════════════════════════════════════════════
+  'cue-sheet': [
+    {
+      title: 'Checklist Persiapan Sound Check',
+      fields: [
+        {
+          key: 'checklist',
+          label: 'Checklist Persiapan (satu per baris, urutkan sesuai waktu)',
+          type: 'list',
+          rows: 8,
+          placeholder: 'H-1: Backing track tersedia offline di dua perangkat\nH-1: Mixer preset tersimpan dan sudah diuji\nH-1: Baterai walkie-talkie dan headset intercom terisi penuh\n30 menit sebelum opening: Sound check semua mic dan balance\n30 menit sebelum opening: Monitor speaker dan feedback terkontrol\n30 menit sebelum opening: Semua headset terhubung ke stage manager\nSaat pentas: Lagu darurat siap diputar dari laptop cadangan\nSaat pentas: USB cadangan terpasang',
+          help: 'Setiap baris harus bisa dijawab "sudah" atau "belum". Urutkan sesuai waktu pengecekan. Daftar cue musik dan operator otomatis dari menu Cue Sheet Musik.',
+        },
+      ],
+    },
+  ],
+
+  // ═══════════════════════════════════════════════════
+  // 8. PROPERTI (Revisi)
+  // Revisi: tambah penanggung jawab per adegan
   // ═══════════════════════════════════════════════════
   'properti-breakdown': [
     {
-      title: 'Catatan Tambahan',
+      title: 'Catatan Penting',
       fields: [
         {
           key: 'catatanPenting',
           label: 'Catatan Penting (satu per baris)',
           type: 'list',
           rows: 5,
-          placeholder: 'Semua properti harus aman dipakai di panggung\nUpdate status setiap minggu\nSimpan dengan label per adegan\nFoto progress tiap selesai pembuatan',
-          help: 'Daftar properti diambil otomatis dari menu Properti.',
+          placeholder: 'Semua properti harus aman dipakai di panggung\nProperti berat harus diikat atau diberi penyangga\nProperti yang dibawa bergerak wajib diberi label nama dan adegan\nUpdate status setiap minggu\nFoto progres tiap selesai pembuatan',
+          help: 'Aturan yang bisa dijalankan dan dicek. Hindari aturan umum seperti "rapi ya". Daftar properti otomatis dari menu Properti.',
+        },
+      ],
+    },
+    {
+      title: 'Penanggung Jawab per Adegan (opsional)',
+      fields: [
+        {
+          key: 'penanggungJawabProperti',
+          label: 'Penanggung Jawab Properti — format: Adegan | Properti | Penanggung jawab | Posisi awal properti',
+          type: 'list',
+          rows: 5,
+          placeholder: 'Adegan 1 | Singgasana | Andi | UC\nAdegan 2 | Pohon besar | Budi | DL, disimpan di sisi kanan belakang\nAdegan 3 | Surat kerajaan | Citra | Saku kostum Ratu',
+          help: 'Nama dari Daftar Kru Prompt Book. Posisi awal properti pakai kode zona (UL sampai DR).',
         },
       ],
     },
   ],
 
   // ═══════════════════════════════════════════════════
-  // 9. KOSTUM — SIMPLE TANPA UKURAN DETAIL
+  // 9. KOSTUM (Revisi)
+  // Revisi: tambah penanggung jawab kostum
   // ═══════════════════════════════════════════════════
   'kostum-karakter': [
     {
@@ -434,13 +564,14 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
           type: 'text',
           required: true,
           placeholder: 'Contoh: Ratu Aji Bidara Putih',
+          help: 'Nama tokoh sesuai naskah.',
         },
         {
           key: 'namaPemain',
-          label: 'Nama Pemain',
+          label: 'Nama Pemeran',
           type: 'text',
           required: true,
-          placeholder: 'Nama lengkap pemain',
+          placeholder: 'Nama lengkap siswa sesuai absen',
         },
         {
           key: 'peranKarakter',
@@ -458,6 +589,7 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
           label: 'Watak Karakter',
           type: 'text',
           placeholder: 'Contoh: Tegas, bijaksana, pemberani',
+          help: '2-3 sifat yang harus terlihat dari kostum.',
         },
       ],
     },
@@ -469,24 +601,28 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
           label: 'Warna Dominan',
           type: 'text',
           placeholder: 'Contoh: Putih gading',
+          help: 'Satu warna utama, sebutkan namanya. Pilih yang kontras dengan latar panggung.',
         },
         {
           key: 'warnaSekunder',
           label: 'Warna Sekunder',
           type: 'text',
           placeholder: 'Contoh: Emas',
+          help: 'Warna pendamping untuk ornamen.',
         },
         {
           key: 'siluet',
           label: 'Bentuk / Siluet',
           type: 'text',
           placeholder: 'Contoh: Gaun panjang A-line, baju kurung, dsb.',
+          help: 'Jenis pakaian dan potongannya.',
         },
         {
           key: 'ornamen',
           label: 'Ornamen / Aksesoris',
           type: 'text',
           placeholder: 'Contoh: Mahkota, kalung, gelang, ikat pinggang',
+          help: 'Hanya yang benar-benar dipakai di panggung.',
         },
         {
           key: 'perkiraanUkuran',
@@ -501,24 +637,33 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
             { value: 'XXL', label: 'XXL (Double XL)' },
             { value: 'custom', label: 'Custom / Di luar standar' },
           ],
-          help: 'Boleh dikosongkan jika kostum disewa atau dipinjam. Hanya untuk informasi tambahan.',
+          help: 'Boleh dikosongkan jika kostum disewa atau dipinjam dengan ukuran sudah pasti.',
         },
       ],
     },
     {
-      title: 'Referensi Visual',
+      title: 'Referensi & Penanggung Jawab',
       fields: [
+        {
+          key: 'penanggungJawabKostum',
+          label: 'Penanggung Jawab Kostum',
+          type: 'text',
+          placeholder: 'Nama kru busana yang memegang kostum ini',
+          help: 'Termasuk yang membantu pergantian cepat. Nama dari Daftar Kru Prompt Book.',
+        },
         {
           key: 'linkMoodboard',
           label: 'Link Moodboard (Kumpulan Foto Referensi)',
           type: 'text',
           placeholder: 'https://drive.google.com/...',
+          help: 'Folder Drive berisi foto referensi. Akses "Siapa saja yang memiliki link".',
         },
         {
           key: 'linkReferensi',
           label: 'Link Foto Referensi Utama',
           type: 'text',
           placeholder: 'https://drive.google.com/...',
+          help: 'Satu foto yang paling mewakili konsep. Foto ini ikut tercetak.',
         },
         {
           key: 'catatanKostum',
@@ -526,37 +671,40 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
           type: 'textarea',
           rows: 3,
           placeholder: 'Contoh: Sewa di Toko Kostum Melati, pesan 2 minggu sebelumnya. Butuh fitting H-14.',
+          help: 'Sumber sewa, tanggal fitting, dan kebutuhan khusus. Kalau ada pergantian kostum di tengah adegan, tulis di sini.',
         },
       ],
     },
   ],
 
   // ═══════════════════════════════════════════════════
-  // 10. FACE CHART — MULTI PEMAIN
+  // 10. FACE CHART (Revisi)
+  // Revisi: format daftar pemeran 6 kolom (tambah Kru rias), Referensi & Higienitas gabung
   // ═══════════════════════════════════════════════════
   'face-chart': [
     {
-      title: 'Daftar Pemain dan Desain Rias',
+      title: 'Daftar Pemeran dan Desain Rias',
       fields: [
         {
           key: 'daftarPemain',
-          label: 'Daftar Pemain (format: Pemain | Karakter | Jenis Rias | Warna Dominan | Palet)',
+          label: 'Daftar Pemeran — format: Pemeran | Karakter | Jenis Rias | Warna Dominan | Palet | Kru rias',
           type: 'list',
           required: true,
           rows: 10,
-          placeholder: 'Andi | Ratu Aji | Korektif | Coklat muda | Base: Coklat 02; Eyeshadow: Emas; Lipstik: Merah bata\nBudi | Raja Tiongkok | Karakter | Kuning keemasan | Base: Kuning 01; Eyeshadow: Emas; Lipstik: Merah tua\nCitra | Dayang Istana | Fantasi | Pink pastel | Base: Pink 01; Eyeshadow: Ungu; Lipstik: Pink muda',
-          help: 'Isi 1 baris per pemain. Pisahkan kolom utama dengan " | ". Untuk palet warna, pisahkan item dengan ";". Sistem akan membuat 1 halaman face chart per pemain secara otomatis.',
+          placeholder: 'Andi | Ratu Aji | Korektif | Coklat muda | Base: Coklat 02; Eyeshadow: Emas; Lipstik: Merah bata | Citra\nBudi | Raja Tiongkok | Karakter | Kuning keemasan | Base: Kuning 01; Eyeshadow: Emas; Lipstik: Merah tua | Dimas\nCitra | Dayang Istana | Fantasi | Pink pastel | Base: Pink 01; Eyeshadow: Ungu; Lipstik: Pink muda | Andi',
+          help: 'Satu baris = satu halaman face chart. Kolom Palet dipisahkan titik koma (;). Kru rias nama dari Daftar Kru Prompt Book. Sistem akan membuat 1 halaman per pemeran secara otomatis.',
         },
         {
           key: 'teknikKhusus',
-          label: 'Teknik Khusus (berlaku untuk semua pemain, satu per baris)',
+          label: 'Teknik Khusus (berlaku untuk semua pemeran)',
           type: 'list',
           rows: 4,
           placeholder: 'Efek luka: bubuk kayu manis dan madu\nPenuaan: shading dan bedak\nEfek air mata: glycerin dan air\nAksen glitter: body glitter',
+          help: 'Semua bahan harus aman untuk kulit. Dilarang memakai darah asli, bahan tajam, atau bahan yang belum diuji.',
         },
         {
           key: 'urutanPengerjaan',
-          label: 'Urutan Pengerjaan Rias (satu per baris)',
+          label: 'Urutan Pengerjaan Rias (satu langkah per baris)',
           type: 'list',
           rows: 9,
           placeholder: 'Bersihkan wajah dan aplikasikan primer\nBase dan concealer\nKontur dan highlight\nMata (eyeshadow, eyeliner, bulu mata)\nAlis\nBlush on\nBibir\nSetting spray\nTouch-up terakhir',
@@ -564,20 +712,21 @@ export const TEMPLATE_FORMS: Record<string, FormSection[]> = {
       ],
     },
     {
-      title: 'Referensi & Higienitas (Berlaku untuk Semua Pemain)',
+      title: 'Referensi & Higienitas (Berlaku untuk Semua Pemeran)',
       fields: [
         {
           key: 'linkMoodboard',
           label: 'Link Moodboard (Kumpulan Foto Referensi)',
           type: 'text',
           placeholder: 'https://drive.google.com/...',
+          help: 'Folder Drive berisi referensi tampilan wajah. Akses "Siapa saja yang memiliki link".',
         },
         {
           key: 'higienitas',
           label: 'Catatan Higienitas (satu per baris)',
           type: 'list',
           rows: 5,
-          placeholder: 'Gunakan spons sekali pakai\nSterilkan kuas sebelum dan sesudah\nLakukan tes alergi sebelum hari-H\nSediakan makeup remover di ruang rias',
+          placeholder: 'Gunakan spons sekali pakai\nSterilkan kuas sebelum dan sesudah dipakai\nLakukan tes alergi H-1 pada area kecil di lengan\nSediakan makeup remover di ruang rias',
         },
       ],
     },
