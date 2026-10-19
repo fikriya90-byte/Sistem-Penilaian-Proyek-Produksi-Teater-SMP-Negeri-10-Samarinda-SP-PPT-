@@ -142,6 +142,18 @@ export const RABModule: React.FC = () => {
     setIsItemModalOpen(true);
   };
 
+  // ✅ Logika Utama: Ganti Kategori = Ganti Dropdown & Reset Nilai
+  const handleCategoryChange = (newCat: Category) => {
+    setItemCategory(newCat);
+    if (newCat === 'DIVISI') {
+      setItemTargetName(DIVISIONS[1].id); // Default ke Divisi pertama
+    } else if (newCat === 'PERAN') {
+      setItemTargetName(PERAN_LIST[0]);   // Default ke Peran pertama
+    } else {
+      setItemTargetName('Umum');          // Default Umum
+    }
+  };
+
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass || !itemName.trim() || itemQty <= 0 || itemUnitPrice <= 0) {
@@ -218,8 +230,7 @@ export const RABModule: React.FC = () => {
   });
 
   // ==========================================
-  // ✅ FIX: EXPORT WORD → FORMAT RTF (Word asli)
-  // RTF dibuka sempurna di Word tanpa warning "format tidak cocok"
+  // EXPORT WORD (.rtf)
   // ==========================================
   const handleExportWord = () => {
     if (items.length === 0) {
@@ -230,7 +241,6 @@ export const RABModule: React.FC = () => {
     const fmt = (n: number) => 'Rp ' + n.toLocaleString('id-ID');
     const now = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-    // RTF escape: backslash, kurung kurawal, dan baris baru
     const esc = (s: any) => String(s ?? '')
       .replace(/\\/g, '\\\\')
       .replace(/{/g, '\\{')
@@ -247,16 +257,13 @@ export const RABModule: React.FC = () => {
     rtf += '\\fs18\\qc Tahun Ajaran 2025/2026\\par\n';
     rtf += `\\fs18\\qc Dicetak: ${esc(now)}\\par\n\\par\n`;
 
-    // Header table
     rtf += '\\trowd\\trgaph108\\trleft-108\n';
     rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
     const headers = ['No', 'Item', 'Qty', 'Harga Satuan', 'Total', 'Catatan'];
     headers.forEach(h => { rtf += `\\intbl\\b\\fs20 ${esc(h)}\\b0\\cell `; });
     rtf += '\\row\n';
 
-    // Data rows per group
     groupedItems.forEach(g => {
-      // Group header row
       rtf += '\\trowd\\trgaph108\\trleft-108\n';
       rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
       rtf += `\\intbl\\b\\fs20 ${esc(`${g.category} - ${g.targetName}`)}\\b0\\cell \\cell \\cell \\cell \\cell \\row\n`;
@@ -272,20 +279,17 @@ export const RABModule: React.FC = () => {
         rtf += `\\intbl\\fs18 ${esc(it.notes || '-')}\\cell \\row\n`;
       });
 
-      // Subtotal
       rtf += '\\trowd\\trgaph108\\trleft-108\n';
       rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
       rtf += `\\intbl \\cell \\cell \\cell \\intbl\\qr\\b\\fs20 Subtotal:\\b0\\cell `;
       rtf += `\\intbl\\b\\fs20 ${esc(fmt(g.subtotal))}\\b0\\cell \\cell \\row\n`;
     });
 
-    // Grand total
     rtf += '\\trowd\\trgaph108\\trleft-108\n';
     rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
     rtf += `\\intbl \\cell \\cell \\cell \\intbl\\qr\\b\\fs22 GRAND TOTAL:\\b0\\cell `;
     rtf += `\\intbl\\b\\fs22 ${esc(fmt(grandTotal))}\\b0\\cell \\cell \\row\n`;
 
-    // Signature
     rtf += '\\par\\par\\fs20\\ql\n';
     rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
     rtf += '\\intbl Mengetahui,\\cell Disetujui,\\cell \\cell \\row\n';
@@ -298,7 +302,6 @@ export const RABModule: React.FC = () => {
 
     rtf += '}';
 
-    // Generate RTF blob
     const blob = new Blob([rtf], { type: 'application/rtf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -659,12 +662,8 @@ export const RABModule: React.FC = () => {
                 {(['DIVISI', 'PERAN', 'UMUM'] as Category[]).map(c => {
                   const Icon = CATEGORY_CONFIG[c].icon;
                   return (
-                    <button key={c} type="button" onClick={() => {
-                      setItemCategory(c);
-                      if (c === 'DIVISI') setItemTargetName(DIVISIONS[1].id);
-                      else if (c === 'PERAN') setItemTargetName(PERAN_LIST[0]);
-                      else setItemTargetName('Umum');
-                    }}
+                    <button key={c} type="button" 
+                      onClick={() => handleCategoryChange(c)}
                       className={`p-2.5 rounded-xl border-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
                         itemCategory === c
                           ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
