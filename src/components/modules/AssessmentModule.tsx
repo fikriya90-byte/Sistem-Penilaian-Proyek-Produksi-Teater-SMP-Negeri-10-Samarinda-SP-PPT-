@@ -170,7 +170,7 @@ export const AssessmentModule: React.FC = () => {
   const [selectedPeerIds, setSelectedPeerIds] = useState<string[]>([]);
   const [showCommentsFor, setShowCommentsFor] = useState<UserProfile | null>(null);
   
-  // ✅ NEW: State untuk Detail & Edit Nilai Per Orang
+  // State untuk Detail & Edit Nilai Per Orang
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailStudent, setDetailStudent] = useState<UserProfile | null>(null);
   const [editingRecord, setEditingRecord] = useState<AssessmentRecord | null>(null);
@@ -448,14 +448,24 @@ export const AssessmentModule: React.FC = () => {
     setIsDetailOpen(true);
   };
 
+  // ✅ PERBAIKAN: Tambahkan guard untuk mencegah siswa membuka form edit
   const openEditRecord = (r: AssessmentRecord) => {
+    if (!canManageAll) {
+      showToast('Hanya Guru/Admin yang dapat mengedit nilai spesifik.', 'warning');
+      return;
+    }
     setEditingRecord(r);
     setEditRecordScore(r.totalScore);
     setEditRecordComment(r.comment || '');
   };
 
+  // ✅ PERBAIKAN: Tambahkan guard untuk mencegah siswa menyimpan perubahan
   const handleSaveRecord = async () => {
     if (!editingRecord || !user) return;
+    if (!canManageAll) {
+      showToast('Akses ditolak. Hanya Guru/Admin yang dapat mengubah nilai.', 'error');
+      return;
+    }
     try {
       await updateDoc(doc(db, 'assessments', editingRecord.id), {
         totalScore: editRecordScore,
@@ -653,16 +663,18 @@ export const AssessmentModule: React.FC = () => {
           </div>
         )}
 
-        <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
-          <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-          <div className="text-[11px] text-blue-900 leading-relaxed">
-            <p className="font-bold">Mode Guru/Admin:</p>
-            <ul className="list-disc pl-4 mt-0.5 space-y-0.5">
-              <li>Klik <strong>Nilai Akhir</strong> di tabel untuk melihat siapa saja yang menilai siswa.</li>
-              <li>Klik <strong>Edit</strong> di modal detail untuk mengubah nilai spesifik dari penilai manapun (termasuk nilai dari siswa/rekan).</li>
-            </ul>
+        {canManageAll && (
+          <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
+            <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-blue-900 leading-relaxed">
+              <p className="font-bold">Mode Guru/Admin:</p>
+              <ul className="list-disc pl-4 mt-0.5 space-y-0.5">
+                <li>Klik <strong>Nilai Akhir</strong> di tabel untuk melihat siapa saja yang menilai siswa.</li>
+                <li>Klik <strong>Edit</strong> di modal detail untuk mengubah nilai spesifik dari penilai manapun (termasuk nilai dari siswa/rekan).</li>
+              </ul>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {canManageAll && pendingPeers.length > 0 && (() => {
@@ -1143,7 +1155,10 @@ export const AssessmentModule: React.FC = () => {
               <div className="p-5 overflow-y-auto flex-1 space-y-3">
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 font-semibold flex items-center gap-2">
                   <Info className="w-4 h-4 shrink-0" />
-                  Klik "Edit Nilai" untuk mengubah nilai spesifik dari penilai tersebut. Perubahan akan langsung memperbarui total nilai.
+                  {/* ✅ PERBAIKAN: Teks berubah tergantung role user */}
+                  {canManageAll
+                    ? 'Klik "Edit Nilai" untuk mengubah nilai spesifik dari penilai tersebut. Perubahan akan langsung memperbarui total nilai.'
+                    : 'Anda hanya dapat melihat rincian nilai dari penilai lain. Hubungi Guru Pengampu jika ada kekeliruan.'}
                 </div>
                 {ag.records.map(r => (
                   <div key={r.id} className="p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-between gap-3">
@@ -1154,9 +1169,12 @@ export const AssessmentModule: React.FC = () => {
                     </div>
                     <div className="text-right shrink-0 flex flex-col items-end justify-center">
                       <p className="text-lg font-black font-mono text-slate-900 dark:text-white">{r.totalScore}</p>
-                      <button onClick={() => openEditRecord(r)} className="mt-1 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 text-[10px] font-bold transition flex items-center gap-1">
-                        <Edit3 className="w-3 h-3" /> Edit Nilai
-                      </button>
+                      {/* ✅ PERBAIKAN: Tombol Edit hanya muncul jika canManageAll */}
+                      {canManageAll && (
+                        <button onClick={() => openEditRecord(r)} className="mt-1 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 text-[10px] font-bold transition flex items-center gap-1">
+                          <Edit3 className="w-3 h-3" /> Edit Nilai
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
