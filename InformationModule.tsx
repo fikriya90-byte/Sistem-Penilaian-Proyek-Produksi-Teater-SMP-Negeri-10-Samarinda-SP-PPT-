@@ -203,7 +203,7 @@ export const InformationModule: React.FC = () => {
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
     
-    // ✅ FIX: Set targetClassIds ke kelas asli info ini agar validasi tidak gagal
+    // Set targetClassIds ke kelas asli info ini (untuk berjaga-jaga)
     setTargetClassIds([item.classId]);
     setSendToAll(false);
 
@@ -286,16 +286,12 @@ export const InformationModule: React.FC = () => {
       return;
     }
 
-    // ✅ FIX: Validasi Kelas Tujuan HANYA untuk mode Create, bukan Edit
-    if (!editing && targetClassIds.length === 0) {
-      showToast('Pilih minimal 1 kelas tujuan.', 'warning');
-      return;
-    }
-
     setSubmitting(true);
     try {
       if (editing) {
-        // MODE EDIT: Hanya update dokumen yang sedang diedit
+        // ==========================================
+        // MODE EDIT: Hanya update dokumen (Bebas validasi kelas)
+        // ==========================================
         await updateDoc(doc(db, 'information', editing.id), {
           title: title.trim(),
           content: content.trim(),
@@ -306,13 +302,19 @@ export const InformationModule: React.FC = () => {
         });
         showToast('Informasi berhasil diperbarui.', 'success');
       } else {
-        // MODE BUAT BARU: Bisa kirim ke multiple kelas sekaligus
+        // ==========================================
+        // MODE BUAT BARU: Validasi kelas wajib di sini
+        // ==========================================
+        if (targetClassIds.length === 0) {
+          showToast('Pilih minimal 1 kelas tujuan.', 'warning');
+          setSubmitting(false);
+          return;
+        }
+
         const batch = writeBatch(db);
         const now = new Date().toISOString();
-        // ID grup untuk menandai bahwa dokumen ini dibuat bersamaan
         const broadcastGroupId = targetClassIds.length > 1 ? doc(collection(db, 'information')).id : undefined;
 
-        // Simpan ke setiap kelas yang dipilih
         targetClassIds.forEach(cid => {
           const newRef = doc(collection(db, 'information'));
           batch.set(newRef, {
@@ -334,7 +336,6 @@ export const InformationModule: React.FC = () => {
 
         await batch.commit();
 
-        // Kirim notifikasi ke guru di masing-masing kelas (jika urgent/penting)
         if (priority === 'HIGH' || category === 'URGENT') {
           for (const cid of targetClassIds) {
             try {
@@ -511,7 +512,7 @@ export const InformationModule: React.FC = () => {
                     </div>
                     <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
                     
-                    {/* ✅ Render teks dengan tautan otomatis */}
+                    {/* Render teks dengan tautan otomatis */}
                     <div className="text-xs mt-1.5 leading-relaxed whitespace-pre-line">
                       {renderTextWithLinks(it.content, "text-slate-700")}
                     </div>
@@ -661,7 +662,7 @@ export const InformationModule: React.FC = () => {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Isi Informasi *</label>
                 <textarea rows={4} required value={content} onChange={(e) => setContent(e.target.value)}
-                  placeholder="Tuliskan pengumuman lengkap dengan waktu, lokasi, dan hal yang perlu dibawa...&#10;&#10;Tips: Anda bisa menempelkan link YouTube atau Google Drive di sini, dan link akan otomatis bisa diklik."
+                  placeholder="Tuliskan pengumuman lengkap dengan waktu, lokasi, dan hal yang perlu dibawa...&#10;&#10;Tips: Anda bisa menempelkan link YouTube atau Google Drive di sini. Link akan otomatis bisa diklik setelah disimpan."
                   className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 leading-relaxed" />
               </div>
               
