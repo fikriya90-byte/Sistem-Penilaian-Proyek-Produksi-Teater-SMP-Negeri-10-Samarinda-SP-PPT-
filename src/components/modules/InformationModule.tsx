@@ -3,6 +3,7 @@ import {
   Megaphone, PlusCircle, Search, X, Save, Trash2, AlertTriangle,
   Pin, Clock, User, Filter, Bell, Sparkles, PinOff,
   Camera, ImagePlus, Link2, CheckSquare, Square, Building2, Users,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -16,7 +17,7 @@ import { db } from '../../core/firebase';
 interface Information {
   id: string;
   classId: string;
-  batchId?: string; // ID grup untuk multi-class broadcast
+  batchId?: string;
   title: string;
   content: string;
   category: 'PENGUMUMAN' | 'INFO' | 'URGENT' | 'JADWAL' | 'KEUANGAN';
@@ -72,6 +73,58 @@ const compressImage = (file: File): Promise<string> => {
   });
 };
 
+// =====================================================
+// ✅ FUNGSI DETEKSI LINK (SANGAT PRESISI)
+// =====================================================
+function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text-slate-300'): React.ReactNode {
+  if (!text) return null;
+  
+  // Regex untuk mendeteksi URL dengan atau tanpa http/www
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  
+  // Array split: index genap = teks biasa, index ganjil = URL
+  const parts = text.split(urlRegex);
+  
+  return parts.map((part, i) => {
+    // Jika index ganjil, berarti ini adalah URL
+    if (i % 2 === 1) {
+      let cleanPart = part;
+      let trailingPunct = '';
+      
+      // Pisahkan tanda baca di akhir URL (titik, koma, dsb)
+      const matchPunct = part.match(/[.,;:!?]+$/);
+      if (matchPunct) {
+        cleanPart = part.slice(0, -matchPunct[0].length);
+        trailingPunct = matchPunct[0];
+      }
+
+      // Pastikan format URL valid
+      if (/^(https?:\/\/[^\s]+|www\.[^\s]+)$/i.test(cleanPart)) {
+        // Tambahkan https:// jika user hanya mengetik www.
+        const href = cleanPart.startsWith('http') ? cleanPart : `https://${cleanPart}`;
+        
+        return (
+          <React.Fragment key={i}>
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 font-semibold underline decoration-dotted underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300 break-all inline-flex items-center gap-1"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {cleanPart}
+              <ExternalLink className="w-3 h-3 inline" />
+            </a>
+            {trailingPunct}
+          </React.Fragment>
+        );
+      }
+    }
+    // Jika index genap, berarti teks biasa
+    return <span key={i} className={baseClass}>{part}</span>;
+  });
+}
+
 export const InformationModule: React.FC = () => {
   const { user, activeClass, classes, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -101,11 +154,10 @@ export const InformationModule: React.FC = () => {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const canPost = user && (CAN_POST_ROLES.includes(user.role) || user.role.startsWith('Koordinator '));
-  const canMultiClass = isGuruPengampu || isAdminRole; // Fitur lintas kelas hanya untuk Guru/Admin
+  const canMultiClass = isGuruPengampu || isAdminRole;
 
   useEffect(() => {
     if (!activeClass) return;
-    // Query mengambil data dari kelas yang sedang aktif
     const q = query(collection(db, 'information'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as Information));
@@ -124,7 +176,6 @@ export const InformationModule: React.FC = () => {
     setCategory('PENGUMUMAN'); setPriority('MEDIUM'); setIsPinned(false);
     setPhotoUrls([]); setPhotoUrlInput('');
     
-    // Default target kelas
     if (canMultiClass) {
       setSendToAll(false);
       setTargetClassIds(activeClass ? [activeClass.id] : []);
@@ -140,6 +191,9 @@ export const InformationModule: React.FC = () => {
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
     
+    setTargetClassIds([item.classId]);
+    setSendToAll(false);
+
     const existingPhotos = item.photoUrls || (item.photoUrl ? [item.photoUrl] : []);
     setPhotoUrls(existingPhotos);
     setPhotoUrlInput('');
@@ -214,86 +268,114 @@ export const InformationModule: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
+    
     if (!title.trim() || !content.trim()) {
       showToast('Judul dan isi wajib diisi.', 'warning');
       return;
     }
 
-    if (targetClassIds.length === 0) {
-      showToast('Pilih minimal 1 kelas tujuan.', 'warning');
-      return;
-    }
-
     setSubmitting(true);
+    
     try {
       if (editing) {
-        // MODE EDIT: Hanya update dokumen yang sedang diedit
+        // ==========================================
+        // MODE EDIT (TERPISAH DARI VALIDASI KELAS)
+        // ==========================================
+        
+        // 1. Update data utama
         await updateDoc(doc(db, 'information', editing.id), {
           title: title.trim(),
           content: content.trim(),
-          category, priority, isPinned,
+          category, 
+          priority, 
+          isPinned,
           photoUrls: photoUrls,
-          photoUrl: '', // clear legacy
           updatedAt: new Date().toISOString(),
         });
-        showToast('Informasi berhasil diperbarui.', 'success');
-      } else {
-        // MODE BUAT BARU: Bisa kirim ke multiple kelas sekaligus
-        const batch = writeBatch(db);
-        const now = new Date().toISOString();
-        // ID grup untuk menandai bahwa dokumen ini dibuat bersamaan
-        const broadcastGroupId = targetClassIds.length > 1 ? doc(collection(db, 'information')).id : undefined;
-
-        // Simpan ke setiap kelas yang dipilih
-        targetClassIds.forEach(cid => {
-          const newRef = doc(collection(db, 'information'));
-          batch.set(newRef, {
-            id: newRef.id,
-            classId: cid,
-            batchId: broadcastGroupId,
-            title: title.trim(),
-            content: content.trim(),
-            category, priority, isPinned,
-            photoUrls: photoUrls,
-            photoUrl: '',
-            authorId: user.uid,
-            authorName: user.displayName,
-            authorRole: user.role,
-            createdAt: now,
-            updatedAt: now,
+        
+        // 2. Catat log (dipisah agar jika log gagal, data tetap tersimpan)
+        try {
+          await recordAuditLog({
+            userId: user.uid, userName: user.displayName, role: user.role,
+            action: 'UPDATE', targetType: 'Information', targetId: editing.id,
+            details: `Edit informasi: "${title}"`,
           });
-        });
-
-        await batch.commit();
-
-        // Kirim notifikasi ke guru di masing-masing kelas (jika urgent/penting)
-        if (priority === 'HIGH' || category === 'URGENT') {
-          for (const cid of targetClassIds) {
-            try {
-              await notifyTeachers(cid, {
-                title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
-                message: `${user.displayName} (${user.role}) memposting informasi penting.`,
-                category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
-                link: 'informasi',
-                senderName: user.displayName,
-              });
-            } catch (err) { console.warn('Notif error:', err); }
-          }
+        } catch (logErr) {
+          console.warn('Log gagal, tapi data tersimpan:', logErr);
         }
 
-        showToast(`Informasi berhasil diposting ke ${targetClassIds.length} kelas!`, 'success');
+        showToast('Informasi berhasil diperbarui.', 'success');
+        setIsModalOpen(false);
+        setSubmitting(false);
+        return; // Hentikan eksekusi
       }
 
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: editing ? 'UPDATE' : 'CREATE',
-        targetType: 'Information', targetId: editing?.id || 'multiple',
-        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"${photoUrls.length > 0 ? ` + ${photoUrls.length} foto` : ''}`,
+      // ==========================================
+      // MODE BUAT BARU
+      // ==========================================
+      if (targetClassIds.length === 0) {
+        showToast('Pilih minimal 1 kelas tujuan.', 'warning');
+        setSubmitting(false);
+        return;
+      }
+
+      const batch = writeBatch(db);
+      const now = new Date().toISOString();
+      const broadcastGroupId = targetClassIds.length > 1 ? doc(collection(db, 'information')).id : undefined;
+
+      targetClassIds.forEach(cid => {
+        const newRef = doc(collection(db, 'information'));
+        batch.set(newRef, {
+          id: newRef.id,
+          classId: cid,
+          batchId: broadcastGroupId,
+          title: title.trim(),
+          content: content.trim(),
+          category, 
+          priority, 
+          isPinned,
+          photoUrls: photoUrls,
+          photoUrl: '',
+          authorId: user.uid,
+          authorName: user.displayName,
+          authorRole: user.role,
+          createdAt: now,
+          updatedAt: now,
+        });
       });
 
+      await batch.commit();
+
+      if (priority === 'HIGH' || category === 'URGENT') {
+        for (const cid of targetClassIds) {
+          try {
+            await notifyTeachers(cid, {
+              title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
+              message: `${user.displayName} (${user.role}) memposting informasi penting.`,
+              category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
+              link: 'informasi',
+              senderName: user.displayName,
+            });
+          } catch (err) { console.warn('Notif error:', err); }
+        }
+      }
+
+      try {
+        await recordAuditLog({
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'CREATE', targetType: 'Information', targetId: 'multiple',
+          details: `Post informasi: "${title}" ke ${targetClassIds.length} kelas`,
+        });
+      } catch (logErr) {
+        console.warn('Log gagal, tapi data tersimpan:', logErr);
+      }
+
+      showToast(`Informasi berhasil diposting ke ${targetClassIds.length} kelas!`, 'success');
       setIsModalOpen(false);
+
     } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+      console.error("Firestore Error:", err);
+      showToast('Gagal menyimpan: ' + (err?.message || 'Periksa koneksi internet'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -442,7 +524,11 @@ export const InformationModule: React.FC = () => {
                       </span>
                     </div>
                     <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
-                    <p className="text-xs text-slate-700 mt-1.5 leading-relaxed whitespace-pre-line">{it.content}</p>
+                    
+                    {/* Link otomatis terdeteksi di sini */}
+                    <div className="text-xs mt-1.5 leading-relaxed whitespace-pre-line">
+                      {renderTextWithLinks(it.content, "text-slate-700")}
+                    </div>
                     
                     {allPhotos.length > 0 && (
                       <div className={`mt-3 grid gap-2 ${
@@ -542,7 +628,7 @@ export const InformationModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* MULTI-CLASS SELECTOR (Hanya saat create, dan user berhak) */}
+              {/* MULTI-CLASS SELECTOR */}
               {!editing && canMultiClass && (
                 <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
                   <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
@@ -589,7 +675,7 @@ export const InformationModule: React.FC = () => {
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Isi Informasi *</label>
                 <textarea rows={4} required value={content} onChange={(e) => setContent(e.target.value)}
-                  placeholder="Tuliskan pengumuman lengkap dengan waktu, lokasi, dan hal yang perlu dibawa..."
+                  placeholder="Tuliskan pengumuman...&#10;&#10;Anda bisa menempelkan link (YouTube, Google Drive, dll) dan link akan otomatis menjadi biru setelah disimpan."
                   className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 leading-relaxed" />
               </div>
               
