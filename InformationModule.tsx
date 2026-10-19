@@ -1,24 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Megaphone, PlusCircle, Search, X, Save, Trash2, AlertTriangle,
-  Pin, Clock, User, Bell, Sparkles, PinOff,
+  Pin, Clock, User, Filter, Bell, Sparkles, PinOff,
+  Camera, ImagePlus, Link2, CheckSquare, Square, Building2, Users,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { recordAuditLog, notifyTeachers } from '../../services/firestoreService';
 import {
-  collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc,
+  collection, query, where, onSnapshot, doc, deleteDoc, updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
 interface Information {
   id: string;
   classId: string;
+  batchId?: string; // ID grup untuk multi-class broadcast
   title: string;
   content: string;
   category: 'PENGUMUMAN' | 'INFO' | 'URGENT' | 'JADWAL' | 'KEUANGAN';
   priority: 'LOW' | 'MEDIUM' | 'HIGH';
   isPinned: boolean;
+  photoUrls?: string[];
+  photoUrl?: string;
   authorId: string;
   authorName: string;
   authorRole: string;
@@ -39,9 +45,103 @@ const CAN_POST_ROLES = [
   'Pimpinan Produksi', 'Sekretaris', 'Sutradara', 'Asisten Sutradara', 'Bendahara',
 ];
 
+const compressImage = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        const MAX_WIDTH = 800;
+        if (width > MAX_WIDTH) {
+          height = Math.round((height * MAX_WIDTH) / width);
+          width = MAX_WIDTH;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas tidak tersedia'));
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.onerror = () => reject(new Error('Gagal memuat gambar'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Gagal membaca file'));
+    reader.readAsDataURL(file);
+  });
+};
+
+// =====================================================
+// ✅ HELPER: SANITASI & DETEKSI URL
+// =====================================================
+function sanitizeUrl(url: string | undefined | null): string | null {
+  if (!url) return null;
+  let trimmed = String(url).trim();
+  if (!trimmed) return null;
+  
+  // Auto-prefix jika user hanya mengetik www. atau domain biasa tanpa http
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+    trimmed = 'https://' + trimmed;
+  }
+  
+  // Hanya izinkan http/https. Tolak javascript:, data:, dll (XSS guard).
+  if (!/^https?:\/\/[^\s]+$/i.test(trimmed)) return null;
+  return trimmed;
+}
+
+// Regex mendeteksi URL di dalam teks bebas
+// Menangkap http://, https://, dan www.
+const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
+
+function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text-slate-300'): React.ReactNode {
+  if (!text) return null;
+  
+  const parts = text.split(URL_REGEX);
+  
+  return parts.map((part, i) => {
+    // Cek apakah part ini adalah URL
+    if (URL_REGEX.test(part)) {
+      URL_REGEX.lastIndex = 0; // Reset state regex
+      
+      // Bersihkan tanda baca di ujung URL (misal titik atau koma)
+      let cleanPart = part;
+      let trailingPunct = '';
+      const matchPunct = part.match(/[.,;:!?]+$/);
+      if (matchPunct) {
+        cleanPart = part.slice(0, -matchPunct[0].length);
+        trailingPunct = matchPunct[0];
+      }
+
+      const safe = sanitizeUrl(cleanPart);
+      if (safe) {
+        return (
+          <React.Fragment key={i}>
+            <a
+              href={safe}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 font-semibold underline decoration-dotted underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300 break-all inline-flex items-center gap-0.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {cleanPart}
+              <ExternalLink className="w-3 h-3 inline" />
+            </a>
+            {trailingPunct}
+          </React.Fragment>
+        );
+      }
+    }
+    URL_REGEX.lastIndex = 0;
+    return <span key={i} className={baseClass}>{part}</span>;
+  });
+}
+
 export const InformationModule: React.FC = () => {
-  const { user, activeClass, isGuruPengampu, isAdminRole } = useAuth();
+  const { user, activeClass, classes, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [items, setItems] = useState<Information[]>([]);
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
@@ -50,16 +150,28 @@ export const InformationModule: React.FC = () => {
   const [editing, setEditing] = useState<Information | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  // Form
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [category, setCategory] = useState<Information['category']>('PENGUMUMAN');
   const [priority, setPriority] = useState<Information['priority']>('MEDIUM');
   const [isPinned, setIsPinned] = useState(false);
+  
+  // Multi-Class Target
+  const [sendToAll, setSendToAll] = useState(false);
+  const [targetClassIds, setTargetClassIds] = useState<string[]>([]);
+
+  // FOTO
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
+  const [photoUrlInput, setPhotoUrlInput] = useState('');
+  const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const canPost = user && (CAN_POST_ROLES.includes(user.role) || user.role.startsWith('Koordinator '));
+  const canMultiClass = isGuruPengampu || isAdminRole; // Fitur lintas kelas hanya untuk Guru/Admin
 
   useEffect(() => {
     if (!activeClass) return;
+    // Query mengambil data dari kelas yang sedang aktif
     const q = query(collection(db, 'information'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as Information));
@@ -76,6 +188,16 @@ export const InformationModule: React.FC = () => {
     setEditing(null);
     setTitle(''); setContent('');
     setCategory('PENGUMUMAN'); setPriority('MEDIUM'); setIsPinned(false);
+    setPhotoUrls([]); setPhotoUrlInput('');
+    
+    // Default target kelas
+    if (canMultiClass) {
+      setSendToAll(false);
+      setTargetClassIds(activeClass ? [activeClass.id] : []);
+    } else if (activeClass) {
+      setTargetClassIds([activeClass.id]);
+    }
+    
     setIsModalOpen(true);
   };
 
@@ -83,7 +205,76 @@ export const InformationModule: React.FC = () => {
     setEditing(item);
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
+    
+    const existingPhotos = item.photoUrls || (item.photoUrl ? [item.photoUrl] : []);
+    setPhotoUrls(existingPhotos);
+    setPhotoUrlInput('');
+    
     setIsModalOpen(true);
+  };
+
+  const toggleTargetClass = (id: string) => {
+    setTargetClassIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+    setSendToAll(false);
+  };
+
+  const handleSendToAllToggle = () => {
+    const next = !sendToAll;
+    setSendToAll(next);
+    if (next) {
+      setTargetClassIds(classes.map(c => c.id));
+    } else {
+      setTargetClassIds(activeClass ? [activeClass.id] : []);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    if (photoUrls.length + files.length > 5) {
+      showToast('Maksimal 5 foto. Anda sudah memiliki ' + photoUrls.length + ' foto.', 'warning');
+      e.target.value = '';
+      return;
+    }
+
+    const newPhotos: string[] = [];
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > 5 * 1024 * 1024) {
+        showToast('File ' + file.name + ' terlalu besar (maks 5MB).', 'warning');
+        continue;
+      }
+      try {
+        const base64 = await compressImage(file);
+        newPhotos.push(base64);
+      } catch (err) {
+        console.warn('Gagal kompres:', err);
+      }
+    }
+
+    setPhotoUrls(prev => [...prev, ...newPhotos]);
+    e.target.value = '';
+  };
+
+  const handleAddPhotoUrl = () => {
+    if (!photoUrlInput.trim()) return;
+    if (!photoUrlInput.startsWith('http')) {
+      showToast('URL foto harus dimulai dengan http:// atau https://', 'warning');
+      return;
+    }
+    if (photoUrls.length >= 5) {
+      showToast('Maksimal 5 foto.', 'warning');
+      return;
+    }
+    setPhotoUrls(prev => [...prev, photoUrlInput.trim()]);
+    setPhotoUrlInput('');
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotoUrls(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -93,47 +284,96 @@ export const InformationModule: React.FC = () => {
       showToast('Judul dan isi wajib diisi.', 'warning');
       return;
     }
+
+    if (targetClassIds.length === 0) {
+      showToast('Pilih minimal 1 kelas tujuan.', 'warning');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const id = editing?.id || doc(collection(db, 'information')).id;
-      const data: Information = {
-        id, classId: activeClass.id,
-        title: title.trim(), content: content.trim(),
-        category, priority, isPinned,
-        authorId: user.uid, authorName: user.displayName, authorRole: user.role,
-        createdAt: editing?.createdAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await setDoc(doc(db, 'information', id), data, { merge: true });
+      if (editing) {
+        // MODE EDIT: Hanya update dokumen yang sedang diedit
+        await updateDoc(doc(db, 'information', editing.id), {
+          title: title.trim(),
+          content: content.trim(),
+          category, priority, isPinned,
+          photoUrls: photoUrls,
+          photoUrl: '', // clear legacy
+          updatedAt: new Date().toISOString(),
+        });
+        showToast('Informasi berhasil diperbarui.', 'success');
+      } else {
+        // MODE BUAT BARU: Bisa kirim ke multiple kelas sekaligus
+        const batch = writeBatch(db);
+        const now = new Date().toISOString();
+        // ID grup untuk menandai bahwa dokumen ini dibuat bersamaan
+        const broadcastGroupId = targetClassIds.length > 1 ? doc(collection(db, 'information')).id : undefined;
+
+        // Simpan ke setiap kelas yang dipilih
+        targetClassIds.forEach(cid => {
+          const newRef = doc(collection(db, 'information'));
+          batch.set(newRef, {
+            id: newRef.id,
+            classId: cid,
+            batchId: broadcastGroupId,
+            title: title.trim(),
+            content: content.trim(),
+            category, priority, isPinned,
+            photoUrls: photoUrls,
+            photoUrl: '',
+            authorId: user.uid,
+            authorName: user.displayName,
+            authorRole: user.role,
+            createdAt: now,
+            updatedAt: now,
+          });
+        });
+
+        await batch.commit();
+
+        // Kirim notifikasi ke guru di masing-masing kelas (jika urgent/penting)
+        if (priority === 'HIGH' || category === 'URGENT') {
+          for (const cid of targetClassIds) {
+            try {
+              await notifyTeachers(cid, {
+                title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
+                message: `${user.displayName} (${user.role}) memposting informasi penting.`,
+                category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
+                link: 'informasi',
+                senderName: user.displayName,
+              });
+            } catch (err) { console.warn('Notif error:', err); }
+          }
+        }
+
+        showToast(`Informasi berhasil diposting ke ${targetClassIds.length} kelas!`, 'success');
+      }
+
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: editing ? 'UPDATE' : 'CREATE',
-        targetType: 'Information', targetId: id,
-        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"`,
+        targetType: 'Information', targetId: editing?.id || 'multiple',
+        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"${photoUrls.length > 0 ? ` + ${photoUrls.length} foto` : ''}`,
       });
-      if (!editing && (priority === 'HIGH' || category === 'URGENT')) {
-        try {
-          await notifyTeachers(activeClass.id, {
-            title: `📢 ${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
-            message: `${user.displayName} (${user.role}) memposting informasi penting.`,
-            category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
-            link: 'informasi',
-            senderName: user.displayName,
-          });
-        } catch (err) { console.warn(err); }
-      }
-      showToast(`Informasi berhasil ${editing ? 'diperbarui' : 'diposting'}!`, 'success');
+
       setIsModalOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDelete = async (item: Information) => {
-    if (!confirm(`Hapus informasi "${item.title}"?`)) return;
+    const msg = item.batchId 
+      ? `Hapus informasi "${item.title}" dari kelas ini? (Info ini juga ada di kelas lain karena broadcast)`
+      : `Hapus informasi "${item.title}"?`;
+      
+    if (!confirm(msg)) return;
     try {
       await deleteDoc(doc(db, 'information', item.id));
-      showToast('Informasi dihapus.', 'info');
+      showToast('Informasi dihapus dari kelas ini.', 'info');
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
@@ -169,7 +409,7 @@ export const InformationModule: React.FC = () => {
                 Papan Informasi
               </span>
               <h2 className="text-xl font-black text-white mt-1">Pengumuman & Informasi Produksi</h2>
-              <p className="text-xs text-slate-300 mt-0.5">Semua pengumuman resmi tim teater {activeClass?.name || ''}</p>
+              <p className="text-xs text-slate-300 mt-0.5">Papan informasi terintegrasi seluruh kelas</p>
             </div>
           </div>
           {canPost && (
@@ -223,6 +463,11 @@ export const InformationModule: React.FC = () => {
             const cfg = CATEGORY_CONFIG[it.category];
             const Icon = cfg.icon;
             const canEdit = isGuruPengampu || isAdminRole || it.authorId === user?.uid;
+            
+            const allPhotos = it.photoUrls && it.photoUrls.length > 0 
+              ? it.photoUrls 
+              : (it.photoUrl ? [it.photoUrl] : []);
+
             return (
               <div key={it.id} className={`p-5 rounded-3xl border shadow-sm transition ${
                 it.isPinned ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200' :
@@ -243,6 +488,16 @@ export const InformationModule: React.FC = () => {
                           <Pin className="w-3 h-3" /> DISEMATKAN
                         </span>
                       )}
+                      {it.batchId && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1">
+                          <Building2 className="w-3 h-3" /> LINTAS KELAS
+                        </span>
+                      )}
+                      {allPhotos.length > 0 && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                          <ImagePlus className="w-3 h-3" /> {allPhotos.length} FOTO
+                        </span>
+                      )}
                       {it.priority === 'HIGH' && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white">PENTING</span>
                       )}
@@ -253,7 +508,31 @@ export const InformationModule: React.FC = () => {
                       </span>
                     </div>
                     <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
-                    <p className="text-xs text-slate-700 mt-1.5 leading-relaxed whitespace-pre-line">{it.content}</p>
+                    
+                    {/* ✅ PERBAIKAN: Render teks dengan tautan otomatis */}
+                    <div className="text-xs mt-1.5 leading-relaxed whitespace-pre-line">
+                      {renderTextWithLinks(it.content, "text-slate-700")}
+                    </div>
+                    
+                    {allPhotos.length > 0 && (
+                      <div className={`mt-3 grid gap-2 ${
+                        allPhotos.length === 1 ? 'grid-cols-1 sm:grid-cols-2' : 
+                        allPhotos.length === 2 ? 'grid-cols-2' : 
+                        'grid-cols-2 sm:grid-cols-3'
+                      }`}>
+                        {allPhotos.map((url, idx) => (
+                          <div key={idx} className="relative aspect-video sm:aspect-square md:aspect-video rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
+                            <img
+                              src={url}
+                              alt={`Foto ${idx + 1}`}
+                              onClick={() => setPreviewPhoto(url)}
+                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
                       <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
                         <User className="w-3 h-3" />
@@ -291,9 +570,10 @@ export const InformationModule: React.FC = () => {
         </div>
       )}
 
+      {/* MODAL FORM */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 max-h-[92vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 my-auto max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                 <Megaphone className="w-5 h-5 text-amber-500" />
@@ -310,6 +590,7 @@ export const InformationModule: React.FC = () => {
                   placeholder="Contoh: Rapat Pleno Darurat Besok Pukul 14.00"
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
               </div>
+              
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
@@ -330,17 +611,133 @@ export const InformationModule: React.FC = () => {
                   </select>
                 </div>
               </div>
+
+              {/* MULTI-CLASS SELECTOR (Hanya saat create, dan user berhak) */}
+              {!editing && canMultiClass && (
+                <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                  <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-amber-600" />
+                    Pilih Kelas Tujuan *
+                  </label>
+                  
+                  <button type="button" onClick={handleSendToAllToggle}
+                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl border-2 transition mb-2 ${
+                      sendToAll ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'
+                    }`}>
+                    <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                      sendToAll ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'
+                    }`}>
+                      {sendToAll && <CheckSquare className="w-3 h-3" />}
+                    </div>
+                    <span className="text-xs font-bold text-slate-900">SEMUA KELAS ({classes.length})</span>
+                  </button>
+
+                  <div className="max-h-40 overflow-y-auto space-y-1 p-1">
+                    {classes.map(c => {
+                      const sel = targetClassIds.includes(c.id);
+                      return (
+                        <button key={c.id} type="button" onClick={() => toggleTargetClass(c.id)}
+                          className={`w-full p-2 rounded-lg text-left transition flex items-center gap-2 ${
+                            sel ? 'bg-amber-100 border border-amber-300' : 'bg-white border border-slate-200'
+                          }`}>
+                          <div className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 ${
+                            sel ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'
+                          }`}>
+                            {sel && <CheckSquare className="w-2.5 h-2.5" />}
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-800 truncate">{c.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] font-bold text-slate-500 mt-2">
+                    {targetClassIds.length} kelas dipilih
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Isi Informasi *</label>
-                <textarea rows={5} required value={content} onChange={(e) => setContent(e.target.value)}
-                  placeholder="Tuliskan pengumuman lengkap dengan waktu, lokasi, dan hal yang perlu dibawa..."
+                <textarea rows={4} required value={content} onChange={(e) => setContent(e.target.value)}
+                  placeholder="Tuliskan pengumuman lengkap dengan waktu, lokasi, dan hal yang perlu dibawa...&#10;&#10;Tips: Anda bisa menempelkan link YouTube atau Google Drive di sini, dan link akan otomatis bisa diklik."
                   className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 leading-relaxed" />
               </div>
+              
+              {/* UPLOAD FOTO MULTIPLE */}
+              <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <ImagePlus className="w-4 h-4 text-amber-600" />
+                    Foto Pendukung <span className="text-slate-400 font-normal">({photoUrls.length}/5)</span>
+                  </label>
+                </div>
+
+                {photoUrls.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+                    {photoUrls.map((url, idx) => (
+                      <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-white group">
+                        <img src={url} alt={`Foto ${idx+1}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removePhoto(idx)}
+                          className="absolute top-1 right-1 p-1 rounded-md bg-rose-600 text-white opacity-0 group-hover:opacity-100 transition shadow-sm"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {photoUrls.length < 5 && (
+                  <div className="space-y-2">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex flex-col items-center gap-1 transition"
+                    >
+                      <Camera className="w-5 h-5" />
+                      Pilih Foto
+                    </button>
+                    
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Link2 className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                        <input
+                          type="url"
+                          placeholder="Atau tempel link foto"
+                          value={photoUrlInput}
+                          onChange={(e) => setPhotoUrlInput(e.target.value)}
+                          className="w-full pl-8 pr-2 py-2 rounded-lg border border-slate-200 text-[11px]"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleAddPhotoUrl}
+                        disabled={!photoUrlInput.trim()}
+                        className="px-3 py-2 rounded-lg bg-slate-800 text-white font-bold text-[11px] disabled:opacity-50"
+                      >
+                        Tambah
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-amber-900">
                   <input type="checkbox" checked={isPinned} onChange={(e) => setIsPinned(e.target.checked)}
                     className="rounded border-amber-300 text-amber-500" />
-                  <Pin className="w-3.5 h-3.5" /> Sematkan di paling atas (pin)
+                  <Pin className="w-3.5 h-3.5" />
+                  Sematkan di paling atas (pin)
                 </label>
               </div>
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
@@ -349,11 +746,33 @@ export const InformationModule: React.FC = () => {
                 <button type="submit" disabled={submitting}
                   className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                   <Save className="w-3.5 h-3.5" />
-                  {submitting ? 'Menyimpan...' : (editing ? 'Perbarui' : 'Posting')}
+                  {submitting ? 'Menyimpan...' : (editing ? 'Perbarui' : `Posting ke ${targetClassIds.length} Kelas`)}
                 </button>
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* LIGHTBOX FOTO */}
+      {previewPhoto && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <button
+            onClick={() => setPreviewPhoto(null)}
+            className="absolute top-4 right-4 p-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition"
+            title="Tutup"
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={previewPhoto}
+            alt="Preview Foto"
+            className="max-w-full max-h-[92vh] object-contain rounded-2xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </div>
