@@ -91,8 +91,7 @@ function sanitizeUrl(url: string | undefined | null): string | null {
   return trimmed;
 }
 
-// Regex mendeteksi URL di dalam teks bebas
-// Menangkap http://, https://, dan www.
+// Regex mendeteksi URL di dalam teks bebas (http, https, www)
 const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
 
 function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text-slate-300'): React.ReactNode {
@@ -101,11 +100,9 @@ function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text
   const parts = text.split(URL_REGEX);
   
   return parts.map((part, i) => {
-    // Cek apakah part ini adalah URL
     if (URL_REGEX.test(part)) {
-      URL_REGEX.lastIndex = 0; // Reset state regex
+      URL_REGEX.lastIndex = 0; 
       
-      // Bersihkan tanda baca di ujung URL (misal titik atau koma)
       let cleanPart = part;
       let trailingPunct = '';
       const matchPunct = part.match(/[.,;:!?]+$/);
@@ -206,6 +203,10 @@ export const InformationModule: React.FC = () => {
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
     
+    // ✅ FIX: Set targetClassIds ke kelas asli info ini agar validasi tidak gagal
+    setTargetClassIds([item.classId]);
+    setSendToAll(false);
+
     const existingPhotos = item.photoUrls || (item.photoUrl ? [item.photoUrl] : []);
     setPhotoUrls(existingPhotos);
     setPhotoUrlInput('');
@@ -285,7 +286,8 @@ export const InformationModule: React.FC = () => {
       return;
     }
 
-    if (targetClassIds.length === 0) {
+    // ✅ FIX: Validasi Kelas Tujuan HANYA untuk mode Create, bukan Edit
+    if (!editing && targetClassIds.length === 0) {
       showToast('Pilih minimal 1 kelas tujuan.', 'warning');
       return;
     }
@@ -509,7 +511,7 @@ export const InformationModule: React.FC = () => {
                     </div>
                     <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
                     
-                    {/* ✅ PERBAIKAN: Render teks dengan tautan otomatis */}
+                    {/* ✅ Render teks dengan tautan otomatis */}
                     <div className="text-xs mt-1.5 leading-relaxed whitespace-pre-line">
                       {renderTextWithLinks(it.content, "text-slate-700")}
                     </div>
