@@ -10,14 +10,14 @@ import { useToast } from '../common/Toast';
 import { recordAuditLog, notifyTeachers } from '../../services/firestoreService';
 import {
   collection, query, where, onSnapshot, doc, deleteDoc, updateDoc,
-  writeBatch,
+  writeBatch, setDoc,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
 interface Information {
   id: string;
   classId: string;
-  batchId?: string; // ID grup untuk multi-class broadcast
+  batchId?: string;
   title: string;
   content: string;
   category: 'PENGUMUMAN' | 'INFO' | 'URGENT' | 'JADWAL' | 'KEUANGAN';
@@ -74,49 +74,37 @@ const compressImage = (file: File): Promise<string> => {
 };
 
 // =====================================================
-// ✅ HELPER: SANITASI & DETEKSI URL
+// ✅ FUNGSI DETEKSI LINK (DIPERBAIKI)
 // =====================================================
-function sanitizeUrl(url: string | undefined | null): string | null {
-  if (!url) return null;
-  let trimmed = String(url).trim();
-  if (!trimmed) return null;
-  
-  // Auto-prefix jika user hanya mengetik www. atau domain biasa tanpa http
-  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-    trimmed = 'https://' + trimmed;
-  }
-  
-  // Hanya izinkan http/https. Tolak javascript:, data:, dll (XSS guard).
-  if (!/^https?:\/\/[^\s]+$/i.test(trimmed)) return null;
-  return trimmed;
-}
-
-// Regex mendeteksi URL di dalam teks bebas (http, https, www)
-const URL_REGEX = /((?:https?:\/\/|www\.)[^\s<>"']+)/gi;
-
 function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text-slate-300'): React.ReactNode {
   if (!text) return null;
   
-  const parts = text.split(URL_REGEX);
+  // Regex yang lebih pintar: mendeteksi http/https/www di mana pun berada
+  const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+  const parts = text.split(urlRegex);
   
   return parts.map((part, i) => {
-    if (URL_REGEX.test(part)) {
-      URL_REGEX.lastIndex = 0; 
-      
+    // Jika bagian ini cocok dengan pola URL
+    if (part.match(urlRegex)) {
       let cleanPart = part;
       let trailingPunct = '';
+      
+      // Pisahkan tanda baca di akhir link (misal titik, koma, tanda tanya)
       const matchPunct = part.match(/[.,;:!?]+$/);
       if (matchPunct) {
         cleanPart = part.slice(0, -matchPunct[0].length);
         trailingPunct = matchPunct[0];
       }
 
-      const safe = sanitizeUrl(cleanPart);
-      if (safe) {
+      // Pastikan formatnya benar-benar URL
+      if (/^(https?:\/\/[^\s]+|www\.[^\s]+)$/i.test(cleanPart)) {
+        // Tambahkan https:// jika user hanya mengetik www.
+        const href = cleanPart.startsWith('http') ? cleanPart : `https://${cleanPart}`;
+        
         return (
           <React.Fragment key={i}>
             <a
-              href={safe}
+              href={href}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-600 dark:text-blue-400 font-semibold underline decoration-dotted underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300 break-all inline-flex items-center gap-0.5"
@@ -130,7 +118,7 @@ function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text
         );
       }
     }
-    URL_REGEX.lastIndex = 0;
+    // Jika bukan URL (teks biasa)
     return <span key={i} className={baseClass}>{part}</span>;
   });
 }
@@ -164,11 +152,10 @@ export const InformationModule: React.FC = () => {
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const canPost = user && (CAN_POST_ROLES.includes(user.role) || user.role.startsWith('Koordinator '));
-  const canMultiClass = isGuruPengampu || isAdminRole; // Fitur lintas kelas hanya untuk Guru/Admin
+  const canMultiClass = isGuruPengampu || isAdminRole;
 
   useEffect(() => {
     if (!activeClass) return;
-    // Query mengambil data dari kelas yang sedang aktif
     const q = query(collection(db, 'information'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => ({ ...d.data(), id: d.id } as Information));
@@ -187,7 +174,6 @@ export const InformationModule: React.FC = () => {
     setCategory('PENGUMUMAN'); setPriority('MEDIUM'); setIsPinned(false);
     setPhotoUrls([]); setPhotoUrlInput('');
     
-    // Default target kelas
     if (canMultiClass) {
       setSendToAll(false);
       setTargetClassIds(activeClass ? [activeClass.id] : []);
@@ -203,7 +189,7 @@ export const InformationModule: React.FC = () => {
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
     
-    // Set targetClassIds ke kelas asli info ini (untuk berjaga-jaga)
+    // Set targetClassIds ke kelas asli info ini
     setTargetClassIds([item.classId]);
     setSendToAll(false);
 
@@ -281,88 +267,115 @@ export const InformationModule: React.FC = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
+    
     if (!title.trim() || !content.trim()) {
       showToast('Judul dan isi wajib diisi.', 'warning');
       return;
     }
 
     setSubmitting(true);
+    
     try {
+      // ==========================================
+      // MODE EDIT
+      // ==========================================
       if (editing) {
-        // ==========================================
-        // MODE EDIT: Hanya update dokumen (Bebas validasi kelas)
-        // ==========================================
-        await updateDoc(doc(db, 'information', editing.id), {
+        const docRef = doc(db, 'information', editing.id);
+        
+        // 1. Simpan perubahan inti
+        await updateDoc(docRef, {
           title: title.trim(),
           content: content.trim(),
-          category, priority, isPinned,
+          category, 
+          priority, 
+          isPinned,
           photoUrls: photoUrls,
-          photoUrl: '', // clear legacy
           updatedAt: new Date().toISOString(),
         });
-        showToast('Informasi berhasil diperbarui.', 'success');
-      } else {
-        // ==========================================
-        // MODE BUAT BARU: Validasi kelas wajib di sini
-        // ==========================================
-        if (targetClassIds.length === 0) {
-          showToast('Pilih minimal 1 kelas tujuan.', 'warning');
-          setSubmitting(false);
-          return;
-        }
-
-        const batch = writeBatch(db);
-        const now = new Date().toISOString();
-        const broadcastGroupId = targetClassIds.length > 1 ? doc(collection(db, 'information')).id : undefined;
-
-        targetClassIds.forEach(cid => {
-          const newRef = doc(collection(db, 'information'));
-          batch.set(newRef, {
-            id: newRef.id,
-            classId: cid,
-            batchId: broadcastGroupId,
-            title: title.trim(),
-            content: content.trim(),
-            category, priority, isPinned,
-            photoUrls: photoUrls,
-            photoUrl: '',
-            authorId: user.uid,
-            authorName: user.displayName,
-            authorRole: user.role,
-            createdAt: now,
-            updatedAt: now,
+        
+        // 2. Catat log (dibungkus terpisah agar jika gagal, edit tetap sukses)
+        try {
+          await recordAuditLog({
+            userId: user.uid, userName: user.displayName, role: user.role,
+            action: 'UPDATE', targetType: 'Information', targetId: editing.id,
+            details: `Edit informasi: "${title}"`,
           });
-        });
-
-        await batch.commit();
-
-        if (priority === 'HIGH' || category === 'URGENT') {
-          for (const cid of targetClassIds) {
-            try {
-              await notifyTeachers(cid, {
-                title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
-                message: `${user.displayName} (${user.role}) memposting informasi penting.`,
-                category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
-                link: 'informasi',
-                senderName: user.displayName,
-              });
-            } catch (err) { console.warn('Notif error:', err); }
-          }
+        } catch (auditErr) {
+          console.warn('Log gagal, tapi data tersimpan:', auditErr);
         }
 
-        showToast(`Informasi berhasil diposting ke ${targetClassIds.length} kelas!`, 'success');
+        showToast('Informasi berhasil diperbarui.', 'success');
+        setIsModalOpen(false);
+        setSubmitting(false);
+        return; 
       }
 
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: editing ? 'UPDATE' : 'CREATE',
-        targetType: 'Information', targetId: editing?.id || 'multiple',
-        details: `${editing ? 'Edit' : 'Post'} informasi: "${title}"${photoUrls.length > 0 ? ` + ${photoUrls.length} foto` : ''}`,
+      // ==========================================
+      // MODE CREATE BARU
+      // ==========================================
+      if (targetClassIds.length === 0) {
+        showToast('Pilih minimal 1 kelas tujuan.', 'warning');
+        setSubmitting(false);
+        return;
+      }
+
+      const batch = writeBatch(db);
+      const now = new Date().toISOString();
+      const broadcastGroupId = targetClassIds.length > 1 ? doc(collection(db, 'information')).id : undefined;
+
+      targetClassIds.forEach(cid => {
+        const newRef = doc(collection(db, 'information'));
+        batch.set(newRef, {
+          id: newRef.id,
+          classId: cid,
+          batchId: broadcastGroupId,
+          title: title.trim(),
+          content: content.trim(),
+          category, 
+          priority, 
+          isPinned,
+          photoUrls: photoUrls,
+          photoUrl: '',
+          authorId: user.uid,
+          authorName: user.displayName,
+          authorRole: user.role,
+          createdAt: now,
+          updatedAt: now,
+        });
       });
 
+      await batch.commit();
+
+      if (priority === 'HIGH' || category === 'URGENT') {
+        for (const cid of targetClassIds) {
+          try {
+            await notifyTeachers(cid, {
+              title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
+              message: `${user.displayName} (${user.role}) memposting informasi penting.`,
+              category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
+              link: 'informasi',
+              senderName: user.displayName,
+            });
+          } catch (err) { console.warn('Notif error:', err); }
+        }
+      }
+
+      try {
+        await recordAuditLog({
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'CREATE', targetType: 'Information', targetId: 'multiple',
+          details: `Post informasi: "${title}" ke ${targetClassIds.length} kelas`,
+        });
+      } catch (auditErr) {
+        console.warn('Log gagal, tapi data tersimpan:', auditErr);
+      }
+
+      showToast(`Informasi berhasil diposting ke ${targetClassIds.length} kelas!`, 'success');
       setIsModalOpen(false);
+
     } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+      console.error(err);
+      showToast('Gagal menyimpan: ' + (err?.message || 'Unknown'), 'error');
     } finally {
       setSubmitting(false);
     }
