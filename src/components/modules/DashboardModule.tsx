@@ -139,7 +139,6 @@ const QuickAction: React.FC<{
   </button>
 );
 
-// ✅ NEW: Komponen wrapper "Aksi Cepat" yang reusable
 const QuickActionsPanel: React.FC<{
   actions: { icon: any; label: string; sub: string; onClick: () => void }[];
   accentColor?: 'amber' | 'blue' | 'emerald' | 'rose' | 'purple';
@@ -167,28 +166,6 @@ const QuickActionsPanel: React.FC<{
         {actions.map((a, i) => <QuickAction key={i} {...a} />)}
       </div>
     </div>
-  );
-};
-
-const TemplateCard: React.FC<{
-  icon: any; label: string; sub: string; onClick: () => void;
-  color?: 'blue' | 'amber' | 'purple' | 'rose' | 'emerald' | 'indigo';
-}> = ({ icon: Icon, label, sub, onClick, color = 'blue' }) => {
-  const colorMap = {
-    blue: 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30',
-    amber: 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30',
-    purple: 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-500/30',
-    rose: 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/30',
-    emerald: 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30',
-    indigo: 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/30',
-  };
-  return (
-    <button onClick={onClick}
-      className={`p-4 rounded-2xl border-2 ${colorMap[color]} hover:scale-[1.02] transition text-left`}>
-      <Icon className="w-5 h-5 mb-2" />
-      <p className="text-xs font-extrabold text-slate-900 dark:text-white">{label}</p>
-      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{sub}</p>
-    </button>
   );
 };
 
@@ -230,7 +207,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
   const { user, activeClass } = useAuth();
   const { showToast } = useToast();
   const { tasks, assessments, users, sessions } = useDashboardData();
-  const [templateLoading, setTemplateLoading] = useState(false);
 
   const totalUsers = users.filter(u =>
     u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
@@ -243,50 +219,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
     u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin' &&
     !assessments.find(a => a.studentId === u.uid)
   );
-
-  const createDeadlineFromTemplate = async (
-    title: string, description: string, daysFromNow: number,
-    priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL',
-    target: 'SEMUA' | 'DIVISI' | 'PERAN',
-    targetDivision?: DivisionType, targetRole?: UserRole,
-    isCritical: boolean = false,
-  ) => {
-    if (!user || !activeClass) return;
-    setTemplateLoading(true);
-    try {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + daysFromNow);
-      dueDate.setHours(23, 59, 0, 0);
-
-      const newRef = doc(collection(db, 'deadlines'));
-      await setDoc(newRef, {
-        id: newRef.id,
-        classId: activeClass.id,
-        title, description,
-        dueDate: dueDate.toISOString(),
-        priority,
-        targetScope: target,
-        targetDivision, targetRole,
-        isCritical,
-        createdBy: user.uid,
-        creatorName: user.displayName,
-        creatorRole: user.role,
-        status: 'ACTIVE',
-        createdAt: new Date().toISOString(),
-      });
-
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'Deadline', targetId: newRef.id,
-        details: `Buat deadline template: ${title}${isCritical ? ' (★ kritis)' : ''}`,
-      });
-
-      showToast(`Deadline "${title}" berhasil dibuat!`, 'success');
-      setTimeout(() => onNavigate('tugas'), 800);
-    } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
-    } finally { setTemplateLoading(false); }
-  };
 
   return (
     <div className="space-y-5">
@@ -351,29 +283,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
           </div>
         </div>
       )}
-
-      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        <SectionTitle icon={Timer} title="Template Deadline Cepat" subtitle="Klik untuk buat deadline otomatis" />
-        {templateLoading && (
-          <div className="mb-3 p-2 rounded-lg bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-xs text-blue-700 dark:text-blue-300 flex items-center gap-2">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Mengirim deadline...
-          </div>
-        )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <TemplateCard icon={MessageSquare} label="Rapat Pleno" sub="Semua siswa - 1 hari" color="blue"
-            onClick={() => createDeadlineFromTemplate('Rapat Pleno Koordinasi', 'Rapat pleno seluruh tim produksi. Wajib hadir.', 1, 'CRITICAL', 'SEMUA', undefined, undefined, true)} />
-          <TemplateCard icon={Mic} label="Latihan Rutin" sub="Pemeran & Musik - 3 hari" color="amber"
-            onClick={() => createDeadlineFromTemplate('Latihan Rutin Blocking', 'Latihan blocking dan dialog untuk seluruh pemeran.', 3, 'HIGH', 'DIVISI', 'Pemeran', undefined, false)} />
-          <TemplateCard icon={Palette} label="Produksi Divisi" sub="Semua divisi - 7 hari" color="purple"
-            onClick={() => createDeadlineFromTemplate('Produksi Internal Divisi', 'Setiap divisi menyelesaikan pekerjaan internal.', 7, 'MEDIUM', 'SEMUA')} />
-          <TemplateCard icon={Camera} label="Fitting & Rias" sub="Pemeran - 5 hari" color="rose"
-            onClick={() => createDeadlineFromTemplate('Fitting Kostum & Rias', 'Fitting kostum dan uji coba rias.', 5, 'HIGH', 'PERAN', undefined, 'Pemeran')} />
-          <TemplateCard icon={Scissors} label="Desain Kostum" sub="Divisi Busana - 14 hari" color="emerald"
-            onClick={() => createDeadlineFromTemplate('Desain & Jahit Kostum', 'Tim busana menyelesaikan kostum seluruh tokoh.', 14, 'MEDIUM', 'DIVISI', 'Tata Busana')} />
-          <TemplateCard icon={Flag} label="Gladi Resik" sub="Semua - 2 hari" color="indigo"
-            onClick={() => createDeadlineFromTemplate('Gladi Resik Panggung Penuh', 'Gladi resik lengkap. Wajib hadir.', 2, 'CRITICAL', 'SEMUA', undefined, undefined, true)} />
-        </div>
-      </div>
 
       <div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white shadow-lg">
         <div className="flex items-center justify-between mb-2">
@@ -442,7 +351,7 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* ✅ AKSI CEPAT — dipindah ke atas */}
+      {/* ✅ AKSI CEPAT */}
       <QuickActionsPanel
         accentColor="blue"
         actions={[
