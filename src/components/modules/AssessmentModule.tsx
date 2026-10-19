@@ -443,20 +443,17 @@ export const AssessmentModule: React.FC = () => {
     } catch (e: any) { showToast('Gagal: ' + e.message, 'error'); } finally { setIsSubmitting(false); }
   };
 
-  // ✅ NEW: Handler untuk buka detail penilaian (siapa saja yang menilai)
   const openDetail = (s: UserProfile) => {
     setDetailStudent(s);
     setIsDetailOpen(true);
   };
 
-  // ✅ NEW: Handler untuk edit nilai spesifik per orang
   const openEditRecord = (r: AssessmentRecord) => {
     setEditingRecord(r);
     setEditRecordScore(r.totalScore);
     setEditRecordComment(r.comment || '');
   };
 
-  // ✅ NEW: Handler simpan edit nilai per orang
   const handleSaveRecord = async () => {
     if (!editingRecord || !user) return;
     try {
@@ -858,6 +855,14 @@ export const AssessmentModule: React.FC = () => {
                     a.stage === selectedStage &&
                     a.comment && a.comment.trim()
                   ).length;
+
+                  // ✅ CEK: Apakah USER yang sedang login ini sudah menilai siswa tersebut di tahap ini?
+                  const hasMyAssessment = assessments.some(a =>
+                    a.assessorId === user?.uid &&
+                    a.studentId === s.uid &&
+                    a.stage === selectedStage
+                  );
+
                   return (
                     <tr key={s.uid} className="hover:bg-slate-50">
                       <td className="py-3.5 px-4">
@@ -906,7 +911,7 @@ export const AssessmentModule: React.FC = () => {
                                 ? 'bg-purple-500 hover:bg-purple-600 text-white'
                                 : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
                             }`}>
-                              <Edit3 className="w-3 h-3" /> {ag ? 'Edit' : 'Nilai'}
+                              <Edit3 className="w-3 h-3" /> {hasMyAssessment ? 'Edit' : 'Isi'}
                               {canManageAll && (isStageLocked || isAssessmentLocked) && (
                                 <Lock className="w-3 h-3 opacity-80" />
                               )}
