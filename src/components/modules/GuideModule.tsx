@@ -6,7 +6,7 @@ import {
   Palette, Scissors, Package, ShieldCheck, Lock, KeyRound, Eye,
   FileText, Briefcase, Layers, TrendingUp, Bell, Info, AlertTriangle,
   ArrowRight, UserCheck, Target, Play,
-  CheckSquare,
+  CheckSquare, ShieldAlert,
 } from 'lucide-react';
 import { APP_CONFIG } from '../../core/constants';
 import { useAuth } from '../../core/authContext';
@@ -31,17 +31,15 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     steps: [
       'Buka Dashboard untuk melihat ringkasan seluruh aktivitas kelas',
       'Kelola Kelas → buat kelas baru, bagikan kode ke siswa, kelola akun',
-      'Kelola Siswa → klik "Lihat Pass" untuk melihat email & password siswa, atau "Reset" untuk mengirim link reset password ke email siswa',
-      'Kelola Tahapan → atur tahap aktif dan deadline per tahapan produksi (Persiapan, Pelaksanaan, Pertunjukan, Pasca). Tahap yang dinonaktifkan di sini juga mengunci penilaian pada tahap tersebut',
-      'Kelola Tahapan → Carry Over untuk memindahkan deadline dari tahap sebelumnya ke tahap aktif (hanya Guru Pengampu)',
-      'Jadwal Penilaian → atur kapan penilaian tiap tahap dibuka dan ditutup (tanggal + jam)',
-      'Tugas & Deadline → kirim tugas dari template ke siswa (bisa pilih beberapa template dan beberapa target)',
-      'Nilai & Penilaian → beri nilai Pimpinan Produksi dan Sutradara (atasan tertinggi). Guru bisa menilai siapa saja, tetapi hanya saat jendela penilaian tahap itu sedang terbuka',
-      'Nilai & Penilaian → cek panel "Perlu Klarifikasi" untuk nilai yang terlalu ekstrem atau berbeda jauh dari penilai lain, lalu hubungi penilai lewat WA',
+      'Kelola Siswa → klik "Lihat Pass" untuk melihat email & password siswa, atau "Reset" untuk mengirim link reset password',
+      'Kelola Tahapan → atur tahap aktif dan deadline pengerjaan tugas',
+      'Jadwal Penilaian → atur kapan siswa boleh mengisi nilai (buka/tutup jadwal)',
+      'Tugas & Deadline → kirim tugas dari template ke siswa',
+      'Nilai & Penilaian → beri nilai siswa sesuai matriks. Guru bisa mengedit nilai yang diberikan oleh siswa lain (intervensi)',
+      'Nilai & Penilaian → cek panel "Perlu Klarifikasi" untuk mendeteksi nilai anomali',
       'Moderasi → tinjau penilaian dari ketua dan rekan',
       'Statistik Presensi → lihat rekap kehadiran per siswa & divisi',
       'Backup & Restore → backup data Firestore ke JSON untuk arsip',
-      'Panduan ini bisa dibuka berkali-kali kapan pun dibutuhkan',
     ],
   },
   'Pimpinan Produksi': {
@@ -51,15 +49,11 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     desc: 'Manajer proyek, penyusun Master Schedule & LPJ',
     steps: [
       'Dashboard → lihat status keseluruhan produksi & progress 6 divisi',
-      'Susun Master Production Schedule & validasi RAB bersama Bendahara',
       'Tugas & Deadline → kirim tugas ke divisi & peran terkait',
-      'Presensi → buat sesi absensi pleno (semua siswa) atau lintas divisi',
+      'Presensi → buat sesi absensi pleno (semua siswa)',
       'Jadwal & Agenda → tambah jadwal rapat, gladi, dan pementasan',
-      'Struktur Kerabat → ubah nama kerabat kerja (opsi Guru & Pimpro)',
       'Broadcast → kirim pengumuman siaran ke semua siswa',
-      'Nilai & Penilaian → beri nilai Sekretaris, Bendahara, dan Koordinator Divisi (sebagai atasan mereka)',
-      'Saat Show Time: pimpin Taklimat 10 menit sebelum pintu dibuka',
-      'Kendalikan waktu: 10 menit persiapan + 30 menit tampil + 5 menit bongkar',
+      'Nilai & Penilaian → beri nilai Sekretaris, Bendahara, dan Koordinator Divisi',
       'Setelah selesai: susun LPJ & serahkan ke Guru',
     ],
   },
@@ -69,16 +63,12 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-blue-700 to-blue-900',
     desc: 'Presensi harian, arsip dokumen, notulen rapat',
     steps: [
-      'Dashboard → lihat sesi presensi aktif & agenda hari ini',
       'Presensi → buat sesi absensi untuk rapat pleno / lintas divisi',
-      'Isi Buku Log Produksi (catat kehadiran tiap sesi latihan & hasil rapat)',
       'Jadwal & Agenda → tambah jadwal internal untuk rapat koordinasi',
       'Dokumen & Arsip → unggah draf naskah, notulen, proposal ke arsip web',
       'Broadcast → kirim pengumuman resmi ke tim',
       'Nilai & Penilaian → beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
-      'Saat Show Time: bertugas di Front of House (FOH) — arahkan antrean, validasi tiket, bagikan buku acara',
-      'Catat statistik riil jumlah penonton',
-      'Setelah selesai: susun & distribusikan sertifikat/surat apresiasi, arsipkan semua dokumen',
+      'Setelah selesai: susun & distribusikan sertifikat/surat apresiasi',
     ],
   },
   'Bendahara': {
@@ -87,18 +77,13 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-emerald-700 to-green-900',
     desc: 'RAB, kas produksi, buku kas, nota, LPJ keuangan',
     steps: [
-      'Dashboard → lihat saldo, pemasukan, pengeluaran, capaian kas',
-      'Kas & Buku Kas → aktifkan fitur kas (kesepakatan kelas) dengan nominal & periode',
-      'Centang pembayaran siswa per periode. Saldo terakumulasi otomatis',
-      'Buku Kas → catat pemasukan (kas siswa, sumbangan) & pengeluaran (beli properti, konsumsi)',
+      'Kas & Buku Kas → aktifkan fitur kas, centang pembayaran siswa per periode',
+      'Buku Kas → catat pemasukan & pengeluaran',
       'Export Excel → 4 sheet: Ringkasan, Pemasukan, Pengeluaran, Rekap Periode',
       'RAB Digital → susun RAB per divisi/peran/umum dengan estimasi biaya',
-      'Export RAB ke Word (.doc) untuk ditandatangani Pimpro',
       'Unggah RAB Final yang sudah ditandatangani ke menu RAB',
-      'Kirim Reminder santun ke siswa yang belum bayar',
-      'Nilai & Penilaian → beri nilai Pimpinan Produksi (sebagai feedback ke atasan)',
-      'Saat Show Time: siapkan Tas Logistik Darurat (P3K, peniti, selotip, air minum)',
-      'Setelah selesai: susun tabel Perbandingan Anggaran (estimasi vs realisasi) & LPJ Keuangan',
+      'Nilai & Penilaian → beri nilai Pimpinan Produksi',
+      'Setelah selesai: susun tabel Perbandingan Anggaran & LPJ Keuangan',
     ],
   },
   'Sutradara': {
@@ -107,14 +92,11 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-rose-700 to-pink-900',
     desc: 'Visi artistik, casting, penilai utama aktor',
     steps: [
-      'Dashboard → lihat kriteria akting pemain & progres latihan',
       'Studio & Naskah → 3x3 blocking grid untuk blocking panggung',
-      'Simpan posisi aktor di 9 zona panggung (UL, UC, UR, CL, C, CR, DL, DC, DR)',
+      'Simpan posisi aktor di 9 zona panggung',
       'Editor Cue Sheet untuk instruksi cue musik & lampu',
-      'Presensi → buat sesi latihan untuk Pemain + Tata Musik (peserta terkunci)',
-      'Nilai & Penilaian → beri nilai Asisten Sutradara, Pemain, dan Koordinator Artistik (Busana, Rias, Panggung, Musik)',
-      'Saat Show Time: pimpin gladi bersih & pastikan durasi tepat 30 menit',
-      'Beri motivasi akhir & input nilai keaktoran saat pementasan',
+      'Presensi → buat sesi latihan untuk Pemain + Tata Musik',
+      'Nilai & Penilaian → beri nilai Asisten Sutradara, Pemain, dan Koordinator Artistik',
       'Setelah selesai: tulis analisis perkembangan keaktoran individual via web',
     ],
   },
@@ -124,16 +106,10 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-purple-700 to-indigo-900',
     desc: 'Prompt book, cue sheet, catatan latihan',
     steps: [
-      'Dashboard → lihat status pemain & cue berikutnya',
       'Studio → Prompt Book untuk kelola cue sheet audio & lighting',
       'Susun Call Sheet latihan per adegan',
-      'Kelola setor hafalan dialog pemain via video/audio',
-      'Latih Shadow Player (pemain cadangan)',
       'Presensi → buat absensi latihan Pemain + Musik',
-      'Nilai & Penilaian → beri nilai Pemain (bawahan), Sutradara (feedback ke atasan), & Koor Artistik (rekan kerja)',
-      'Saat Show Time: panggil pemain ke wing, pandu pemanasan vokal',
-      'Kontrol urutan adegan sesuai 30 menit',
-      'Siap gantikan Sutradara jika berhalangan',
+      'Nilai & Penilaian → beri nilai Pemain (bawahan) & Sutradara (feedback)',
       'Setelah selesai: konsolidasi catatan perkembangan pemain ke arsip',
     ],
   },
@@ -143,14 +119,11 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-blue-700 to-blue-900',
     desc: 'Properti, bahan daur ulang, inventaris',
     steps: [
-      'Dashboard → lihat 6 divisi & progress perlengkapan',
-      'Properti → daftar properti per adegan (maks prioritas daur ulang)',
-      'Update status properti: BELUM / PROSES / SELESAI / RUSAK',
-      'Presensi → buat sesi absensi internal divisi Perlengkapan (peserta terkunci ke anggota)',
+      'Properti → daftar properti per adegan, update status properti',
+      'Presensi → buat sesi absensi internal divisi',
       'Jadwal Divisi → tambah jadwal internal divisi',
-      'Nilai & Penilaian → beri nilai Anggota Perlengkapan (bawahan) & Pimpinan Produksi (feedback atasan)',
-      'Saat Show Time: bagi zona prop table di wing, eksekusi transisi properti cepat',
-      'Setelah selesai: kembalikan inventaris sekolah & update status barang di web',
+      'Nilai & Penilaian → beri nilai Anggota Perlengkapan & Pimpinan Produksi',
+      'Setelah selesai: kembalikan inventaris sekolah & update status barang',
     ],
   },
   'Koordinator Publikasi': {
@@ -159,13 +132,9 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-emerald-700 to-green-900',
     desc: 'Poster, konten, BTS, aftermovie',
     steps: [
-      'Dashboard → kelola timeline publikasi & jadwal konten',
       'Jadwal Konten → susun kalender konten (H-30, H-14, H-7, H-1, Hari-H)',
       'Dokumen & Arsip → unggah foto & video Behind the Scene',
-      'Presensi internal divisi untuk koordinasi',
-      'Nilai & Penilaian → beri nilai Anggota Publikasi (bawahan) & Pimpinan Produksi (feedback atasan)',
-      'Saat Show Time: pasang kamera statis di angle terbaik',
-      'Ambil foto candid penonton & rekam pementasan 30 menit utuh',
+      'Nilai & Penilaian → beri nilai Anggota Publikasi & Pimpinan Produksi',
       'Setelah selesai: sunting aftermovie & arsipkan semua media ke Drive',
     ],
   },
@@ -175,12 +144,9 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-purple-700 to-purple-900',
     desc: 'Desain panggung, set, cross-operator',
     steps: [
-      'Dashboard → lihat progress divisi & tugas terkait',
       'Properti → kelola properti panggung (set, backdrop)',
       'Presensi internal divisi Tata Panggung',
-      'Nilai & Penilaian → beri nilai Anggota Panggung (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: eksekusi pasang set 10 menit, bongkar 5 menit',
-      'Jaga sterilitas area samping & pindahkan dekorasi tanpa suara',
+      'Nilai & Penilaian → beri nilai Anggota Panggung & Sutradara',
       'Setelah selesai: bongkar set & kembalikan panggung ke kondisi semula',
     ],
   },
@@ -190,13 +156,9 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-pink-700 to-rose-900',
     desc: 'Face chart, rias karakter/fantasi, higienitas',
     steps: [
-      'Dashboard → kelola face chart & jadwal urutan merias',
       'Face Chart → buat desain rias per pemain (Korektif / Karakter / Fantasi)',
       'Unggah moodboard & face chart ke web',
-      'Presensi internal divisi Tata Rias',
-      'Nilai & Penilaian → beri nilai Anggota Rias (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: eksekusi tata rias sesuai timeline',
-      'Standby touch-up cepat di antara adegan',
+      'Nilai & Penilaian → beri nilai Anggota Rias & Sutradara',
       'Setelah selesai: dampingi pembersihan rias & sterilkan alat',
     ],
   },
@@ -206,13 +168,9 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-indigo-700 to-indigo-900',
     desc: 'Desain kostum, fitting, quick change',
     steps: [
-      'Dashboard → kelola desain & status kostum per peran',
       'Kostum → tambah kostum untuk karakter & pemain',
       'Track progress: DESAIN → POTONG → JAHIT → FITTING → SELESAI',
-      'Simpan moodboard, ukuran pemain, meter kain yang digunakan',
-      'Presensi internal divisi Tata Busana',
-      'Nilai & Penilaian → beri nilai Anggota Busana (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: bagi area rak gantung, dampingi quick change pemain',
+      'Nilai & Penilaian → beri nilai Anggota Busana & Sutradara',
       'Setelah selesai: cuci, bersihkan, & kembalikan aset kostum',
     ],
   },
@@ -222,13 +180,9 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-cyan-700 to-blue-900',
     desc: 'Cue sheet audio, sound check, instrumen',
     steps: [
-      'Dashboard → kelola sound cue sheet',
       'Cue Sheet → tambah cue audio: Overture, Penutup, Pergantian Babak, dll',
       'Simpan URL audio, volume, durasi per cue',
-      'Presensi internal divisi Tata Musik',
-      'Nilai & Penilaian → beri nilai Anggota Musik (bawahan) & Sutradara (feedback atasan artistik)',
-      'Saat Show Time: bagi channel mixer, check sound 10 menit',
-      'Mainkan musik iringan presisi mengikuti alur adegan 30 menit',
+      'Nilai & Penilaian → beri nilai Anggota Musik & Sutradara',
       'Setelah selesai: rapikan & kembalikan instrumen ke penyimpanan',
     ],
   },
@@ -238,15 +192,12 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-blue-600 to-blue-800',
     desc: 'Produksi properti, bahan daur ulang',
     steps: [
-      'Dashboard → lihat tugas dari koordinator & progress Anda',
       'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
-      'Bukti tidak wajib. Untuk menambahkan catatan atau link (mis. Google Drive), pilih "Tambah Catatan"',
       'Properti → tambah/update properti yang Anda kerjakan',
       'Jadwal Divisi Saya → lihat agenda internal divisi',
       'Presensi → isi kehadiran Anda di setiap sesi',
-      'Kas Saya → cek tagihan kas yang harus dibayar',
-      'Nilai & Penilaian → beri nilai Koordinator Perlengkapan (feedback atasan) & sesama Anggota (rekan)',
-      'Nilai Saya → lihat rapor pribadi',
+      'Nilai & Penilaian → beri nilai Koordinator Perlengkapan & sesama Anggota',
+      'Nilai Saya → lihat rapor pribadi (jika sudah menilai teman)',
     ],
   },
   'Anggota Publikasi': {
@@ -255,13 +206,11 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-emerald-600 to-emerald-800',
     desc: 'Foto, video, BTS, media sosial',
     steps: [
-      'Dashboard → lihat tugas dokumentasi yang ditugaskan',
-      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan link media dari Drive sebagai catatan jika perlu',
+      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan link media dari Drive',
       'Dokumen & Arsip → unggah foto/video ke arsip digital',
       'Jadwal Konten → lihat kalender publikasi',
       'Presensi → isi kehadiran di setiap sesi',
-      'Kas Saya → cek tagihan kas',
-      'Nilai & Penilaian → beri nilai Koordinator Publikasi (feedback atasan) & sesama Anggota (rekan)',
+      'Nilai & Penilaian → beri nilai Koordinator Publikasi & sesama Anggota',
     ],
   },
   'Anggota Tata Panggung': {
@@ -270,12 +219,10 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-purple-600 to-purple-800',
     desc: 'Konstruksi set, spotting, dekorasi',
     steps: [
-      'Dashboard → lihat tugas konstruksi set',
-      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan catatan jika perlu',
+      'Tugas & Deadline → tekan "Tandai Selesai" dan tambahkan catatan',
       'Properti → update status pekerjaan konstruksi',
       'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Panggung (feedback atasan) & sesama Anggota (rekan)',
+      'Nilai & Penilaian → beri nilai Koor Panggung & sesama Anggota',
     ],
   },
   'Anggota Tata Rias': {
@@ -284,12 +231,10 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-pink-600 to-rose-800',
     desc: 'Aplikasi rias, higienitas alat',
     steps: [
-      'Dashboard → lihat tugas rias yang ditugaskan',
       'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
       'Face Chart → lihat desain rias dari koordinator',
       'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Rias (feedback atasan) & sesama Anggota (rekan)',
+      'Nilai & Penilaian → beri nilai Koor Rias & sesama Anggota',
     ],
   },
   'Anggota Tata Busana': {
@@ -298,12 +243,10 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-indigo-600 to-indigo-800',
     desc: 'Jahit, modifikasi, fitting',
     steps: [
-      'Dashboard → lihat tugas busana',
       'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
       'Kostum → update status kostum yang Anda kerjakan',
       'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Busana (feedback atasan) & sesama Anggota (rekan)',
+      'Nilai & Penilaian → beri nilai Koor Busana & sesama Anggota',
     ],
   },
   'Anggota Tata Musik': {
@@ -312,12 +255,10 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-cyan-600 to-cyan-800',
     desc: 'Musik, sound, instrumen',
     steps: [
-      'Dashboard → lihat cue & tugas musik',
       'Tugas & Deadline → tekan "Tandai Selesai" pada tugas yang sudah dikerjakan',
       'Cue Sheet → lihat & update cue audio',
       'Presensi → isi kehadiran',
-      'Kas Saya → cek tagihan',
-      'Nilai & Penilaian → beri nilai Koor Musik (feedback atasan) & sesama Anggota (rekan)',
+      'Nilai & Penilaian → beri nilai Koor Musik & sesama Anggota',
     ],
   },
   'Pemain': {
@@ -326,16 +267,12 @@ const ROLE_GUIDES: Record<string, { title: string; icon: any; color: string; des
     color: 'from-rose-600 to-pink-800',
     desc: 'Akting, hafalan dialog, blocking, refleksi',
     steps: [
-      'Dashboard → lihat progress latihan & nilai sementara',
       'Naskah & Blocking → baca naskah digital & lihat blocking 3x3',
       'Rekam suara latihan dialog dengan fitur Perekam Suara',
-      'Ikuti 10 langkah latihan dialog',
-      'Tugas & Deadline → tekan "Tandai Selesai" & kirim hafalan via video jika diminta',
-      'Jadwal Latihan → konfirmasi kehadiran latihan',
+      'Tugas & Deadline → tekan "Tandai Selesai" & kirim hafalan via video',
       'Presensi → isi kehadiran di setiap sesi',
-      'Nilai & Penilaian → beri nilai Sutradara & Astrada (pengarah langsung), serta sesama Pemain (rekan)',
-      'Nilai Saya → lihat rapor penilaian keaktoran',
-      'Refleksi Diri → isi refleksi setelah pementasan',
+      'Nilai & Penilaian → WAJIB beri nilai Sutradara, Astrada, & sesama Pemain',
+      'Nilai Saya → lihat rapor (hanya terbuka jika sudah selesai menilai teman)',
     ],
   },
 };
@@ -350,7 +287,7 @@ export const GuideModule: React.FC = () => {
 
   const SECTIONS: GuideSection[] = [
     // ============================================
-    // 1. PANDUAN PERAN ANDA (dinamis berdasarkan login)
+    // 1. PANDUAN PERAN ANDA
     // ============================================
     {
       id: 'my-role',
@@ -412,7 +349,64 @@ export const GuideModule: React.FC = () => {
     },
 
     // ============================================
-    // 2. PENGANTAR SP-PPT
+    // 2. PANDUAN PENILAIAN 360°
+    // ============================================
+    {
+      id: 'assessment-guide',
+      title: 'Panduan Penilaian 360° & Aturan Kunci',
+      icon: Award,
+      color: 'from-indigo-600 to-purple-800',
+      content: (
+        <div className="space-y-4 text-xs text-slate-700 dark:text-slate-300">
+          <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30">
+            <h4 className="font-bold text-indigo-900 dark:text-indigo-200 mb-2 flex items-center gap-2">
+              <Lock className="w-4 h-4" /> 3 Aturan Kunci Sistem
+            </h4>
+            <ul className="list-disc pl-5 space-y-1.5">
+              <li><strong>Kunci Nilai Siswa (Peer Gate):</strong> Siswa <strong>TIDAK BISA</strong> melihat nilai mereka jika belum menyelesaikan penilaian ke rekan kerjanya. Jika belum lengkap, halaman "Nilai Saya" akan terkunci.</li>
+              <li><strong>Hak Edit Terbatas:</strong> Siswa hanya bisa mengisi nilai untuk teman yang ada di matriks penilaiannya. Siswa <strong>TIDAK BISA</strong> mengedit nilai dirinya sendiri, dan <strong>TIDAK BISA</strong> mengedit nilai yang sudah diisi oleh Guru atau temannya.</li>
+              <li><strong>Kunci Waktu:</strong> Guru harus membuka "Jadwal Penilaian". Di luar jadwal tersebut, siswa tidak bisa mengisi nilai.</li>
+            </ul>
+          </div>
+
+          <div className="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
+            <h4 className="font-bold text-emerald-900 dark:text-emerald-200 mb-2 flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" /> Alur Penilaian untuk Siswa
+            </h4>
+            <ol className="list-decimal pl-5 space-y-1">
+              <li>Buka menu <strong>Penilaian 360</strong>.</li>
+              <li>Anda hanya melihat daftar teman yang <strong>memang menjadi jatah Anda untuk dinilai</strong>. Siswa lain tidak akan muncul.</li>
+              <li>Klik tombol <strong>Isi</strong>, lalu berikan nilai 1-4.</li>
+              <li>Wajib isi komentar jika memberi nilai ≤ 2.</li>
+              <li>Setelah semua jatah dinilai, barulah menu <strong>Nilai Saya</strong> bisa dibuka.</li>
+            </ol>
+          </div>
+
+          <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+            <h4 className="font-bold text-amber-900 dark:text-amber-200 mb-2 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4" /> Kendali Penuh Guru
+            </h4>
+            <ul className="list-disc pl-5 space-y-1">
+              <li><strong>Bypass Lock:</strong> Guru/Admin tetap bisa menilai meskipun jadwal penilaian sedang ditutup.</li>
+              <li><strong>Intervensi Nilai:</strong> Guru bisa mengedit nilai yang diberikan oleh siswa (rekan) melalui tombol "Edit Nilai" di modal detail.</li>
+              <li><strong>Reset & Moderasi:</strong> Guru bisa mereset nilai satu tahap atau melihat daftar anomali (nilai seragam/ekstrem).</li>
+            </ul>
+          </div>
+
+          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+            <h4 className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">Rumus Auto-Score (Sistem):</h4>
+            <ul className="list-disc pl-5 text-[11px] space-y-0.5">
+              <li><strong>Tanggung Jawab (25%):</strong> Dari % tugas tepat waktu.</li>
+              <li><strong>Kehadiran (20%):</strong> Dari % presensi.</li>
+              <li><strong>Safety Net:</strong> Jika tidak mengerjakan tugas sama sekali, nilai maksimal 70.</li>
+            </ul>
+          </div>
+        </div>
+      ),
+    },
+
+    // ============================================
+    // 3. PENGANTAR SP-PPT
     // ============================================
     {
       id: 'intro',
@@ -427,7 +421,7 @@ export const GuideModule: React.FC = () => {
           </p>
           <p>
             Sistem ini mendokumentasikan, mengelola alur kerja, dan menilai proses produksi teater
-            secara holistik dari tahap <strong>Pra-Produksi → Pelaksanaan (3 bulan) → Show Time → Pasca-Produksi</strong>.
+            secara holistik dari tahap <strong>Pra-Produksi → Pelaksanaan → Show Time → Pasca-Produksi</strong>.
           </p>
           <div className="p-3 bg-amber-50 dark:bg-amber-500/10 rounded-xl border border-amber-200 dark:border-amber-500/30">
             <p className="text-amber-900 dark:text-amber-200 font-bold text-[11px] flex items-center gap-1.5">
@@ -443,7 +437,7 @@ export const GuideModule: React.FC = () => {
     },
 
     // ============================================
-    // 3. SEMUA PERAN
+    // 4. SEMUA PERAN
     // ============================================
     {
       id: 'all-roles',
@@ -507,64 +501,6 @@ export const GuideModule: React.FC = () => {
     },
 
     // ============================================
-    // 4. CARA MENDAFTAR AKUN
-    // ============================================
-    {
-      id: 'register',
-      title: 'Cara Mendaftar Akun Baru',
-      icon: KeyRound,
-      color: 'from-blue-700 to-indigo-900',
-      content: (
-        <div className="space-y-3 text-xs leading-relaxed">
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              Yang dibutuhkan:
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
-              <li>Kode Kelas (dapat dari Guru Pengampu)</li>
-              <li>Nama lengkap sesuai data sekolah</li>
-              <li>Email aktif (boleh Gmail/email sekolah)</li>
-              <li>Nomor WhatsApp aktif (WAJIB — untuk koordinasi produksi)</li>
-              <li>Password minimal 6 karakter</li>
-              <li>Peran/Jabatan dalam kepanitiaan</li>
-            </ul>
-          </div>
-
-          <div className="space-y-2">
-            <p className="font-bold text-slate-900 dark:text-slate-200">Langkah pendaftaran:</p>
-            {[
-              'Buka halaman login SP-PPT',
-              'Pilih tab "Siswa"',
-              'Klik "Daftar Siswa" di bawah tombol masuk',
-              'Isi kode kelas yang diberikan guru (contoh: IXF-RAC97BK4)',
-              'Isi nama lengkap, email, nomor WhatsApp',
-              'Buat password & konfirmasi ulang',
-              'Pilih peran Anda dari dropdown (Pengurus Inti, Pemeran & Penyutradaraan, Koordinator Divisi, atau Anggota Divisi)',
-              'Klik "Daftarkan Akun Siswa"',
-              'Setelah berhasil, login kembali dengan email & password',
-              'Modal verifikasi akan muncul — klik "Ya, Saya Benar" untuk konfirmasi',
-            ].map((step, i) => (
-              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                <span className="w-6 h-6 rounded-full bg-blue-500 text-white font-bold flex items-center justify-center text-[11px] shrink-0">
-                  {i + 1}
-                </span>
-                <p className="text-slate-700 dark:text-slate-300 pt-0.5">{step}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed">
-              <strong>Perhatian:</strong> Nomor WhatsApp tidak boleh kosong — dipakai untuk koordinasi
-              mendadak (mis. perubahan jadwal gladi). Pastikan nomor Anda aktif.
-            </p>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
     // 5. VERIFIKASI LOGIN
     // ============================================
     {
@@ -584,7 +520,7 @@ export const GuideModule: React.FC = () => {
                 <CheckCircle className="w-3.5 h-3.5" /> Jika ini Anda
               </p>
               <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1">
-                Klik tombol hijau <strong>"Ya, Saya Benar"</strong> untuk lanjut ke dashboard.
+                Klik tombol hijau <strong>"Ya, Saya Benar"</strong> untuk lanjut.
               </p>
             </div>
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
@@ -592,173 +528,16 @@ export const GuideModule: React.FC = () => {
                 <AlertTriangle className="w-3.5 h-3.5" /> Jika bukan Anda
               </p>
               <p className="text-[11px] text-rose-700 dark:text-rose-400 mt-1">
-                Klik <strong>"Bukan Saya"</strong> untuk langsung logout & mencegah penyalahgunaan akun.
+                Klik <strong>"Bukan Saya"</strong> untuk langsung logout.
               </p>
             </div>
           </div>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              Fitur keamanan tambahan:
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc">
-              <li>Auto-logout jika profil tidak ditemukan</li>
-              <li>Konfirmasi logout (Ya/Tidak) untuk mencegah klik tak sengaja</li>
-              <li>Kredensial dicatat Guru agar bisa dibantu reset password</li>
-              <li>Audit log mencatat semua aktivitas login/logout</li>
-            </ul>
-          </div>
         </div>
       ),
     },
 
     // ============================================
-    // 6. SISTEM PENILAIAN 360
-    // ============================================
-    {
-      id: 'grading',
-      title: 'Sistem Penilaian 360',
-      icon: Award,
-      color: 'from-amber-600 to-orange-800',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Setiap siswa dinilai dari dua sumber: <strong>skor otomatis</strong> dari data sistem
-            (tugas, kehadiran, dan kedisiplinan) dan <strong>penilaian manual</strong> dari penilai.
-          </p>
-
-          <div className="p-3.5 bg-slate-900 text-amber-300 rounded-xl font-mono text-[11px] text-center leading-relaxed">
-            Nilai Akhir = rata-rata tiap kategori penilai<br />
-            (Guru Pengampu, Koordinator, Rekan Kerja, Anggota Tim)<br />
-            dikalikan bobot yang berbeda untuk setiap peran
-          </div>
-
-          <div>
-            <p className="font-bold text-slate-900 dark:text-slate-200 mb-2 text-[11px]">Skala Penilaian Manual:</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-              {[
-                { score: 1, label: 'Kurang', color: 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30' },
-                { score: 2, label: 'Cukup', color: 'bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30' },
-                { score: 3, label: 'Baik', color: 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30' },
-                { score: 4, label: 'Sangat Baik', color: 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30' },
-              ].map(item => (
-                <div key={item.label} className={`p-2 rounded-lg border ${item.color}`}>
-                  <p className="font-bold text-xs text-slate-800 dark:text-slate-200">{item.label}</p>
-                  <p className="font-mono text-slate-500 dark:text-slate-400 text-[10px]">Nilai: {item.score}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1">
-              Skor otomatis (diisi sistem, tidak bisa diubah manual):
-            </p>
-            <ul className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1 pl-4 list-disc">
-              <li><strong>Tanggung Jawab</strong>: dihitung dari ketepatan waktu pengumpulan tugas. Tugas kritis yang terlambat atau belum dikerjakan menurunkan skor.</li>
-              <li><strong>Kehadiran</strong>: dihitung dari sesi presensi. Status Hadir, Izin, dan Sakit dihitung sebagai hadir. Alpa tiga kali atau lebih, atau alpa di sesi Gladi/Pementasan, membatasi skor maksimal.</li>
-              <li><strong>Kedisiplinan</strong>: hanya untuk peran Pemeran, merupakan rata-rata dari Tanggung Jawab dan Kehadiran.</li>
-            </ul>
-          </div>
-
-          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30">
-            <p className="text-[11px] text-rose-900 dark:text-rose-200 leading-relaxed font-bold flex items-center gap-1.5 mb-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> Safety Net (Batas Maksimum Nilai)
-            </p>
-            <p className="text-[11px] text-rose-800 dark:text-rose-300 leading-relaxed mb-1">
-              Untuk menjaga keadilan, sistem membatasi nilai maksimum dalam kondisi berikut:
-            </p>
-            <ul className="text-[11px] text-rose-800 dark:text-rose-300 space-y-0.5 pl-4 list-disc">
-              <li>Jika siswa <strong>tidak mengerjakan tugas sama sekali</strong> (skor Tanggung Jawab = 1), nilai maksimal adalah <strong>70 (Predikat C)</strong>.</li>
-              <li>Jika siswa berperan sebagai <strong>Pemeran</strong> dan memiliki <strong>Kedisiplinan rendah</strong> (≤ 2), nilai maksimal adalah <strong>75</strong>.</li>
-              <li>Ini memastikan siswa tidak bisa mendapatkan nilai A hanya dari penilaian teman, jika ia malas mengerjakan tugas.</li>
-            </ul>
-          </div>
-
-          <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30">
-            <p className="font-bold text-purple-900 dark:text-purple-200 text-[11px] mb-1">
-              Jendela penilaian:
-            </p>
-            <ul className="text-[11px] text-purple-800 dark:text-purple-300 space-y-0.5 pl-4 list-disc">
-              <li>Guru mengatur jadwal buka dan tutup penilaian per tahap di menu Jadwal Penilaian.</li>
-              <li>Di luar rentang tanggal dan jam, penilai tidak bisa mengisi atau mengubah nilai, termasuk Guru.</li>
-              <li>Jika tanggal belum diisi, penilaian terbuka tanpa batas waktu.</li>
-              <li>Tahap yang dinonaktifkan di Kelola Tahapan juga mengunci penilaian tahap tersebut.</li>
-            </ul>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 7. TUGAS & DEADLINE
-    // ============================================
-    {
-      id: 'tasks',
-      title: 'Tugas & Deadline',
-      icon: CheckSquare,
-      color: 'from-blue-700 to-indigo-900',
-      content: (
-        <div className="space-y-3 text-xs">
-          <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-            Guru dan pengurus dapat membuat tugas dari <strong>template</strong> yang sudah disiapkan,
-            atau menginput tugas secara manual. Siswa menandai tugasnya sebagai selesai di menu yang sama.
-          </p>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-            <p className="font-bold text-blue-900 dark:text-blue-200 text-[11px] mb-1.5">
-              Cara membuat tugas dari template:
-            </p>
-            <ol className="text-[11px] text-blue-800 dark:text-blue-300 space-y-1 pl-4 list-decimal">
-              <li>Buka menu Tugas & Deadline</li>
-              <li>Pilih <strong>Tahap Produksi</strong> (Persiapan / Pelaksanaan / Pertunjukan / Pasca)</li>
-              <li>Pilih satu atau beberapa <strong>template</strong></li>
-              <li>Pilih <strong>target</strong>: beberapa peran, beberapa divisi, atau semua siswa</li>
-              <li>Atur jatuh tempo: tetap, digeser, atau diganti tanggal tertentu (override)</li>
-              <li>Periksa jumlah penerima di langkah terakhir, lalu kirim</li>
-            </ol>
-            <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-2">
-              Tugas bisa ditandai <strong>Kritis</strong>. Tugas kritis memengaruhi skor Tanggung Jawab di penilaian.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-            <p className="font-bold text-emerald-900 dark:text-emerald-200 text-[11px] mb-1.5">
-              Cara siswa menandai tugas:
-            </p>
-            <ol className="text-[11px] text-emerald-800 dark:text-emerald-300 space-y-1 pl-4 list-decimal">
-              <li>Buka menu Tugas & Deadline</li>
-              <li>Lihat daftar tugas dengan badge prioritas dan countdown</li>
-              <li>Tekan <strong>"Tandai Selesai"</strong> jika tugas sudah dikerjakan. Tidak perlu link apa pun</li>
-              <li>Untuk menambahkan catatan atau link bukti (mis. Google Drive), pilih <strong>"Tambah Catatan"</strong>. Ini opsional</li>
-              <li>Tekan <strong>"Batalkan"</strong> jika status selesai perlu dibatalkan</li>
-            </ol>
-            <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-2">
-              Jika tugas sudah lewat deadline, tombol tetap bisa dipakai. Status akan tercatat sebagai <strong>Terlambat</strong>.
-              Countdown akan berhenti (DITAHAN) saat tugas ditahan oleh Guru.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-            <p className="font-bold text-amber-900 dark:text-amber-200 text-[11px] mb-1 flex items-center gap-1.5">
-              <History className="w-3.5 h-3.5" /> Tugas Tertinggal (dari Tahap Sebelumnya)
-            </p>
-            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed mb-1">
-              Jika Anda belum menyelesaikan tugas di tahap sebelumnya dan tahap baru sudah dibuka, tugas lama akan tetap muncul dengan label <strong>TERTINGGAL</strong>.
-            </p>
-            <ul className="text-[11px] text-amber-800 dark:text-amber-300 space-y-0.5 pl-4 list-disc">
-              <li>Anda <strong>tetap bisa mengumpulkannya</strong> sekarang.</li>
-              <li>Namun, sistem akan mencatatnya sebagai <strong>Terlambat</strong>.</li>
-              <li>Nilai Anda akan <strong>dikurangi</strong> pada penilaian Tanggung Jawab.</li>
-              <li>Jika tidak dikumpulkan, Anda akan mendapatkan <strong>Nilai 0</strong> untuk tugas tersebut.</li>
-            </ul>
-          </div>
-        </div>
-      ),
-    },
-
-    // ============================================
-    // 8. FAQ
+    // 6. FAQ
     // ============================================
     {
       id: 'faq',
@@ -770,11 +549,15 @@ export const GuideModule: React.FC = () => {
           {[
             {
               q: 'Lupa password, bagaimana?',
-              a: 'Hubungi Guru Pengampu. Guru bisa membuka menu Kelola Siswa: tombol "Lihat Pass" menampilkan email dan password Anda, sedangkan tombol "Reset" mengirim link reset password ke email Anda. Setelah membuka link, buat password baru sendiri.',
+              a: 'Hubungi Guru Pengampu. Guru bisa membuka menu Kelola Siswa: tombol "Lihat Pass" menampilkan email dan password Anda, sedangkan tombol "Reset" mengirim link reset password ke email Anda.',
             },
             {
-              q: 'Saat login muncul "Profil tidak ditemukan"?',
-              a: 'Akun Anda mungkin terdaftar di Firebase Auth tapi profil Firestore hilang. Silakan daftar ulang dengan kode kelas, atau hubungi Guru untuk didaftarkan manual.',
+              q: 'Kenapa nilai saya tidak muncul di menu "Nilai Saya"?',
+              a: 'Ada dua kemungkinan: (1) Anda belum menyelesaikan penilaian rekan kerja (Peer Assessment). Selesaikan dulu di menu Penilaian 360. (2) Guru belum membuka jadwal penilaian untuk tahap tersebut.',
+            },
+            {
+              q: 'Kenapa tombol "Isi" tidak ada di nama teman saya?',
+              a: 'Sistem hanya menampilkan nama teman yang menjadi jatah penilaian Anda sesuai matriks. Jika nama teman tidak muncul, berarti Anda tidak berhak menilainya.',
             },
             {
               q: 'Saat login muncul "Role tidak cocok dengan tab"?',
@@ -782,19 +565,11 @@ export const GuideModule: React.FC = () => {
             },
             {
               q: 'Notifikasi tidak muncul di bell?',
-              a: 'Cek: (1) koneksi internet, (2) izin notifikasi browser, (3) refresh halaman. Notifikasi real-time dari Firestore biasanya muncul dalam 1-2 detik.',
-            },
-            {
-              q: 'Tidak bisa melihat menu Kas / RAB?',
-              a: 'Menu Kas & RAB hanya untuk Bendahara (edit) dan Admin/Guru (view RAB). Siswa hanya melihat "Kas Saya" (tagihan pribadi).',
+              a: 'Cek: (1) koneksi internet, (2) izin notifikasi browser, (3) refresh halaman.',
             },
             {
               q: 'Kenapa tombol Nilai tidak bisa dipakai?',
-              a: 'Ada tiga kemungkinan: tahap yang dipilih sedang nonaktif di Kelola Tahapan, penilaian tahap itu dinonaktifkan atau belum dibuka di Jadwal Penilaian, atau waktu penilaian sudah berakhir. Pesan di bagian atas halaman Penilaian 360 menjelaskan kondisinya.',
-            },
-            {
-              q: 'Bagaimana cara ganti nama kerabat kerja (nama produksi)?',
-              a: 'Guru Pengampu & Pimpinan Produksi bisa ubah di menu Struktur Kerabat → klik ikon pensil di samping nama kerabat.',
+              a: 'Tahap yang dipilih mungkin sedang nonaktif, penilaian dinonaktifkan, atau waktu penilaian sudah berakhir. Pesan di bagian atas halaman Penilaian 360 akan menjelaskan kondisinya.',
             },
           ].map((item, i) => (
             <div key={i} className="p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
@@ -813,7 +588,7 @@ export const GuideModule: React.FC = () => {
     },
 
     // ============================================
-    // 9. TENTANG APLIKASI
+    // 7. TENTANG APLIKASI
     // ============================================
     {
       id: 'about',
@@ -837,14 +612,6 @@ export const GuideModule: React.FC = () => {
             <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
               <strong>© 2026 {APP_CONFIG.schoolName}.</strong> Hak cipta dilindungi undang-undang.
               Platform dikembangkan untuk pembelajaran Seni Teater secara terintegrasi.
-            </p>
-          </div>
-
-          <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-              <strong>Tips:</strong> Panduan ini bisa dibuka kapan pun dari menu Panduan & FAQ di sidebar.
-              Setiap peran memiliki akses yang berbeda sesuai tugas & tanggung jawabnya.
             </p>
           </div>
         </div>
