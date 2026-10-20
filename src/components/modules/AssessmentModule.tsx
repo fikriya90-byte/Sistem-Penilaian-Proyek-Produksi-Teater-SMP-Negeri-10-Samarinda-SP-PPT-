@@ -168,6 +168,8 @@ export const AssessmentModule: React.FC = () => {
   const [isResetting, setIsResetting] = useState(false);
   const [showAnomalies, setShowAnomalies] = useState(false);
   const [selectedPeerIds, setSelectedPeerIds] = useState<string[]>([]);
+  
+  // ✅ State untuk Modal Komentar
   const [showCommentsFor, setShowCommentsFor] = useState<UserProfile | null>(null);
   
   const [isDetailOpen, setIsDetailOpen] = useState(false);
@@ -182,21 +184,13 @@ export const AssessmentModule: React.FC = () => {
 
   const canManageAll = isGuruPengampu || isAdminRole;
 
-  // ✅ PERBAIKAN: Guru mengikuti matriks, TIDAK bypass untuk menilai semua siswa
   const canGradeStudent = (s: UserProfile) => {
     if (!user) return false;
-    
-    // Admin (Super Admin) bisa menilai siapa saja
     if (user.role === 'Admin' || user.role === 'Super Admin') return true;
-    
-    // Tidak bisa menilai diri sendiri
     if (s.uid === user.uid) return false;
     
-    // Cek matriks penilaian untuk semua role (termasuk Guru Pengampu)
     const targetRole = normalizeUserRole(s.role);
     const matrix = getAssessmentMatrix(targetRole);
-    
-    // Jika role user (misal 'Guru Pengampu') ada di dalam matriks siswa tersebut
     return matrix.some(r => r.roles.includes(user.role));
   };
 
@@ -668,19 +662,6 @@ export const AssessmentModule: React.FC = () => {
             </div>
           </div>
         )}
-
-        {canManageAll && (
-          <div className="mt-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
-            <ListChecks className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-blue-900 leading-relaxed">
-              <p className="font-bold">Mode Guru/Admin:</p>
-              <ul className="list-disc pl-4 mt-0.5 space-y-0.5">
-                <li>Klik <strong>Nilai Akhir</strong> di tabel untuk melihat siapa saja yang menilai siswa.</li>
-                <li>Klik <strong>Edit</strong> di modal detail untuk mengubah nilai spesifik dari penilai manapun (termasuk nilai dari siswa/rekan).</li>
-              </ul>
-            </div>
-          </div>
-        )}
       </div>
 
       {canManageAll && pendingPeers.length > 0 && (() => {
@@ -866,7 +847,6 @@ export const AssessmentModule: React.FC = () => {
               ) : (
                 filtered.map(s => {
                   const ag = getAgg(s.uid, s.role);
-                  // cg menentukan apakah tombol diaktifkan. Wajib sesuai matriks (canGradeStudent).
                   const cg = canGradeStudent(s) && (canManageAll || (!isStageLocked && !isAssessmentLocked));
                   const ps = getPeerStatus(s);
                   const commentCount = assessments.filter(a =>
@@ -875,7 +855,6 @@ export const AssessmentModule: React.FC = () => {
                     a.comment && a.comment.trim()
                   ).length;
 
-                  // ✅ Cek apakah user yang login sudah menilai
                   const hasMyAssessment = assessments.some(a =>
                     a.assessorId === user?.uid &&
                     a.studentId === s.uid &&
@@ -935,13 +914,7 @@ export const AssessmentModule: React.FC = () => {
                                 <Lock className="w-3 h-3 opacity-80" />
                               )}
                             </button>
-                          ) : (
-                            <span className="text-[11px] text-slate-400">
-                              {isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : canGradeStudent(s) ? 'Lihat' : 'Bukan penilai'}
-                            </span>
-                          )}
-                          
-                          {/* Tombol WA untuk Guru jika siswa punya nomor WA */}
+                          ) : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : canGradeStudent(s) ? 'Lihat' : 'Bukan penilai'}</span>}
                           {canManageAll && s.phone && <button onClick={() => handleWAScore(s)} className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100" title="WA tanya nilai"><Send className="w-3.5 h-3.5" /></button>}
                         </div>
                       </td>
@@ -1144,6 +1117,70 @@ export const AssessmentModule: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ✅ MODAL LIHAT KOMENTAR (FITUR BARU) */}
+      {showCommentsFor && (() => {
+        const targetComments = assessments.filter(a =>
+          a.studentId === showCommentsFor.uid &&
+          a.stage === selectedStage &&
+          a.comment && a.comment.trim()
+        );
+        return (
+          <div className="fixed inset-0 z-[75] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+            <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl my-auto max-h-[92vh] flex flex-col overflow-hidden">
+              <div className="p-4 bg-gradient-to-r from-blue-600 to-indigo-700 text-white shrink-0">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <MessageCircle className="w-5 h-5" />
+                    <div>
+                      <h3 className="text-sm font-black">Komentar Penilai</h3>
+                      <p className="text-[10px] opacity-90">{showCommentsFor.displayName}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setShowCommentsFor(null)} className="p-1.5 rounded-lg hover:bg-white/20">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="p-5 overflow-y-auto flex-1 space-y-3">
+                {targetComments.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic text-center py-4">Belum ada komentar dari penilai untuk tahap ini.</p>
+                ) : (
+                  targetComments.map((c) => {
+                    const cat = ((c as any).assessorCategory as AssessorCategory) || 'REKAN';
+                    const catColor =
+                      cat === 'GURU' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                      cat === 'ATASAN' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                      cat === 'REKAN' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                      'bg-purple-100 text-purple-800 border-purple-300';
+
+                    return (
+                      <div key={c.id} className="p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${catColor}`}>
+                            {CATEGORY_LABEL[cat]}
+                          </span>
+                          <span className="text-xs font-bold text-slate-800">{c.assessorName}</span>
+                          <span className="text-[10px] text-slate-500 font-mono ml-auto">Nilai: {c.totalScore}</span>
+                        </div>
+                        <p className="text-xs text-slate-700 leading-relaxed italic bg-white p-3 rounded-xl border border-slate-100">
+                          "{c.comment}"
+                        </p>
+                        <p className="text-[9px] text-slate-400 mt-1 text-right">
+                          {new Date(c.updatedAt || c.createdAt || '').toLocaleString('id-ID')}
+                        </p>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-end shrink-0">
+                <button onClick={() => setShowCommentsFor(null)} className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs">Tutup</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {isDetailOpen && detailStudent && (() => {
         const ag = getAgg(detailStudent.uid, detailStudent.role);
