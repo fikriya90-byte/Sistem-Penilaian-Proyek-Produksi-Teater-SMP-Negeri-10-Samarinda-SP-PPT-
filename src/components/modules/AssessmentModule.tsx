@@ -170,7 +170,6 @@ export const AssessmentModule: React.FC = () => {
   const [selectedPeerIds, setSelectedPeerIds] = useState<string[]>([]);
   const [showCommentsFor, setShowCommentsFor] = useState<UserProfile | null>(null);
   
-  // State untuk Detail & Edit Nilai Per Orang
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [detailStudent, setDetailStudent] = useState<UserProfile | null>(null);
   const [editingRecord, setEditingRecord] = useState<AssessmentRecord | null>(null);
@@ -183,12 +182,21 @@ export const AssessmentModule: React.FC = () => {
 
   const canManageAll = isGuruPengampu || isAdminRole;
 
+  // ✅ PERBAIKAN: Guru mengikuti matriks, TIDAK bypass untuk menilai semua siswa
   const canGradeStudent = (s: UserProfile) => {
-    if (canManageAll) return true;
-    if (!user || s.uid === user.uid) return false;
-    if (canAssessTarget(s)) return true;
+    if (!user) return false;
+    
+    // Admin (Super Admin) bisa menilai siapa saja
+    if (user.role === 'Admin' || user.role === 'Super Admin') return true;
+    
+    // Tidak bisa menilai diri sendiri
+    if (s.uid === user.uid) return false;
+    
+    // Cek matriks penilaian untuk semua role (termasuk Guru Pengampu)
     const targetRole = normalizeUserRole(s.role);
     const matrix = getAssessmentMatrix(targetRole);
+    
+    // Jika role user (misal 'Guru Pengampu') ada di dalam matriks siswa tersebut
     return matrix.some(r => r.roles.includes(user.role));
   };
 
@@ -448,7 +456,6 @@ export const AssessmentModule: React.FC = () => {
     setIsDetailOpen(true);
   };
 
-  // ✅ PERBAIKAN: Tambahkan guard untuk mencegah siswa membuka form edit
   const openEditRecord = (r: AssessmentRecord) => {
     if (!canManageAll) {
       showToast('Hanya Guru/Admin yang dapat mengedit nilai spesifik.', 'warning');
@@ -459,7 +466,6 @@ export const AssessmentModule: React.FC = () => {
     setEditRecordComment(r.comment || '');
   };
 
-  // ✅ PERBAIKAN: Tambahkan guard untuk mencegah siswa menyimpan perubahan
   const handleSaveRecord = async () => {
     if (!editingRecord || !user) return;
     if (!canManageAll) {
@@ -860,6 +866,7 @@ export const AssessmentModule: React.FC = () => {
               ) : (
                 filtered.map(s => {
                   const ag = getAgg(s.uid, s.role);
+                  // cg menentukan apakah tombol diaktifkan. Wajib sesuai matriks (canGradeStudent).
                   const cg = canGradeStudent(s) && (canManageAll || (!isStageLocked && !isAssessmentLocked));
                   const ps = getPeerStatus(s);
                   const commentCount = assessments.filter(a =>
@@ -868,7 +875,7 @@ export const AssessmentModule: React.FC = () => {
                     a.comment && a.comment.trim()
                   ).length;
 
-                  // ✅ CEK: Apakah USER yang sedang login ini sudah menilai siswa tersebut di tahap ini?
+                  // ✅ Cek apakah user yang login sudah menilai
                   const hasMyAssessment = assessments.some(a =>
                     a.assessorId === user?.uid &&
                     a.studentId === s.uid &&
@@ -928,7 +935,13 @@ export const AssessmentModule: React.FC = () => {
                                 <Lock className="w-3 h-3 opacity-80" />
                               )}
                             </button>
-                          ) : <span className="text-[11px] text-slate-400">{isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : canGradeStudent(s) ? 'Lihat' : 'Bukan penilai'}</span>}
+                          ) : (
+                            <span className="text-[11px] text-slate-400">
+                              {isStageLocked ? 'Tutup' : isAssessmentLocked ? 'Kunci' : canGradeStudent(s) ? 'Lihat' : 'Bukan penilai'}
+                            </span>
+                          )}
+                          
+                          {/* Tombol WA untuk Guru jika siswa punya nomor WA */}
                           {canManageAll && s.phone && <button onClick={() => handleWAScore(s)} className="p-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100" title="WA tanya nilai"><Send className="w-3.5 h-3.5" /></button>}
                         </div>
                       </td>
@@ -1132,9 +1145,6 @@ export const AssessmentModule: React.FC = () => {
         </div>
       )}
 
-      {/* ================================================= */}
-      {/* ✅ MODAL DETAIL & EDIT NILAI PER ORANG            */}
-      {/* ================================================= */}
       {isDetailOpen && detailStudent && (() => {
         const ag = getAgg(detailStudent.uid, detailStudent.role);
         if (!ag) return null;
@@ -1155,7 +1165,6 @@ export const AssessmentModule: React.FC = () => {
               <div className="p-5 overflow-y-auto flex-1 space-y-3">
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-900 font-semibold flex items-center gap-2">
                   <Info className="w-4 h-4 shrink-0" />
-                  {/* ✅ PERBAIKAN: Teks berubah tergantung role user */}
                   {canManageAll
                     ? 'Klik "Edit Nilai" untuk mengubah nilai spesifik dari penilai tersebut. Perubahan akan langsung memperbarui total nilai.'
                     : 'Anda hanya dapat melihat rincian nilai dari penilai lain. Hubungi Guru Pengampu jika ada kekeliruan.'}
@@ -1169,7 +1178,6 @@ export const AssessmentModule: React.FC = () => {
                     </div>
                     <div className="text-right shrink-0 flex flex-col items-end justify-center">
                       <p className="text-lg font-black font-mono text-slate-900 dark:text-white">{r.totalScore}</p>
-                      {/* ✅ PERBAIKAN: Tombol Edit hanya muncul jika canManageAll */}
                       {canManageAll && (
                         <button onClick={() => openEditRecord(r)} className="mt-1 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 text-[10px] font-bold transition flex items-center gap-1">
                           <Edit3 className="w-3 h-3" /> Edit Nilai
@@ -1187,9 +1195,6 @@ export const AssessmentModule: React.FC = () => {
         );
       })()}
 
-      {/* ================================================= */}
-      {/* ✅ MODAL EDIT NILAI SPESIFIK (PER ORANG)          */}
-      {/* ================================================= */}
       {editingRecord && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
           <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-6 space-y-4">
