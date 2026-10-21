@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import {
   FileText, Plus, Trash2, X, Save, Search, Download, Upload,
-  ExternalLink, Calculator, FileCheck, Users, Package, Globe,
-  CheckCircle, PenTool, User, AlertTriangle, Link2, Info,
+  ExternalLink, Calculator, FileCheck, Users, Globe,
+  CheckCircle, PenTool, User, AlertTriangle, Link2, Info, Edit3,
+  RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { DIVISIONS } from '../../core/constants';
 import {
-  doc, collection, setDoc, deleteDoc, onSnapshot, query, where, getDocs,
-  writeBatch,
+  doc, collection, setDoc, deleteDoc, onSnapshot, query, where, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
@@ -61,28 +61,12 @@ interface BulkRow {
   notes: string;
 }
 
-// =====================================================
-// DAFTAR PERAN LENGKAP (18 role)
-// =====================================================
 const PERAN_LIST = [
-  'Pimpinan Produksi',
-  'Sekretaris',
-  'Bendahara',
-  'Sutradara',
-  'Asisten Sutradara',
-  'Pemeran',
-  'Koordinator Perlengkapan',
-  'Koordinator Publikasi',
-  'Koordinator Tata Panggung',
-  'Koordinator Tata Rias',
-  'Koordinator Tata Busana',
-  'Koordinator Tata Musik',
-  'Anggota Perlengkapan',
-  'Anggota Publikasi',
-  'Anggota Tata Panggung',
-  'Anggota Tata Rias',
-  'Anggota Tata Busana',
-  'Anggota Tata Musik',
+  'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemeran',
+  'Koordinator Perlengkapan', 'Koordinator Publikasi', 'Koordinator Tata Panggung',
+  'Koordinator Tata Rias', 'Koordinator Tata Busana', 'Koordinator Tata Musik',
+  'Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung',
+  'Anggota Tata Rias', 'Anggota Tata Busana', 'Anggota Tata Musik',
 ];
 
 const CATEGORY_CONFIG: Record<Category, { label: string; icon: any; color: string }> = {
@@ -101,14 +85,12 @@ export const RABModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<'ALL' | Category>('ALL');
 
-  // Modal Item — now supports multi-row
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RABItem | null>(null);
   const [itemCategory, setItemCategory] = useState<Category>('DIVISI');
   const [itemTargetName, setItemTargetName] = useState<string>(DIVISIONS[1].id);
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
 
-  // Modal Document
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [docTitle, setDocTitle] = useState('RAB Final Produksi Teater');
   const [docFileUrl, setDocFileUrl] = useState('');
@@ -119,9 +101,7 @@ export const RABModule: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const canManageItems = isBendahara;
-  const canSignDocument = isBendahara;
 
-  // Subscribe items
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'rabItems'), where('classId', '==', activeClass.id));
@@ -131,7 +111,6 @@ export const RABModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // Subscribe documents
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'rabDocuments'), where('classId', '==', activeClass.id));
@@ -153,19 +132,12 @@ export const RABModule: React.FC = () => {
     notes: '',
   });
 
-  /**
-   * Buka modal untuk CREATE.
-   * Bisa dipanggil dari:
-   * - Tombol header (tanpa argumen) → default DIVISI
-   * - Tombol "+ Tambah" di grup → pre-fill kategori & target grup
-   */
   const openCreateItem = (presetCategory?: Category, presetTarget?: string) => {
     setEditingItem(null);
     const cat: Category = presetCategory || 'DIVISI';
     const target = presetTarget || (
       cat === 'DIVISI' ? DIVISIONS[1].id :
-      cat === 'PERAN' ? PERAN_LIST[0] :
-      'Umum'
+      cat === 'PERAN' ? PERAN_LIST[0] : 'Umum'
     );
     setItemCategory(cat);
     setItemTargetName(target);
@@ -188,16 +160,11 @@ export const RABModule: React.FC = () => {
     setIsItemModalOpen(true);
   };
 
-  // Ganti kategori → reset target sesuai kategori baru
   const handleCategoryChange = (newCat: Category) => {
     setItemCategory(newCat);
-    if (newCat === 'DIVISI') {
-      setItemTargetName(DIVISIONS[1].id);
-    } else if (newCat === 'PERAN') {
-      setItemTargetName(PERAN_LIST[0]);
-    } else {
-      setItemTargetName('Umum');
-    }
+    if (newCat === 'DIVISI') setItemTargetName(DIVISIONS[1].id);
+    else if (newCat === 'PERAN') setItemTargetName(PERAN_LIST[0]);
+    else setItemTargetName('Umum');
   };
 
   const updateBulkRow = (tempId: string, field: keyof BulkRow, value: any) => {
@@ -208,15 +175,129 @@ export const RABModule: React.FC = () => {
     setBulkRows(prev => [...prev, makeEmptyRow()]);
   };
 
+  /**
+   * ✅ FIX UTAMA: Hapus baris.
+   * - Jika > 1 baris: hapus baris spesifik
+   * - Jika hanya 1 baris: reset jadi kosong (bukan no-op)
+   */
   const removeBulkRow = (tempId: string) => {
-    setBulkRows(prev => prev.length <= 1 ? prev : prev.filter(r => r.tempId !== tempId));
+    setBulkRows(prev => {
+      if (prev.length <= 1) {
+        // Reset satu-satunya baris jadi kosong
+        return [makeEmptyRow()];
+      }
+      return prev.filter(r => r.tempId !== tempId);
+    });
+  };
+
+  const resetAllRows = () => {
+    setBulkRows([makeEmptyRow()]);
+    showToast('Semua baris dikosongkan.', 'info');
+  };
+
+  /**
+   * ✅ FIX UTAMA: Hapus item dari Firestore.
+   * - Pakai try/catch detail
+   * - Tampilkan error code kalau gagal (untuk diagnosa rules)
+   * - Fallback ke batch delete kalau deleteDoc gagal
+   * - Tutup modal otomatis setelah sukses (kalau sedang edit)
+   */
+  const handleDeleteItem = async (item: RABItem) => {
+    if (!user) {
+      showToast('Anda belum login.', 'error');
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'rabItems', item.id));
+      showToast(`✓ "${item.itemName}" dihapus.`, 'success');
+
+      try {
+        await recordAuditLog({
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'DELETE', targetType: 'RABItem', targetId: item.id,
+          details: `Hapus item RAB: ${item.itemName}`,
+        });
+      } catch { /* non-fatal */ }
+
+    } catch (err: any) {
+      const code = err?.code || 'unknown';
+      console.error('Delete RAB error:', err);
+
+      // Fallback: coba batch delete
+      try {
+        const batch = writeBatch(db);
+        batch.delete(doc(db, 'rabItems', item.id));
+        await batch.commit();
+        showToast(`✓ "${item.itemName}" dihapus.`, 'success');
+        return;
+      } catch (fallbackErr: any) {
+        console.error('Fallback delete juga gagal:', fallbackErr);
+      }
+
+      let msg = 'Gagal hapus.';
+      if (code === 'permission-denied') {
+        msg = 'Tidak punya izin hapus. Cek Firestore rules.';
+      } else if (code === 'unavailable') {
+        msg = 'Koneksi internet bermasalah.';
+      } else if (code === 'not-found') {
+        msg = 'Item sudah tidak ada.';
+      } else {
+        msg = `Gagal hapus [${code}]: ${err?.message || 'unknown'}`;
+      }
+      showToast(msg, 'error');
+    }
+  };
+
+  /**
+   * ✅ Hapus item saat sedang edit mode (dari dalam modal).
+   * Setelah sukses, tutup modal.
+   */
+  const handleDeleteFromEditModal = async () => {
+    if (!editingItem || !user) return;
+
+    try {
+      await deleteDoc(doc(db, 'rabItems', editingItem.id));
+      showToast(`✓ "${editingItem.itemName}" dihapus.`, 'success');
+
+      try {
+        await recordAuditLog({
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'DELETE', targetType: 'RABItem', targetId: editingItem.id,
+          details: `Hapus item RAB (edit mode): ${editingItem.itemName}`,
+        });
+      } catch { /* non-fatal */ }
+
+      setIsItemModalOpen(false);
+      setEditingItem(null);
+    } catch (err: any) {
+      const code = err?.code || 'unknown';
+      console.error('Delete from edit modal error:', err);
+
+      try {
+        const batch = writeBatch(db);
+        batch.delete(doc(db, 'rabItems', editingItem.id));
+        await batch.commit();
+        showToast(`✓ "${editingItem.itemName}" dihapus.`, 'success');
+        setIsItemModalOpen(false);
+        setEditingItem(null);
+        return;
+      } catch (fallbackErr) {
+        console.error('Fallback gagal:', fallbackErr);
+      }
+
+      let msg = 'Gagal hapus.';
+      if (code === 'permission-denied') msg = 'Tidak punya izin hapus. Cek Firestore rules.';
+      else if (code === 'unavailable') msg = 'Koneksi bermasalah.';
+      else msg = `Gagal [${code}]: ${err?.message || 'unknown'}`;
+      showToast(msg, 'error');
+    }
   };
 
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
 
-    // Filter baris valid (nama terisi + qty + harga > 0)
     const validRows = bulkRows.filter(r =>
       r.itemName.trim().length > 0 && r.qty > 0 && r.unitPrice > 0
     );
@@ -226,9 +307,8 @@ export const RABModule: React.FC = () => {
       return;
     }
 
-    // Cek baris yang nama-nya terisi tapi qty/harga belum
     if (bulkRows.some(r => r.itemName.trim() && (r.qty <= 0 || r.unitPrice <= 0))) {
-      showToast('Ada baris yang belum lengkap. Lengkapi qty & harga atau hapus baris itu.', 'warning');
+      showToast('Ada baris belum lengkap. Lengkapi qty & harga atau hapus baris itu.', 'warning');
       return;
     }
 
@@ -236,9 +316,6 @@ export const RABModule: React.FC = () => {
     try {
       const targetName = itemCategory === 'UMUM' ? 'Umum' : itemTargetName;
 
-      // ==========================================
-      // MODE EDIT (single row)
-      // ==========================================
       if (editingItem) {
         const row = validRows[0];
         await setDoc(doc(db, 'rabItems', editingItem.id), {
@@ -252,16 +329,16 @@ export const RABModule: React.FC = () => {
           notes: row.notes.trim(),
         }, { merge: true });
 
-        await recordAuditLog({
-          userId: user.uid, userName: user.displayName, role: user.role,
-          action: 'UPDATE', targetType: 'RABItem', targetId: editingItem.id,
-          details: `Edit item RAB: ${row.itemName}`,
-        });
+        try {
+          await recordAuditLog({
+            userId: user.uid, userName: user.displayName, role: user.role,
+            action: 'UPDATE', targetType: 'RABItem', targetId: editingItem.id,
+            details: `Edit item RAB: ${row.itemName}`,
+          });
+        } catch { /* non-fatal */ }
+
         showToast('Item RAB diperbarui.', 'success');
       } else {
-        // ==========================================
-        // MODE CREATE (bulk rows)
-        // ==========================================
         const batch = writeBatch(db);
         const now = new Date().toISOString();
 
@@ -285,29 +362,25 @@ export const RABModule: React.FC = () => {
 
         await batch.commit();
 
-        await recordAuditLog({
-          userId: user.uid, userName: user.displayName, role: user.role,
-          action: 'CREATE', targetType: 'RABItem', targetId: 'batch',
-          details: `Tambah ${validRows.length} item RAB untuk ${itemCategory} - ${targetName}`,
-        });
+        try {
+          await recordAuditLog({
+            userId: user.uid, userName: user.displayName, role: user.role,
+            action: 'CREATE', targetType: 'RABItem', targetId: 'batch',
+            details: `Tambah ${validRows.length} item RAB untuk ${itemCategory} - ${targetName}`,
+          });
+        } catch { /* non-fatal */ }
 
         showToast(`${validRows.length} item RAB ditambahkan.`, 'success');
       }
 
       setIsItemModalOpen(false);
+      setEditingItem(null);
     } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+      const code = err?.code || 'unknown';
+      showToast(`Gagal simpan [${code}]: ${err?.message || 'unknown'}`, 'error');
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleDeleteItem = async (item: RABItem) => {
-    if (!confirm(`Hapus item "${item.itemName}"?`)) return;
-    try {
-      await deleteDoc(doc(db, 'rabItems', item.id));
-      showToast('Item dihapus.', 'info');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   // ==========================================
@@ -351,66 +424,32 @@ export const RABModule: React.FC = () => {
 
     const fmt = (n: number) => 'Rp ' + n.toLocaleString('id-ID');
     const now = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-
-    const esc = (s: any) => String(s ?? '')
-      .replace(/\\/g, '\\\\')
-      .replace(/{/g, '\\{')
-      .replace(/}/g, '\\}')
-      .replace(/\n/g, '\\line ');
+    const esc = (s: any) => String(s ?? '').replace(/\\/g, '\\\\').replace(/{/g, '\\{').replace(/}/g, '\\}').replace(/\n/g, '\\line ');
 
     let rtf = '{\\rtf1\\ansi\\deff0\n';
-    rtf += '{\\fonttbl{\\f0\\froman Times New Roman;}{\\f1\\fswiss Arial;}}\n';
+    rtf += '{\\fonttbl{\\f0\\froman Times New Roman;}}\n';
     rtf += '\\f0\\fs32\\b\\qc RENCANA ANGGARAN BIAYA (RAB)\\b0\\par\n';
-    rtf += `\\fs22\\qc Produksi Teater ${esc(activeClass?.name || '')}`;
-    if (activeClass?.kerabatKerja) rtf += ` - ${esc(activeClass.kerabatKerja)}`;
-    rtf += '\\par\n';
+    rtf += `\\fs22\\qc Produksi Teater ${esc(activeClass?.name || '')}\\par\n`;
     rtf += '\\fs20\\qc SMP Negeri 10 Samarinda\\par\n';
-    rtf += '\\fs18\\qc Tahun Ajaran 2025/2026\\par\n';
     rtf += `\\fs18\\qc Dicetak: ${esc(now)}\\par\n\\par\n`;
 
-    rtf += '\\trowd\\trgaph108\\trleft-108\n';
-    rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
-    const headers = ['No', 'Item', 'Qty', 'Harga Satuan', 'Total', 'Catatan'];
-    headers.forEach(h => { rtf += `\\intbl\\b\\fs20 ${esc(h)}\\b0\\cell `; });
+    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+    ['No', 'Item', 'Qty', 'Harga Satuan', 'Total', 'Catatan'].forEach(h => {
+      rtf += `\\intbl\\b\\fs20 ${esc(h)}\\b0\\cell `;
+    });
     rtf += '\\row\n';
 
     groupedItems.forEach(g => {
-      rtf += '\\trowd\\trgaph108\\trleft-108\n';
-      rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+      rtf += '\\trowd\\trgaph108\\trleft-108\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
       rtf += `\\intbl\\b\\fs20 ${esc(`${g.category} - ${g.targetName}`)}\\b0\\cell \\cell \\cell \\cell \\cell \\row\n`;
-
       g.items.forEach((it, idx) => {
-        rtf += '\\trowd\\trgaph108\\trleft-108\n';
-        rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
-        rtf += `\\intbl\\fs20 ${idx + 1}\\cell `;
-        rtf += `\\intbl\\fs20 ${esc(it.itemName)}\\cell `;
-        rtf += `\\intbl\\fs20 ${esc(`${it.qty} ${it.unit}`)}\\cell `;
-        rtf += `\\intbl\\fs20 ${esc(fmt(it.unitPrice))}\\cell `;
-        rtf += `\\intbl\\b\\fs20 ${esc(fmt(it.qty * it.unitPrice))}\\b0\\cell `;
-        rtf += `\\intbl\\fs18 ${esc(it.notes || '-')}\\cell \\row\n`;
+        rtf += '\\trowd\\trgaph108\\trleft-108\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+        rtf += `\\intbl\\fs20 ${idx + 1}\\cell \\intbl\\fs20 ${esc(it.itemName)}\\cell \\intbl\\fs20 ${esc(`${it.qty} ${it.unit}`)}\\cell \\intbl\\fs20 ${esc(fmt(it.unitPrice))}\\cell \\intbl\\b\\fs20 ${esc(fmt(it.qty * it.unitPrice))}\\b0\\cell \\intbl\\fs18 ${esc(it.notes || '-')}\\cell \\row\n`;
       });
-
-      rtf += '\\trowd\\trgaph108\\trleft-108\n';
-      rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
-      rtf += `\\intbl \\cell \\cell \\cell \\intbl\\qr\\b\\fs20 Subtotal:\\b0\\cell `;
-      rtf += `\\intbl\\b\\fs20 ${esc(fmt(g.subtotal))}\\b0\\cell \\cell \\row\n`;
     });
 
-    rtf += '\\trowd\\trgaph108\\trleft-108\n';
-    rtf += '\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
-    rtf += `\\intbl \\cell \\cell \\cell \\intbl\\qr\\b\\fs22 GRAND TOTAL:\\b0\\cell `;
-    rtf += `\\intbl\\b\\fs22 ${esc(fmt(grandTotal))}\\b0\\cell \\cell \\row\n`;
-
-    rtf += '\\par\\par\\fs20\\ql\n';
-    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
-    rtf += '\\intbl Mengetahui,\\cell Disetujui,\\cell \\cell \\row\n';
-    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
-    rtf += '\\intbl Bendahara\\cell Pimpinan Produksi\\cell \\cell \\row\n';
-    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
-    rtf += '\\intbl \\cell \\cell \\cell \\row\n';
-    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx3500\\cellx7000\\cellx9500\n';
-    rtf += '\\intbl (........................)\\cell (........................)\\cell \\cell \\row\n';
-
+    rtf += '\\trowd\\trgaph108\\trleft-108\\cellx800\\cellx3500\\cellx4600\\cellx5900\\cellx7400\\cellx9500\n';
+    rtf += `\\intbl \\cell \\cell \\cell \\intbl\\qr\\b\\fs22 GRAND TOTAL:\\b0\\cell \\intbl\\b\\fs22 ${esc(fmt(grandTotal))}\\b0\\cell \\cell \\row\n`;
     rtf += '}';
 
     const blob = new Blob([rtf], { type: 'application/rtf' });
@@ -422,8 +461,7 @@ export const RABModule: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-
-    showToast('RAB diexport ke format .rtf — buka dengan Word/LibreOffice tanpa warning.', 'success');
+    showToast('RAB diexport ke .rtf.', 'success');
   };
 
   // ==========================================
@@ -447,11 +485,9 @@ export const RABModule: React.FC = () => {
     setSubmitting(true);
     try {
       const id = doc(collection(db, 'rabDocuments')).id;
-      const data: RABDocument = {
-        id,
-        classId: activeClass.id,
-        title: docTitle.trim(),
-        fileUrl: docFileUrl.trim(),
+      await setDoc(doc(db, 'rabDocuments', id), {
+        id, classId: activeClass.id,
+        title: docTitle.trim(), fileUrl: docFileUrl.trim(),
         fileName: docFileName.trim() || 'RAB_Final.pdf',
         version: 1,
         signedByPimpro: !!pimproSig.trim(),
@@ -461,28 +497,22 @@ export const RABModule: React.FC = () => {
         bendaharaSignature: bendaharaSig.trim(),
         signedAtBendahara: bendaharaSig.trim() ? new Date().toISOString() : undefined,
         uploadedAt: new Date().toISOString(),
-        uploadedBy: user.uid,
-        uploaderName: user.displayName,
-      };
-      await setDoc(doc(db, 'rabDocuments', id), data);
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'RABDocument', targetId: id,
-        details: `Upload RAB final: ${docTitle}`,
-      });
+        uploadedBy: user.uid, uploaderName: user.displayName,
+      } as RABDocument);
       showToast('Dokumen RAB final tersimpan.', 'success');
       setIsDocModalOpen(false);
     } catch (err: any) {
-      showToast('Gagal: ' + err.message, 'error');
+      showToast(`Gagal [${err?.code || '?'}]: ${err?.message || 'unknown'}`, 'error');
     } finally { setSubmitting(false); }
   };
 
   const handleDeleteDocument = async (docItem: RABDocument) => {
-    if (!confirm(`Hapus dokumen "${docItem.title}"?`)) return;
     try {
       await deleteDoc(doc(db, 'rabDocuments', docItem.id));
-      showToast('Dokumen dihapus.', 'info');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+      showToast('Dokumen dihapus.', 'success');
+    } catch (err: any) {
+      showToast(`Gagal [${err?.code || '?'}]: ${err?.message || 'unknown'}`, 'error');
+    }
   };
 
   return (
@@ -506,7 +536,6 @@ export const RABModule: React.FC = () => {
               </p>
             </div>
           </div>
-
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={handleExportWord}
               className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg">
@@ -547,7 +576,6 @@ export const RABModule: React.FC = () => {
       {/* ============ TAB: ITEMS ============ */}
       {activeTab === 'items' && (
         <>
-          {/* Summary */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 text-white shadow-md">
               <p className="text-[10px] font-bold uppercase opacity-90">Grand Total RAB</p>
@@ -571,7 +599,6 @@ export const RABModule: React.FC = () => {
             </div>
           </div>
 
-          {/* Search + Filter */}
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
@@ -593,7 +620,6 @@ export const RABModule: React.FC = () => {
             </div>
           </div>
 
-          {/* Grouped items */}
           {filteredItems.length === 0 ? (
             <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <Calculator className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
@@ -626,36 +652,45 @@ export const RABModule: React.FC = () => {
                       {canManageItems && (
                         <button
                           onClick={() => openCreateItem(group.category, group.targetName)}
-                          className="px-2 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 text-[10px] font-bold flex items-center gap-1 transition"
-                          title={`Tambah item ke ${group.targetName}`}
-                        >
+                          className="px-2 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 text-[10px] font-bold flex items-center gap-1 transition">
                           <Plus className="w-3 h-3" /> Tambah
                         </button>
                       )}
                     </div>
                   </div>
+
                   <div className="divide-y divide-slate-100 dark:divide-slate-700">
                     {group.items.map(it => (
-                      <div key={it.id} className="p-3 flex items-center gap-3 text-xs">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-slate-800 dark:text-white">{it.itemName}</p>
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            {it.qty} {it.unit} x Rp {it.unitPrice.toLocaleString('id-ID')}
-                            {it.notes && ` - ${it.notes}`}
-                          </p>
+                      <div key={it.id} className="p-3">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-bold text-slate-800 dark:text-white text-xs break-words">{it.itemName}</p>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                              {it.qty} {it.unit} × Rp {it.unitPrice.toLocaleString('id-ID')}
+                              {it.notes && ` — ${it.notes}`}
+                            </p>
+                          </div>
+                          <span className="font-bold text-amber-700 dark:text-amber-400 text-[11px] whitespace-nowrap">
+                            Rp {(it.qty * it.unitPrice).toLocaleString('id-ID')}
+                          </span>
                         </div>
-                        <span className="font-bold text-amber-700 dark:text-amber-400 text-[11px] whitespace-nowrap">
-                          Rp {(it.qty * it.unitPrice).toLocaleString('id-ID')}
-                        </span>
+
                         {canManageItems && (
-                          <div className="flex gap-1">
-                            <button onClick={() => openEditItem(it)}
-                              className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-500/10">
-                              <FileText className="w-3.5 h-3.5" />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditItem(it); }}
+                              style={{ minHeight: '44px', touchAction: 'manipulation' }}
+                              className="flex-1 rounded-xl text-blue-700 bg-blue-50 border-2 border-blue-300 hover:bg-blue-100 active:bg-blue-200 text-xs font-bold transition flex items-center justify-center gap-1.5">
+                              <Edit3 className="w-4 h-4" /> Edit
                             </button>
-                            <button onClick={() => handleDeleteItem(it)}
-                              className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10">
-                              <Trash2 className="w-3.5 h-3.5" />
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteItem(it); }}
+                              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteItem(it); }}
+                              style={{ minHeight: '44px', touchAction: 'manipulation' }}
+                              className="flex-1 rounded-xl text-rose-700 bg-rose-50 border-2 border-rose-300 hover:bg-rose-100 active:bg-rose-200 text-xs font-bold transition flex items-center justify-center gap-1.5">
+                              <Trash2 className="w-4 h-4" /> Hapus
                             </button>
                           </div>
                         )}
@@ -665,7 +700,6 @@ export const RABModule: React.FC = () => {
                 </div>
               ))}
 
-              {/* Grand Total */}
               <div className="p-5 rounded-3xl bg-gradient-to-r from-amber-600 to-amber-800 text-white shadow-xl">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold uppercase tracking-wide">Grand Total RAB</span>
@@ -683,12 +717,9 @@ export const RABModule: React.FC = () => {
           {documents.length === 0 ? (
             <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
               <FileCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-              <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
-                Belum Ada Dokumen RAB Final
-              </h3>
+              <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Dokumen RAB Final</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-                Setelah RAB digital diexport ke Word dan ditandatangani Pimpro & Bendahara,
-                upload file final (PDF/Word) ke sini dengan link Google Drive.
+                Setelah RAB digital diexport ke Word dan ditandatangani, upload file final ke sini.
               </p>
             </div>
           ) : (
@@ -705,47 +736,39 @@ export const RABModule: React.FC = () => {
                           {docItem.title}
                         </h3>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          {docItem.fileName} - Upload: {new Date(docItem.uploadedAt).toLocaleDateString('id-ID')}
+                          {docItem.fileName} — Upload: {new Date(docItem.uploadedAt).toLocaleDateString('id-ID')}
                         </p>
                       </div>
                     </div>
                     {canManageItems && (
-                      <button onClick={() => handleDeleteDocument(docItem)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10">
-                        <Trash2 className="w-3.5 h-3.5" />
+                      <button type="button" onClick={() => handleDeleteDocument(docItem)}
+                        style={{ minHeight: '44px', touchAction: 'manipulation' }}
+                        className="px-3 rounded-lg text-rose-700 bg-rose-50 border-2 border-rose-300 hover:bg-rose-100 active:bg-rose-200 text-xs font-bold transition flex items-center gap-1">
+                        <Trash2 className="w-4 h-4" /> Hapus
                       </button>
                     )}
                   </div>
 
-                  {/* TTD Status */}
                   <div className="grid grid-cols-2 gap-2">
                     <div className={`p-2.5 rounded-xl border text-center ${
                       docItem.signedByPimpro
-                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200'
                     }`}>
-                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Pimpinan Produksi</p>
-                      {docItem.signedByPimpro ? (
-                        <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 flex items-center justify-center gap-1">
-                          <CheckCircle className="w-3 h-3" /> {docItem.pimproSignature}
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-slate-400 mt-0.5 italic">Belum ditandatangani</p>
-                      )}
+                      <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Pimpro</p>
+                      <p className={`text-[11px] font-bold mt-0.5 ${docItem.signedByPimpro ? 'text-emerald-700' : 'text-slate-400 italic'}`}>
+                        {docItem.signedByPimpro ? docItem.pimproSignature : 'Belum TTD'}
+                      </p>
                     </div>
                     <div className={`p-2.5 rounded-xl border text-center ${
                       docItem.signedByBendahara
-                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200'
                     }`}>
                       <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Bendahara</p>
-                      {docItem.signedByBendahara ? (
-                        <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 mt-0.5 flex items-center justify-center gap-1">
-                          <CheckCircle className="w-3 h-3" /> {docItem.bendaharaSignature}
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-slate-400 mt-0.5 italic">Belum ditandatangani</p>
-                      )}
+                      <p className={`text-[11px] font-bold mt-0.5 ${docItem.signedByBendahara ? 'text-emerald-700' : 'text-slate-400 italic'}`}>
+                        {docItem.signedByBendahara ? docItem.bendaharaSignature : 'Belum TTD'}
+                      </p>
                     </div>
                   </div>
 
@@ -760,189 +783,212 @@ export const RABModule: React.FC = () => {
         </>
       )}
 
-      {/* ============ MODAL ITEM (MULTI-ROW) ============ */}
+      {/* ============ MODAL ITEM ============ */}
       {isItemModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <form onSubmit={handleSaveItem}
-            className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[92vh] overflow-y-auto space-y-4">
+            className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] flex flex-col overflow-hidden">
 
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Calculator className="w-5 h-5 text-amber-500" />
-                {editingItem ? 'Edit Item RAB' : 'Tambah Item RAB'}
-              </h3>
-              <button type="button" onClick={() => setIsItemModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Info banner untuk tambah banyak */}
-            {!editingItem && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
-                <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
-                  <strong>Bisa tambah banyak sekaligus!</strong> Isi beberapa baris, lalu klik "Simpan" di bawah.
-                  Semua baris akan masuk ke {CATEGORY_CONFIG[itemCategory].label.toLowerCase()} <strong>{itemCategory === 'UMUM' ? 'Umum' : itemTargetName}</strong>.
-                </p>
-              </div>
-            )}
-
-            {/* Kategori */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Kategori <span className="text-rose-500">*</span>
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['DIVISI', 'PERAN', 'UMUM'] as Category[]).map(c => {
-                  const Icon = CATEGORY_CONFIG[c].icon;
-                  return (
-                    <button key={c} type="button"
-                      onClick={() => handleCategoryChange(c)}
-                      className={`p-2.5 rounded-xl border-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
-                        itemCategory === c
-                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-                      }`}>
-                      <Icon className="w-4 h-4" />
-                      {CATEGORY_CONFIG[c].label}
-                    </button>
-                  );
-                })}
+            {/* Header — fixed */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Calculator className="w-5 h-5 text-amber-500" />
+                  {editingItem ? 'Edit Item RAB' : 'Tambah Item RAB'}
+                </h3>
+                <button type="button" onClick={() => { setIsItemModalOpen(false); setEditingItem(null); }}
+                  style={{ touchAction: 'manipulation' }}
+                  className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
               </div>
             </div>
 
-            {/* Target */}
-            {itemCategory === 'DIVISI' && (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Divisi</label>
-                <select value={itemTargetName} onChange={(e) => setItemTargetName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                  {DIVISIONS.slice(1).map(d => <option key={d.id} value={d.id}>{d.id}</option>)}
-                </select>
-              </div>
-            )}
+            {/* Body — scrollable (satu-satunya scroll container) */}
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
 
-            {itemCategory === 'PERAN' && (
+              {!editingItem && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 flex items-start gap-2">
+                  <Info className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                    <strong>Bisa tambah banyak sekaligus.</strong> Isi beberapa baris, lalu klik "Simpan" di bawah.
+                  </p>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Peran <span className="text-rose-500">*</span>
+                  Kategori <span className="text-rose-500">*</span>
                 </label>
-                <select value={itemTargetName} onChange={(e) => setItemTargetName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                  {PERAN_LIST.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['DIVISI', 'PERAN', 'UMUM'] as Category[]).map(c => {
+                    const Icon = CATEGORY_CONFIG[c].icon;
+                    return (
+                      <button key={c} type="button"
+                        onClick={() => handleCategoryChange(c)}
+                        style={{ touchAction: 'manipulation' }}
+                        className={`py-3 rounded-xl border-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                          itemCategory === c
+                            ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300'
+                            : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}>
+                        <Icon className="w-4 h-4" />
+                        {CATEGORY_CONFIG[c].label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            )}
 
-            {/* Daftar baris */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  {editingItem ? 'Detail Item' : `Daftar Item (${bulkRows.length})`}
-                </label>
+              {itemCategory === 'DIVISI' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Divisi</label>
+                  <select value={itemTargetName} onChange={(e) => setItemTargetName(e.target.value)}
+                    className="w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
+                    {DIVISIONS.slice(1).map(d => <option key={d.id} value={d.id}>{d.id}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {itemCategory === 'PERAN' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Peran <span className="text-rose-500">*</span>
+                  </label>
+                  <select value={itemTargetName} onChange={(e) => setItemTargetName(e.target.value)}
+                    className="w-full px-3 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
+                    {PERAN_LIST.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    {editingItem ? 'Detail Item' : `Daftar Item (${bulkRows.length})`}
+                  </label>
+                  {!editingItem && bulkRows.length > 1 && (
+                    <button type="button" onClick={resetAllRows}
+                      style={{ touchAction: 'manipulation' }}
+                      className="px-3 py-2 rounded-lg text-slate-600 bg-slate-100 hover:bg-slate-200 text-[11px] font-bold flex items-center gap-1 transition">
+                      <RotateCcw className="w-3 h-3" /> Reset Semua
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  {bulkRows.map((row, idx) => (
+                    <div key={row.tempId} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-bold text-slate-500">
+                          {editingItem ? 'Item' : `Item #${idx + 1}`}
+                        </span>
+                        {!editingItem && (
+                          <button type="button"
+                            onClick={(e) => { e.preventDefault(); removeBulkRow(row.tempId); }}
+                            onTouchEnd={(e) => { e.preventDefault(); removeBulkRow(row.tempId); }}
+                            style={{ minHeight: '44px', minWidth: '90px', touchAction: 'manipulation' }}
+                            className="px-3 rounded-lg bg-rose-50 text-rose-700 border-2 border-rose-300 text-[11px] font-bold flex items-center justify-center gap-1.5 hover:bg-rose-100 active:bg-rose-200 transition">
+                            <Trash2 className="w-3.5 h-3.5" /> Hapus Baris
+                          </button>
+                        )}
+                      </div>
+
+                      <input type="text"
+                        value={row.itemName}
+                        onChange={(e) => updateBulkRow(row.tempId, 'itemName', e.target.value)}
+                        placeholder="Nama item (contoh: Kertas Karton A3)"
+                        className="w-full px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1">Qty</label>
+                          <input type="number" min="1" inputMode="numeric"
+                            value={row.qty || ''}
+                            onChange={(e) => updateBulkRow(row.tempId, 'qty', parseInt(e.target.value) || 1)}
+                            className="w-full px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1">Satuan</label>
+                          <input type="text"
+                            value={row.unit}
+                            onChange={(e) => updateBulkRow(row.tempId, 'unit', e.target.value)}
+                            placeholder="pcs"
+                            className="w-full px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 mb-1">Harga Satuan</label>
+                          <input type="number" min="0" step="500" inputMode="numeric"
+                            value={row.unitPrice || ''}
+                            onChange={(e) => updateBulkRow(row.tempId, 'unitPrice', parseInt(e.target.value) || 0)}
+                            placeholder="15000"
+                            className="w-full px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+                        </div>
+                      </div>
+
+                      <input type="text"
+                        value={row.notes}
+                        onChange={(e) => updateBulkRow(row.tempId, 'notes', e.target.value)}
+                        placeholder="Catatan (opsional)"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-medium text-slate-700 dark:text-slate-300" />
+
+                      <div className="text-[10px] text-slate-500 text-right">
+                        Subtotal: <strong className="text-slate-800 dark:text-slate-200">Rp {(row.qty * row.unitPrice).toLocaleString('id-ID')}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
                 {!editingItem && (
-                  <span className="text-[10px] text-slate-500 italic">
-                    Tambah baris sebanyak yang dibutuhkan
-                  </span>
+                  <button type="button" onClick={addBulkRow}
+                    style={{ touchAction: 'manipulation' }}
+                    className="w-full py-3 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition">
+                    <Plus className="w-4 h-4" /> Tambah Baris Lagi
+                  </button>
                 )}
               </div>
 
-              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                {bulkRows.map((row, idx) => (
-                  <div key={row.tempId} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-slate-500">
-                        {editingItem ? 'Item' : `Item #${idx + 1}`}
-                      </span>
-                      {!editingItem && bulkRows.length > 1 && (
-                        <button type="button" onClick={() => removeBulkRow(row.tempId)}
-                          className="p-1 rounded-md text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-
-                    <input type="text"
-                      value={row.itemName}
-                      onChange={(e) => updateBulkRow(row.tempId, 'itemName', e.target.value)}
-                      placeholder="Nama item (contoh: Kertas Karton A3)"
-                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
-
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Qty</label>
-                        <input type="number" min="1"
-                          value={row.qty || ''}
-                          onChange={(e) => updateBulkRow(row.tempId, 'qty', parseInt(e.target.value) || 1)}
-                          className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Satuan</label>
-                        <input type="text"
-                          value={row.unit}
-                          onChange={(e) => updateBulkRow(row.tempId, 'unit', e.target.value)}
-                          placeholder="pcs"
-                          className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Harga Satuan</label>
-                        <input type="number" min="0" step="500"
-                          value={row.unitPrice || ''}
-                          onChange={(e) => updateBulkRow(row.tempId, 'unitPrice', parseInt(e.target.value) || 0)}
-                          placeholder="15000"
-                          className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
-                      </div>
-                    </div>
-
-                    <input type="text"
-                      value={row.notes}
-                      onChange={(e) => updateBulkRow(row.tempId, 'notes', e.target.value)}
-                      placeholder="Catatan (opsional): daur ulang, beli di toko X, dll."
-                      className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-medium text-slate-700 dark:text-slate-300" />
-
-                    <div className="text-[10px] text-slate-500 text-right">
-                      Subtotal: <strong>Rp {(row.qty * row.unitPrice).toLocaleString('id-ID')}</strong>
-                    </div>
-                  </div>
-                ))}
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-amber-900 dark:text-amber-200">
+                    {bulkRows.filter(r => r.itemName.trim()).length} item terisi
+                  </span>
+                  <span className="font-black text-amber-900 dark:text-amber-200">
+                    Rp {bulkRows.reduce((s, r) => s + (r.qty * r.unitPrice), 0).toLocaleString('id-ID')}
+                  </span>
+                </div>
               </div>
+            </div>
 
-              {!editingItem && (
-                <button type="button" onClick={addBulkRow}
-                  className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition">
-                  <Plus className="w-4 h-4" /> Tambah Baris Lagi
+            {/* Footer — fixed */}
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shrink-0 space-y-2">
+              {editingItem && (
+                <button type="button"
+                  onClick={handleDeleteFromEditModal}
+                  onTouchEnd={(e) => { e.preventDefault(); handleDeleteFromEditModal(); }}
+                  style={{ minHeight: '48px', touchAction: 'manipulation' }}
+                  className="w-full rounded-xl bg-rose-50 border-2 border-rose-400 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 hover:bg-rose-100 active:bg-rose-200 transition">
+                  <Trash2 className="w-4 h-4" /> Hapus Item Ini Permanen
                 </button>
               )}
-            </div>
 
-            {/* Total sementara */}
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-amber-900 dark:text-amber-200">
-                  {bulkRows.filter(r => r.itemName.trim()).length} item terisi
-                </span>
-                <span className="font-black text-amber-900 dark:text-amber-200">
-                  Rp {bulkRows.reduce((s, r) => s + (r.qty * r.unitPrice), 0).toLocaleString('id-ID')}
-                </span>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => { setIsItemModalOpen(false); setEditingItem(null); }}
+                  style={{ minHeight: '44px', touchAction: 'manipulation' }}
+                  className="px-4 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
+                  Batal
+                </button>
+                <button type="submit" disabled={submitting}
+                  style={{ minHeight: '44px', touchAction: 'manipulation' }}
+                  className="px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                  <Save className="w-3.5 h-3.5" />
+                  {submitting
+                    ? 'Menyimpan...'
+                    : editingItem
+                    ? 'Simpan Perubahan'
+                    : `Simpan ${bulkRows.filter(r => r.itemName.trim()).length} Item`}
+                </button>
               </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-              <button type="button" onClick={() => setIsItemModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
-                Batal
-              </button>
-              <button type="submit" disabled={submitting}
-                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                <Save className="w-3.5 h-3.5" />
-                {submitting
-                  ? 'Menyimpan...'
-                  : editingItem
-                  ? 'Simpan Perubahan'
-                  : `Simpan ${bulkRows.filter(r => r.itemName.trim()).length} Item`}
-              </button>
             </div>
           </form>
         </div>
@@ -950,82 +996,70 @@ export const RABModule: React.FC = () => {
 
       {/* ============ MODAL DOKUMEN ============ */}
       {isDocModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <form onSubmit={handleSaveDocument}
-            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[92vh] overflow-y-auto space-y-3">
-            <div className="flex items-center justify-between">
+            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] flex flex-col overflow-hidden">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-700 shrink-0 flex items-center justify-between">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                 <Upload className="w-5 h-5 text-emerald-500" /> Upload RAB Final
               </h3>
               <button type="button" onClick={() => setIsDocModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                style={{ touchAction: 'manipulation' }}
+                className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                <strong>Alur:</strong> 1) Susun RAB - 2) Export Word (.rtf) - 3) Tanda tangan fisik kedua pihak -
-                4) Scan/PDF - 5) Upload ke Google Drive - 6) Paste link + nama tanda tangan di sini.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Judul Dokumen</label>
-              <input type="text" required value={docTitle} onChange={(e) => setDocTitle(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Link Google Drive RAB Final <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
-                <Link2 className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-                <input type="url" required value={docFileUrl} onChange={(e) => setDocFileUrl(e.target.value)}
-                  placeholder="https://drive.google.com/..."
-                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+            <div className="p-5 overflow-y-auto flex-1 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Judul Dokumen</label>
+                <input type="text" required value={docTitle} onChange={(e) => setDocTitle(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nama File (Opsional)</label>
-              <input type="text" value={docFileName} onChange={(e) => setDocFileName(e.target.value)}
-                placeholder="RAB_Final_IXC.pdf"
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                <label className="block text-xs font-bold text-amber-900 dark:text-amber-200 mb-1 flex items-center gap-1">
-                  <PenTool className="w-3.5 h-3.5" /> TTD Pimpinan Produksi
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Link Google Drive <span className="text-rose-500">*</span>
                 </label>
-                <input type="text" value={pimproSig} onChange={(e) => setPimproSig(e.target.value)}
-                  placeholder="Ketik nama Pimpro"
-                  className="w-full px-3 py-2 rounded-lg border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-1">
-                  Kosongkan jika belum ditandatangani.
-                </p>
+                <div className="relative">
+                  <Link2 className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                  <input type="url" required value={docFileUrl} onChange={(e) => setDocFileUrl(e.target.value)}
+                    placeholder="https://drive.google.com/..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                </div>
               </div>
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
-                <label className="block text-xs font-bold text-emerald-900 dark:text-emerald-200 mb-1 flex items-center gap-1">
-                  <PenTool className="w-3.5 h-3.5" /> TTD Bendahara
-                </label>
-                <input type="text" value={bendaharaSig} onChange={(e) => setBendaharaSig(e.target.value)}
-                  placeholder="Ketik nama Bendahara"
-                  className="w-full px-3 py-2 rounded-lg border border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                <p className="text-[10px] text-emerald-700 dark:text-emerald-400 mt-1">
-                  Kosongkan jika belum ditandatangani.
-                </p>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nama File</label>
+                <input type="text" value={docFileName} onChange={(e) => setDocFileName(e.target.value)}
+                  placeholder="RAB_Final_IXC.pdf"
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200">
+                  <label className="block text-xs font-bold text-amber-900 dark:text-amber-200 mb-1 flex items-center gap-1">
+                    <PenTool className="w-3.5 h-3.5" /> TTD Pimpro
+                  </label>
+                  <input type="text" value={pimproSig} onChange={(e) => setPimproSig(e.target.value)}
+                    placeholder="Nama Pimpro"
+                    className="w-full px-3 py-2 rounded-lg border border-amber-300 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200">
+                  <label className="block text-xs font-bold text-emerald-900 dark:text-emerald-200 mb-1 flex items-center gap-1">
+                    <PenTool className="w-3.5 h-3.5" /> TTD Bendahara
+                  </label>
+                  <input type="text" value={bendaharaSig} onChange={(e) => setBendaharaSig(e.target.value)}
+                    placeholder="Nama Bendahara"
+                    className="w-full px-3 py-2 rounded-lg border border-emerald-300 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                </div>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
+            <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setIsDocModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
+                style={{ minHeight: '44px', touchAction: 'manipulation' }}
+                className="px-4 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">Batal</button>
               <button type="submit" disabled={submitting}
-                className="px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                style={{ minHeight: '44px', touchAction: 'manipulation' }}
+                className="px-5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 <Save className="w-3.5 h-3.5" /> {submitting ? 'Menyimpan...' : 'Simpan Dokumen'}
               </button>
             </div>
