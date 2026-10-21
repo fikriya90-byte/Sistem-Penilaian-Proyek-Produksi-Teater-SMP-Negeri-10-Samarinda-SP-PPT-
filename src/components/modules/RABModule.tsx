@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import {
   FileText, Plus, Trash2, X, Save, Search, Download, Upload,
   ExternalLink, Calculator, FileCheck, Users, Package, Globe,
-  CheckCircle, PenTool, User, AlertTriangle, Link2,
+  CheckCircle, PenTool, User, AlertTriangle, Link2, Info,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { DIVISIONS } from '../../core/constants';
 import {
   doc, collection, setDoc, deleteDoc, onSnapshot, query, where, getDocs,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
@@ -51,8 +52,37 @@ interface RABDocument {
   uploaderName: string;
 }
 
+interface BulkRow {
+  tempId: string;
+  itemName: string;
+  qty: number;
+  unit: string;
+  unitPrice: number;
+  notes: string;
+}
+
+// =====================================================
+// DAFTAR PERAN LENGKAP (18 role)
+// =====================================================
 const PERAN_LIST = [
-  'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemain',
+  'Pimpinan Produksi',
+  'Sekretaris',
+  'Bendahara',
+  'Sutradara',
+  'Asisten Sutradara',
+  'Pemeran',
+  'Koordinator Perlengkapan',
+  'Koordinator Publikasi',
+  'Koordinator Tata Panggung',
+  'Koordinator Tata Rias',
+  'Koordinator Tata Busana',
+  'Koordinator Tata Musik',
+  'Anggota Perlengkapan',
+  'Anggota Publikasi',
+  'Anggota Tata Panggung',
+  'Anggota Tata Rias',
+  'Anggota Tata Busana',
+  'Anggota Tata Musik',
 ];
 
 const CATEGORY_CONFIG: Record<Category, { label: string; icon: any; color: string }> = {
@@ -71,16 +101,12 @@ export const RABModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<'ALL' | Category>('ALL');
 
-  // Modal Item
+  // Modal Item — now supports multi-row
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RABItem | null>(null);
   const [itemCategory, setItemCategory] = useState<Category>('DIVISI');
   const [itemTargetName, setItemTargetName] = useState<string>(DIVISIONS[1].id);
-  const [itemName, setItemName] = useState('');
-  const [itemQty, setItemQty] = useState(1);
-  const [itemUnit, setItemUnit] = useState('pcs');
-  const [itemUnitPrice, setItemUnitPrice] = useState(0);
-  const [itemNotes, setItemNotes] = useState('');
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
 
   // Modal Document
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
@@ -118,15 +144,32 @@ export const RABModule: React.FC = () => {
   // ==========================================
   // ITEM HANDLERS
   // ==========================================
-  const openCreateItem = () => {
+  const makeEmptyRow = (): BulkRow => ({
+    tempId: `row_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    itemName: '',
+    qty: 1,
+    unit: 'pcs',
+    unitPrice: 0,
+    notes: '',
+  });
+
+  /**
+   * Buka modal untuk CREATE.
+   * Bisa dipanggil dari:
+   * - Tombol header (tanpa argumen) → default DIVISI
+   * - Tombol "+ Tambah" di grup → pre-fill kategori & target grup
+   */
+  const openCreateItem = (presetCategory?: Category, presetTarget?: string) => {
     setEditingItem(null);
-    setItemCategory('DIVISI');
-    setItemTargetName(DIVISIONS[1].id);
-    setItemName('');
-    setItemQty(1);
-    setItemUnit('pcs');
-    setItemUnitPrice(0);
-    setItemNotes('');
+    const cat: Category = presetCategory || 'DIVISI';
+    const target = presetTarget || (
+      cat === 'DIVISI' ? DIVISIONS[1].id :
+      cat === 'PERAN' ? PERAN_LIST[0] :
+      'Umum'
+    );
+    setItemCategory(cat);
+    setItemTargetName(target);
+    setBulkRows([makeEmptyRow()]);
     setIsItemModalOpen(true);
   };
 
@@ -134,61 +177,129 @@ export const RABModule: React.FC = () => {
     setEditingItem(item);
     setItemCategory(item.category);
     setItemTargetName(item.targetName);
-    setItemName(item.itemName);
-    setItemQty(item.qty);
-    setItemUnit(item.unit);
-    setItemUnitPrice(item.unitPrice);
-    setItemNotes(item.notes);
+    setBulkRows([{
+      tempId: item.id,
+      itemName: item.itemName,
+      qty: item.qty,
+      unit: item.unit,
+      unitPrice: item.unitPrice,
+      notes: item.notes,
+    }]);
     setIsItemModalOpen(true);
   };
 
-  // ✅ Logika Utama: Ganti Kategori = Ganti Dropdown & Reset Nilai
+  // Ganti kategori → reset target sesuai kategori baru
   const handleCategoryChange = (newCat: Category) => {
     setItemCategory(newCat);
     if (newCat === 'DIVISI') {
-      setItemTargetName(DIVISIONS[1].id); // Default ke Divisi pertama
+      setItemTargetName(DIVISIONS[1].id);
     } else if (newCat === 'PERAN') {
-      setItemTargetName(PERAN_LIST[0]);   // Default ke Peran pertama
+      setItemTargetName(PERAN_LIST[0]);
     } else {
-      setItemTargetName('Umum');          // Default Umum
+      setItemTargetName('Umum');
     }
+  };
+
+  const updateBulkRow = (tempId: string, field: keyof BulkRow, value: any) => {
+    setBulkRows(prev => prev.map(r => r.tempId === tempId ? { ...r, [field]: value } : r));
+  };
+
+  const addBulkRow = () => {
+    setBulkRows(prev => [...prev, makeEmptyRow()]);
+  };
+
+  const removeBulkRow = (tempId: string) => {
+    setBulkRows(prev => prev.length <= 1 ? prev : prev.filter(r => r.tempId !== tempId));
   };
 
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !activeClass || !itemName.trim() || itemQty <= 0 || itemUnitPrice <= 0) {
-      showToast('Lengkapi nama item, kuantitas, dan harga satuan.', 'warning');
+    if (!user || !activeClass) return;
+
+    // Filter baris valid (nama terisi + qty + harga > 0)
+    const validRows = bulkRows.filter(r =>
+      r.itemName.trim().length > 0 && r.qty > 0 && r.unitPrice > 0
+    );
+
+    if (validRows.length === 0) {
+      showToast('Isi minimal 1 item (nama, qty, harga).', 'warning');
       return;
     }
+
+    // Cek baris yang nama-nya terisi tapi qty/harga belum
+    if (bulkRows.some(r => r.itemName.trim() && (r.qty <= 0 || r.unitPrice <= 0))) {
+      showToast('Ada baris yang belum lengkap. Lengkapi qty & harga atau hapus baris itu.', 'warning');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const id = editingItem?.id || doc(collection(db, 'rabItems')).id;
-      const data: RABItem = {
-        id,
-        classId: activeClass.id,
-        category: itemCategory,
-        targetName: itemCategory === 'UMUM' ? 'Umum' : itemTargetName,
-        itemName: itemName.trim(),
-        qty: itemQty,
-        unit: itemUnit.trim(),
-        unitPrice: itemUnitPrice,
-        notes: itemNotes.trim(),
-        createdAt: editingItem?.createdAt || new Date().toISOString(),
-        createdBy: user.uid,
-        creatorName: user.displayName,
-      };
-      await setDoc(doc(db, 'rabItems', id), data, { merge: true });
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: editingItem ? 'UPDATE' : 'CREATE',
-        targetType: 'RABItem', targetId: id,
-        details: `${editingItem ? 'Edit' : 'Tambah'} item RAB: ${itemName}`,
-      });
-      showToast('Item RAB disimpan.', 'success');
+      const targetName = itemCategory === 'UMUM' ? 'Umum' : itemTargetName;
+
+      // ==========================================
+      // MODE EDIT (single row)
+      // ==========================================
+      if (editingItem) {
+        const row = validRows[0];
+        await setDoc(doc(db, 'rabItems', editingItem.id), {
+          ...editingItem,
+          category: itemCategory,
+          targetName,
+          itemName: row.itemName.trim(),
+          qty: row.qty,
+          unit: row.unit.trim(),
+          unitPrice: row.unitPrice,
+          notes: row.notes.trim(),
+        }, { merge: true });
+
+        await recordAuditLog({
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'UPDATE', targetType: 'RABItem', targetId: editingItem.id,
+          details: `Edit item RAB: ${row.itemName}`,
+        });
+        showToast('Item RAB diperbarui.', 'success');
+      } else {
+        // ==========================================
+        // MODE CREATE (bulk rows)
+        // ==========================================
+        const batch = writeBatch(db);
+        const now = new Date().toISOString();
+
+        validRows.forEach(row => {
+          const newId = doc(collection(db, 'rabItems')).id;
+          batch.set(doc(db, 'rabItems', newId), {
+            id: newId,
+            classId: activeClass.id,
+            category: itemCategory,
+            targetName,
+            itemName: row.itemName.trim(),
+            qty: row.qty,
+            unit: row.unit.trim(),
+            unitPrice: row.unitPrice,
+            notes: row.notes.trim(),
+            createdAt: now,
+            createdBy: user.uid,
+            creatorName: user.displayName,
+          });
+        });
+
+        await batch.commit();
+
+        await recordAuditLog({
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'CREATE', targetType: 'RABItem', targetId: 'batch',
+          details: `Tambah ${validRows.length} item RAB untuk ${itemCategory} - ${targetName}`,
+        });
+
+        showToast(`${validRows.length} item RAB ditambahkan.`, 'success');
+      }
+
       setIsItemModalOpen(false);
     } catch (err: any) {
-      showToast('Gagal: ' + err.message, 'error');
-    } finally { setSubmitting(false); }
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDeleteItem = async (item: RABItem) => {
@@ -391,7 +502,7 @@ export const RABModule: React.FC = () => {
                 Rencana Anggaran Biaya {activeClass?.name || ''}
               </h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Input per Divisi/Peran/Umum - Export Word - Upload RAB final
+                Input per Divisi/Peran/Umum — Tambah banyak item sekaligus
               </p>
             </div>
           </div>
@@ -402,7 +513,7 @@ export const RABModule: React.FC = () => {
               <Download className="w-3.5 h-3.5" /> Export Word
             </button>
             {canManageItems && activeTab === 'items' && (
-              <button onClick={openCreateItem}
+              <button onClick={() => openCreateItem()}
                 className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-lg">
                 <Plus className="w-3.5 h-3.5" /> Tambah Item
               </button>
@@ -495,7 +606,7 @@ export const RABModule: React.FC = () => {
             <div className="space-y-4">
               {groupedItems.map((group, gi) => (
                 <div key={gi} className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 overflow-hidden shadow-sm">
-                  <div className={`p-3 flex items-center justify-between ${
+                  <div className={`p-3 flex items-center justify-between flex-wrap gap-2 ${
                     group.category === 'DIVISI' ? 'bg-blue-50 dark:bg-blue-500/10' :
                     group.category === 'PERAN' ? 'bg-purple-50 dark:bg-purple-500/10' :
                     'bg-amber-50 dark:bg-amber-500/10'
@@ -508,9 +619,20 @@ export const RABModule: React.FC = () => {
                         {group.targetName}
                       </span>
                     </div>
-                    <span className="text-xs font-black text-slate-800 dark:text-white">
-                      Rp {group.subtotal.toLocaleString('id-ID')}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black text-slate-800 dark:text-white">
+                        Rp {group.subtotal.toLocaleString('id-ID')}
+                      </span>
+                      {canManageItems && (
+                        <button
+                          onClick={() => openCreateItem(group.category, group.targetName)}
+                          className="px-2 py-1 rounded-md bg-white dark:bg-slate-800 hover:bg-amber-100 dark:hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 text-[10px] font-bold flex items-center gap-1 transition"
+                          title={`Tambah item ke ${group.targetName}`}
+                        >
+                          <Plus className="w-3 h-3" /> Tambah
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="divide-y divide-slate-100 dark:divide-slate-700">
                     {group.items.map(it => (
@@ -638,11 +760,13 @@ export const RABModule: React.FC = () => {
         </>
       )}
 
-      {/* ============ MODAL ITEM ============ */}
+      {/* ============ MODAL ITEM (MULTI-ROW) ============ */}
       {isItemModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleSaveItem}
-            className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[92vh] overflow-y-auto space-y-3">
+            className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[92vh] overflow-y-auto space-y-4">
+
+            {/* Header */}
             <div className="flex items-center justify-between">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                 <Calculator className="w-5 h-5 text-amber-500" />
@@ -654,6 +778,18 @@ export const RABModule: React.FC = () => {
               </button>
             </div>
 
+            {/* Info banner untuk tambah banyak */}
+            {!editingItem && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
+                <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
+                  <strong>Bisa tambah banyak sekaligus!</strong> Isi beberapa baris, lalu klik "Simpan" di bawah.
+                  Semua baris akan masuk ke {CATEGORY_CONFIG[itemCategory].label.toLowerCase()} <strong>{itemCategory === 'UMUM' ? 'Umum' : itemTargetName}</strong>.
+                </p>
+              </div>
+            )}
+
+            {/* Kategori */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                 Kategori <span className="text-rose-500">*</span>
@@ -662,7 +798,7 @@ export const RABModule: React.FC = () => {
                 {(['DIVISI', 'PERAN', 'UMUM'] as Category[]).map(c => {
                   const Icon = CATEGORY_CONFIG[c].icon;
                   return (
-                    <button key={c} type="button" 
+                    <button key={c} type="button"
                       onClick={() => handleCategoryChange(c)}
                       className={`p-2.5 rounded-xl border-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
                         itemCategory === c
@@ -677,6 +813,7 @@ export const RABModule: React.FC = () => {
               </div>
             </div>
 
+            {/* Target */}
             {itemCategory === 'DIVISI' && (
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Divisi</label>
@@ -689,7 +826,9 @@ export const RABModule: React.FC = () => {
 
             {itemCategory === 'PERAN' && (
               <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Peran</label>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Peran <span className="text-rose-500">*</span>
+                </label>
                 <select value={itemTargetName} onChange={(e) => setItemTargetName(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
                   {PERAN_LIST.map(p => <option key={p} value={p}>{p}</option>)}
@@ -697,56 +836,112 @@ export const RABModule: React.FC = () => {
               </div>
             )}
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Nama Item <span className="text-rose-500">*</span>
-              </label>
-              <input type="text" required value={itemName} onChange={(e) => setItemName(e.target.value)}
-                placeholder="Contoh: Kertas Karton A3"
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+            {/* Daftar baris */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  {editingItem ? 'Detail Item' : `Daftar Item (${bulkRows.length})`}
+                </label>
+                {!editingItem && (
+                  <span className="text-[10px] text-slate-500 italic">
+                    Tambah baris sebanyak yang dibutuhkan
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                {bulkRows.map((row, idx) => (
+                  <div key={row.tempId} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-500">
+                        {editingItem ? 'Item' : `Item #${idx + 1}`}
+                      </span>
+                      {!editingItem && bulkRows.length > 1 && (
+                        <button type="button" onClick={() => removeBulkRow(row.tempId)}
+                          className="p-1 rounded-md text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    <input type="text"
+                      value={row.itemName}
+                      onChange={(e) => updateBulkRow(row.tempId, 'itemName', e.target.value)}
+                      placeholder="Nama item (contoh: Kertas Karton A3)"
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Qty</label>
+                        <input type="number" min="1"
+                          value={row.qty || ''}
+                          onChange={(e) => updateBulkRow(row.tempId, 'qty', parseInt(e.target.value) || 1)}
+                          className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Satuan</label>
+                        <input type="text"
+                          value={row.unit}
+                          onChange={(e) => updateBulkRow(row.tempId, 'unit', e.target.value)}
+                          placeholder="pcs"
+                          className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Harga Satuan</label>
+                        <input type="number" min="0" step="500"
+                          value={row.unitPrice || ''}
+                          onChange={(e) => updateBulkRow(row.tempId, 'unitPrice', parseInt(e.target.value) || 0)}
+                          placeholder="15000"
+                          className="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+                      </div>
+                    </div>
+
+                    <input type="text"
+                      value={row.notes}
+                      onChange={(e) => updateBulkRow(row.tempId, 'notes', e.target.value)}
+                      placeholder="Catatan (opsional): daur ulang, beli di toko X, dll."
+                      className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-medium text-slate-700 dark:text-slate-300" />
+
+                    <div className="text-[10px] text-slate-500 text-right">
+                      Subtotal: <strong>Rp {(row.qty * row.unitPrice).toLocaleString('id-ID')}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {!editingItem && (
+                <button type="button" onClick={addBulkRow}
+                  className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 dark:border-amber-500/40 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition">
+                  <Plus className="w-4 h-4" /> Tambah Baris Lagi
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Qty</label>
-                <input type="number" required min="1" value={itemQty}
-                  onChange={(e) => setItemQty(parseInt(e.target.value) || 1)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Satuan</label>
-                <input type="text" value={itemUnit} onChange={(e) => setItemUnit(e.target.value)}
-                  placeholder="pcs/lembar/set"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Harga Satuan</label>
-                <input type="number" required min="0" step="500" value={itemUnitPrice || ''}
-                  onChange={(e) => setItemUnitPrice(parseInt(e.target.value) || 0)}
-                  placeholder="15000"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-              </div>
-            </div>
-
+            {/* Total sementara */}
             <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-              <p className="text-[11px] text-amber-900 dark:text-amber-200">
-                <strong>Subtotal:</strong> Rp {(itemQty * itemUnitPrice).toLocaleString('id-ID')}
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Catatan</label>
-              <input type="text" value={itemNotes} onChange={(e) => setItemNotes(e.target.value)}
-                placeholder="Contoh: daur ulang"
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-amber-900 dark:text-amber-200">
+                  {bulkRows.filter(r => r.itemName.trim()).length} item terisi
+                </span>
+                <span className="font-black text-amber-900 dark:text-amber-200">
+                  Rp {bulkRows.reduce((s, r) => s + (r.qty * r.unitPrice), 0).toLocaleString('id-ID')}
+                </span>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
               <button type="button" onClick={() => setIsItemModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
+                className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                Batal
+              </button>
               <button type="submit" disabled={submitting}
                 className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                <Save className="w-3.5 h-3.5" /> {submitting ? 'Menyimpan...' : 'Simpan Item'}
+                <Save className="w-3.5 h-3.5" />
+                {submitting
+                  ? 'Menyimpan...'
+                  : editingItem
+                  ? 'Simpan Perubahan'
+                  : `Simpan ${bulkRows.filter(r => r.itemName.trim()).length} Item`}
               </button>
             </div>
           </form>
