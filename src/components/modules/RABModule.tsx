@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   FileText, Plus, Trash2, X, Save, Search, Download, Upload,
-  ExternalLink, Calculator, FileCheck, Users, Globe,
+  ExternalLink, Calculator, FileCheck, Users, Package, Globe,
   CheckCircle, PenTool, User, AlertTriangle, Link2, Info, Edit3,
   RotateCcw,
 } from 'lucide-react';
@@ -61,18 +61,34 @@ interface BulkRow {
   notes: string;
 }
 
+// =====================================================
+// DAFTAR PERAN LENGKAP (18 role)
+// =====================================================
 const PERAN_LIST = [
-  'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 'Sutradara', 'Asisten Sutradara', 'Pemeran',
-  'Koordinator Perlengkapan', 'Koordinator Publikasi', 'Koordinator Tata Panggung',
-  'Koordinator Tata Rias', 'Koordinator Tata Busana', 'Koordinator Tata Musik',
-  'Anggota Perlengkapan', 'Anggota Publikasi', 'Anggota Tata Panggung',
-  'Anggota Tata Rias', 'Anggota Tata Busana', 'Anggota Tata Musik',
+  'Pimpinan Produksi',
+  'Sekretaris',
+  'Bendahara',
+  'Sutradara',
+  'Asisten Sutradara',
+  'Pemeran',
+  'Koordinator Perlengkapan',
+  'Koordinator Publikasi',
+  'Koordinator Tata Panggung',
+  'Koordinator Tata Rias',
+  'Koordinator Tata Busana',
+  'Koordinator Tata Musik',
+  'Anggota Perlengkapan',
+  'Anggota Publikasi',
+  'Anggota Tata Panggung',
+  'Anggota Tata Rias',
+  'Anggota Tata Busana',
+  'Anggota Tata Musik',
 ];
 
 const CATEGORY_CONFIG: Record<Category, { label: string; icon: any; color: string }> = {
-  DIVISI: { label: 'Divisi', icon: Users, color: 'bg-blue-100 text-blue-800 border-blue-300' },
-  PERAN: { label: 'Peran', icon: User, color: 'bg-purple-100 text-purple-800 border-purple-300' },
-  UMUM: { label: 'Umum', icon: Globe, color: 'bg-amber-100 text-amber-800 border-amber-300' },
+  DIVISI: { label: 'Divisi', icon: Users, color: 'bg-blue-100 dark:bg-blue-500/20 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-500/40' },
+  PERAN: { label: 'Peran', icon: User, color: 'bg-purple-100 dark:bg-purple-500/20 text-purple-800 dark:text-purple-200 border-purple-300 dark:border-purple-500/40' },
+  UMUM: { label: 'Umum', icon: Globe, color: 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-500/40' },
 };
 
 export const RABModule: React.FC = () => {
@@ -85,12 +101,14 @@ export const RABModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<'ALL' | Category>('ALL');
 
+  // Modal Item (Multi-row)
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RABItem | null>(null);
   const [itemCategory, setItemCategory] = useState<Category>('DIVISI');
   const [itemTargetName, setItemTargetName] = useState<string>(DIVISIONS[1].id);
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
 
+  // Modal Document
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [docTitle, setDocTitle] = useState('RAB Final Produksi Teater');
   const [docFileUrl, setDocFileUrl] = useState('');
@@ -102,6 +120,7 @@ export const RABModule: React.FC = () => {
 
   const canManageItems = isBendahara;
 
+  // Subscribe items
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'rabItems'), where('classId', '==', activeClass.id));
@@ -111,6 +130,7 @@ export const RABModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
+  // Subscribe documents
   useEffect(() => {
     if (!activeClass) return;
     const q = query(collection(db, 'rabDocuments'), where('classId', '==', activeClass.id));
@@ -137,7 +157,8 @@ export const RABModule: React.FC = () => {
     const cat: Category = presetCategory || 'DIVISI';
     const target = presetTarget || (
       cat === 'DIVISI' ? DIVISIONS[1].id :
-      cat === 'PERAN' ? PERAN_LIST[0] : 'Umum'
+      cat === 'PERAN' ? PERAN_LIST[0] :
+      'Umum'
     );
     setItemCategory(cat);
     setItemTargetName(target);
@@ -175,17 +196,10 @@ export const RABModule: React.FC = () => {
     setBulkRows(prev => [...prev, makeEmptyRow()]);
   };
 
-  /**
-   * ✅ FIX UTAMA: Hapus baris.
-   * - Jika > 1 baris: hapus baris spesifik
-   * - Jika hanya 1 baris: reset jadi kosong (bukan no-op)
-   */
+  // Hapus baris (reset jika tinggal 1)
   const removeBulkRow = (tempId: string) => {
     setBulkRows(prev => {
-      if (prev.length <= 1) {
-        // Reset satu-satunya baris jadi kosong
-        return [makeEmptyRow()];
-      }
+      if (prev.length <= 1) return [makeEmptyRow()];
       return prev.filter(r => r.tempId !== tempId);
     });
   };
@@ -195,23 +209,12 @@ export const RABModule: React.FC = () => {
     showToast('Semua baris dikosongkan.', 'info');
   };
 
-  /**
-   * ✅ FIX UTAMA: Hapus item dari Firestore.
-   * - Pakai try/catch detail
-   * - Tampilkan error code kalau gagal (untuk diagnosa rules)
-   * - Fallback ke batch delete kalau deleteDoc gagal
-   * - Tutup modal otomatis setelah sukses (kalau sedang edit)
-   */
+  // Hapus item dari Firestore (tanpa confirm(), pakai toast)
   const handleDeleteItem = async (item: RABItem) => {
-    if (!user) {
-      showToast('Anda belum login.', 'error');
-      return;
-    }
-
+    if (!user) return;
     try {
       await deleteDoc(doc(db, 'rabItems', item.id));
-      showToast(`✓ "${item.itemName}" dihapus.`, 'success');
-
+      showToast(`Item "${item.itemName}" dihapus.`, 'success');
       try {
         await recordAuditLog({
           userId: user.uid, userName: user.displayName, role: user.role,
@@ -219,78 +222,28 @@ export const RABModule: React.FC = () => {
           details: `Hapus item RAB: ${item.itemName}`,
         });
       } catch { /* non-fatal */ }
-
     } catch (err: any) {
-      const code = err?.code || 'unknown';
-      console.error('Delete RAB error:', err);
-
-      // Fallback: coba batch delete
-      try {
-        const batch = writeBatch(db);
-        batch.delete(doc(db, 'rabItems', item.id));
-        await batch.commit();
-        showToast(`✓ "${item.itemName}" dihapus.`, 'success');
-        return;
-      } catch (fallbackErr: any) {
-        console.error('Fallback delete juga gagal:', fallbackErr);
-      }
-
-      let msg = 'Gagal hapus.';
-      if (code === 'permission-denied') {
-        msg = 'Tidak punya izin hapus. Cek Firestore rules.';
-      } else if (code === 'unavailable') {
-        msg = 'Koneksi internet bermasalah.';
-      } else if (code === 'not-found') {
-        msg = 'Item sudah tidak ada.';
-      } else {
-        msg = `Gagal hapus [${code}]: ${err?.message || 'unknown'}`;
-      }
-      showToast(msg, 'error');
+      showToast('Gagal hapus: ' + (err?.message || 'Unknown'), 'error');
     }
   };
 
-  /**
-   * ✅ Hapus item saat sedang edit mode (dari dalam modal).
-   * Setelah sukses, tutup modal.
-   */
+  // Hapus item dari dalam Edit Modal
   const handleDeleteFromEditModal = async () => {
     if (!editingItem || !user) return;
-
     try {
       await deleteDoc(doc(db, 'rabItems', editingItem.id));
-      showToast(`✓ "${editingItem.itemName}" dihapus.`, 'success');
-
+      showToast(`Item "${editingItem.itemName}" dihapus.`, 'success');
       try {
         await recordAuditLog({
           userId: user.uid, userName: user.displayName, role: user.role,
           action: 'DELETE', targetType: 'RABItem', targetId: editingItem.id,
-          details: `Hapus item RAB (edit mode): ${editingItem.itemName}`,
+          details: `Hapus item RAB (dari edit): ${editingItem.itemName}`,
         });
       } catch { /* non-fatal */ }
-
       setIsItemModalOpen(false);
       setEditingItem(null);
     } catch (err: any) {
-      const code = err?.code || 'unknown';
-      console.error('Delete from edit modal error:', err);
-
-      try {
-        const batch = writeBatch(db);
-        batch.delete(doc(db, 'rabItems', editingItem.id));
-        await batch.commit();
-        showToast(`✓ "${editingItem.itemName}" dihapus.`, 'success');
-        setIsItemModalOpen(false);
-        setEditingItem(null);
-        return;
-      } catch (fallbackErr) {
-        console.error('Fallback gagal:', fallbackErr);
-      }
-
-      let msg = 'Gagal hapus.';
-      if (code === 'permission-denied') msg = 'Tidak punya izin hapus. Cek Firestore rules.';
-      else if (code === 'unavailable') msg = 'Koneksi bermasalah.';
-      else msg = `Gagal [${code}]: ${err?.message || 'unknown'}`;
-      showToast(msg, 'error');
+      showToast('Gagal hapus: ' + (err?.message || 'Unknown'), 'error');
     }
   };
 
@@ -308,7 +261,7 @@ export const RABModule: React.FC = () => {
     }
 
     if (bulkRows.some(r => r.itemName.trim() && (r.qty <= 0 || r.unitPrice <= 0))) {
-      showToast('Ada baris belum lengkap. Lengkapi qty & harga atau hapus baris itu.', 'warning');
+      showToast('Ada baris yang belum lengkap. Lengkapi qty & harga atau hapus baris itu.', 'warning');
       return;
     }
 
@@ -336,7 +289,6 @@ export const RABModule: React.FC = () => {
             details: `Edit item RAB: ${row.itemName}`,
           });
         } catch { /* non-fatal */ }
-
         showToast('Item RAB diperbarui.', 'success');
       } else {
         const batch = writeBatch(db);
@@ -369,15 +321,13 @@ export const RABModule: React.FC = () => {
             details: `Tambah ${validRows.length} item RAB untuk ${itemCategory} - ${targetName}`,
           });
         } catch { /* non-fatal */ }
-
         showToast(`${validRows.length} item RAB ditambahkan.`, 'success');
       }
 
       setIsItemModalOpen(false);
       setEditingItem(null);
     } catch (err: any) {
-      const code = err?.code || 'unknown';
-      showToast(`Gagal simpan [${code}]: ${err?.message || 'unknown'}`, 'error');
+      showToast('Gagal: ' + (err?.message || 'Unknown'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -469,50 +419,38 @@ export const RABModule: React.FC = () => {
   // ==========================================
   const openCreateDocument = () => {
     setDocTitle('RAB Final Produksi Teater');
-    setDocFileUrl('');
-    setDocFileName('');
-    setPimproSig('');
-    setBendaharaSig('');
+    setDocFileUrl(''); setDocFileName('');
+    setPimproSig(''); setBendaharaSig('');
     setIsDocModalOpen(true);
   };
 
   const handleSaveDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !activeClass || !docFileUrl.trim()) {
-      showToast('Isi link file RAB final.', 'warning');
-      return;
-    }
+    if (!user || !activeClass || !docFileUrl.trim()) { showToast('Isi link file RAB final.', 'warning'); return; }
     setSubmitting(true);
     try {
       const id = doc(collection(db, 'rabDocuments')).id;
       await setDoc(doc(db, 'rabDocuments', id), {
-        id, classId: activeClass.id,
-        title: docTitle.trim(), fileUrl: docFileUrl.trim(),
-        fileName: docFileName.trim() || 'RAB_Final.pdf',
-        version: 1,
-        signedByPimpro: !!pimproSig.trim(),
-        pimproSignature: pimproSig.trim(),
+        id, classId: activeClass.id, title: docTitle.trim(), fileUrl: docFileUrl.trim(),
+        fileName: docFileName.trim() || 'RAB_Final.pdf', version: 1,
+        signedByPimpro: !!pimproSig.trim(), pimproSignature: pimproSig.trim(),
         signedAtPimpro: pimproSig.trim() ? new Date().toISOString() : undefined,
-        signedByBendahara: !!bendaharaSig.trim(),
-        bendaharaSignature: bendaharaSig.trim(),
+        signedByBendahara: !!bendaharaSig.trim(), bendaharaSignature: bendaharaSig.trim(),
         signedAtBendahara: bendaharaSig.trim() ? new Date().toISOString() : undefined,
-        uploadedAt: new Date().toISOString(),
-        uploadedBy: user.uid, uploaderName: user.displayName,
+        uploadedAt: new Date().toISOString(), uploadedBy: user.uid, uploaderName: user.displayName,
       } as RABDocument);
+      await recordAuditLog({ userId: user.uid, userName: user.displayName, role: user.role, action: 'CREATE', targetType: 'RABDocument', targetId: id, details: `Upload RAB final: ${docTitle}` });
       showToast('Dokumen RAB final tersimpan.', 'success');
       setIsDocModalOpen(false);
-    } catch (err: any) {
-      showToast(`Gagal [${err?.code || '?'}]: ${err?.message || 'unknown'}`, 'error');
-    } finally { setSubmitting(false); }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setSubmitting(false); }
   };
 
   const handleDeleteDocument = async (docItem: RABDocument) => {
     try {
       await deleteDoc(doc(db, 'rabDocuments', docItem.id));
       showToast('Dokumen dihapus.', 'success');
-    } catch (err: any) {
-      showToast(`Gagal [${err?.code || '?'}]: ${err?.message || 'unknown'}`, 'error');
-    }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   return (
@@ -658,7 +596,6 @@ export const RABModule: React.FC = () => {
                       )}
                     </div>
                   </div>
-
                   <div className="divide-y divide-slate-100 dark:divide-slate-700">
                     {group.items.map(it => (
                       <div key={it.id} className="p-3">
@@ -677,19 +614,14 @@ export const RABModule: React.FC = () => {
 
                         {canManageItems && (
                           <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditItem(it); }}
+                            <button type="button" onClick={() => openEditItem(it)}
                               style={{ minHeight: '44px', touchAction: 'manipulation' }}
-                              className="flex-1 rounded-xl text-blue-700 bg-blue-50 border-2 border-blue-300 hover:bg-blue-100 active:bg-blue-200 text-xs font-bold transition flex items-center justify-center gap-1.5">
+                              className="flex-1 rounded-xl text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border-2 border-blue-300 dark:border-blue-500/40 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-xs font-bold transition flex items-center justify-center gap-1.5">
                               <Edit3 className="w-4 h-4" /> Edit
                             </button>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteItem(it); }}
-                              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteItem(it); }}
+                            <button type="button" onClick={() => handleDeleteItem(it)}
                               style={{ minHeight: '44px', touchAction: 'manipulation' }}
-                              className="flex-1 rounded-xl text-rose-700 bg-rose-50 border-2 border-rose-300 hover:bg-rose-100 active:bg-rose-200 text-xs font-bold transition flex items-center justify-center gap-1.5">
+                              className="flex-1 rounded-xl text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-xs font-bold transition flex items-center justify-center gap-1.5">
                               <Trash2 className="w-4 h-4" /> Hapus
                             </button>
                           </div>
@@ -719,7 +651,7 @@ export const RABModule: React.FC = () => {
               <FileCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Dokumen RAB Final</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
-                Setelah RAB digital diexport ke Word dan ditandatangani, upload file final ke sini.
+                Upload file final (PDF/Word) setelah RAB diexport & ditandatangani.
               </p>
             </div>
           ) : (
@@ -743,7 +675,7 @@ export const RABModule: React.FC = () => {
                     {canManageItems && (
                       <button type="button" onClick={() => handleDeleteDocument(docItem)}
                         style={{ minHeight: '44px', touchAction: 'manipulation' }}
-                        className="px-3 rounded-lg text-rose-700 bg-rose-50 border-2 border-rose-300 hover:bg-rose-100 active:bg-rose-200 text-xs font-bold transition flex items-center gap-1">
+                        className="px-3 rounded-lg text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-xs font-bold transition flex items-center gap-1">
                         <Trash2 className="w-4 h-4" /> Hapus
                       </button>
                     )}
@@ -752,21 +684,21 @@ export const RABModule: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <div className={`p-2.5 rounded-xl border text-center ${
                       docItem.signedByPimpro
-                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200'
+                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                     }`}>
                       <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Pimpro</p>
-                      <p className={`text-[11px] font-bold mt-0.5 ${docItem.signedByPimpro ? 'text-emerald-700' : 'text-slate-400 italic'}`}>
+                      <p className={`text-[11px] font-bold mt-0.5 ${docItem.signedByPimpro ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-400 italic'}`}>
                         {docItem.signedByPimpro ? docItem.pimproSignature : 'Belum TTD'}
                       </p>
                     </div>
                     <div className={`p-2.5 rounded-xl border text-center ${
                       docItem.signedByBendahara
-                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200'
+                        ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
                     }`}>
                       <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Bendahara</p>
-                      <p className={`text-[11px] font-bold mt-0.5 ${docItem.signedByBendahara ? 'text-emerald-700' : 'text-slate-400 italic'}`}>
+                      <p className={`text-[11px] font-bold mt-0.5 ${docItem.signedByBendahara ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-400 italic'}`}>
                         {docItem.signedByBendahara ? docItem.bendaharaSignature : 'Belum TTD'}
                       </p>
                     </div>
@@ -783,12 +715,12 @@ export const RABModule: React.FC = () => {
         </>
       )}
 
-      {/* ============ MODAL ITEM ============ */}
+      {/* ============ MODAL ITEM (MULTI-ROW) ============ */}
       {isItemModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <form onSubmit={handleSaveItem}
             className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 max-h-[95vh] flex flex-col overflow-hidden">
-
+            
             {/* Header — fixed */}
             <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-700 shrink-0">
               <div className="flex items-center justify-between">
@@ -804,12 +736,12 @@ export const RABModule: React.FC = () => {
               </div>
             </div>
 
-            {/* Body — scrollable (satu-satunya scroll container) */}
+            {/* Body — scrollable */}
             <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
-
+              
               {!editingItem && (
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 flex items-start gap-2">
-                  <Info className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-start gap-2">
+                  <Info className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                   <p className="text-[11px] text-emerald-900 dark:text-emerald-200 leading-relaxed">
                     <strong>Bisa tambah banyak sekaligus.</strong> Isi beberapa baris, lalu klik "Simpan" di bawah.
                   </p>
@@ -824,8 +756,7 @@ export const RABModule: React.FC = () => {
                   {(['DIVISI', 'PERAN', 'UMUM'] as Category[]).map(c => {
                     const Icon = CATEGORY_CONFIG[c].icon;
                     return (
-                      <button key={c} type="button"
-                        onClick={() => handleCategoryChange(c)}
+                      <button key={c} type="button" onClick={() => handleCategoryChange(c)}
                         style={{ touchAction: 'manipulation' }}
                         className={`py-3 rounded-xl border-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
                           itemCategory === c
@@ -870,7 +801,7 @@ export const RABModule: React.FC = () => {
                   {!editingItem && bulkRows.length > 1 && (
                     <button type="button" onClick={resetAllRows}
                       style={{ touchAction: 'manipulation' }}
-                      className="px-3 py-2 rounded-lg text-slate-600 bg-slate-100 hover:bg-slate-200 text-[11px] font-bold flex items-center gap-1 transition">
+                      className="px-3 py-2 rounded-lg text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-[11px] font-bold flex items-center gap-1 transition">
                       <RotateCcw className="w-3 h-3" /> Reset Semua
                     </button>
                   )}
@@ -880,15 +811,14 @@ export const RABModule: React.FC = () => {
                   {bulkRows.map((row, idx) => (
                     <div key={row.tempId} className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-2.5">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-bold text-slate-500">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
                           {editingItem ? 'Item' : `Item #${idx + 1}`}
                         </span>
                         {!editingItem && (
                           <button type="button"
                             onClick={(e) => { e.preventDefault(); removeBulkRow(row.tempId); }}
-                            onTouchEnd={(e) => { e.preventDefault(); removeBulkRow(row.tempId); }}
                             style={{ minHeight: '44px', minWidth: '90px', touchAction: 'manipulation' }}
-                            className="px-3 rounded-lg bg-rose-50 text-rose-700 border-2 border-rose-300 text-[11px] font-bold flex items-center justify-center gap-1.5 hover:bg-rose-100 active:bg-rose-200 transition">
+                            className="px-3 rounded-lg bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-2 border-rose-300 dark:border-rose-500/40 text-[11px] font-bold flex items-center justify-center gap-1.5 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition">
                             <Trash2 className="w-3.5 h-3.5" /> Hapus Baris
                           </button>
                         )}
@@ -902,14 +832,14 @@ export const RABModule: React.FC = () => {
 
                       <div className="grid grid-cols-3 gap-2">
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">Qty</label>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Qty</label>
                           <input type="number" min="1" inputMode="numeric"
                             value={row.qty || ''}
-                            onChange={(e) => updateBulkRow(row.tempId, 'qty', parseInt(e.target.value) || 1)}
+                            onChange={(e) => updateBulkRow(row.tempId, 'qty', parseInt(e.target.value) || 0)}
                             className="w-full px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">Satuan</label>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Satuan</label>
                           <input type="text"
                             value={row.unit}
                             onChange={(e) => updateBulkRow(row.tempId, 'unit', e.target.value)}
@@ -917,7 +847,7 @@ export const RABModule: React.FC = () => {
                             className="w-full px-2 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
                         </div>
                         <div>
-                          <label className="block text-[10px] font-bold text-slate-500 mb-1">Harga Satuan</label>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Harga Satuan</label>
                           <input type="number" min="0" step="500" inputMode="numeric"
                             value={row.unitPrice || ''}
                             onChange={(e) => updateBulkRow(row.tempId, 'unitPrice', parseInt(e.target.value) || 0)}
@@ -932,7 +862,7 @@ export const RABModule: React.FC = () => {
                         placeholder="Catatan (opsional)"
                         className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-medium text-slate-700 dark:text-slate-300" />
 
-                      <div className="text-[10px] text-slate-500 text-right">
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 text-right">
                         Subtotal: <strong className="text-slate-800 dark:text-slate-200">Rp {(row.qty * row.unitPrice).toLocaleString('id-ID')}</strong>
                       </div>
                     </div>
@@ -963,15 +893,12 @@ export const RABModule: React.FC = () => {
             {/* Footer — fixed */}
             <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 shrink-0 space-y-2">
               {editingItem && (
-                <button type="button"
-                  onClick={handleDeleteFromEditModal}
-                  onTouchEnd={(e) => { e.preventDefault(); handleDeleteFromEditModal(); }}
+                <button type="button" onClick={handleDeleteFromEditModal}
                   style={{ minHeight: '48px', touchAction: 'manipulation' }}
-                  className="w-full rounded-xl bg-rose-50 border-2 border-rose-400 text-rose-700 font-bold text-xs flex items-center justify-center gap-2 hover:bg-rose-100 active:bg-rose-200 transition">
+                  className="w-full rounded-xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-400 dark:border-rose-500/60 text-rose-700 dark:text-rose-300 font-bold text-xs flex items-center justify-center gap-2 hover:bg-rose-100 dark:hover:bg-rose-500/20 transition">
                   <Trash2 className="w-4 h-4" /> Hapus Item Ini Permanen
                 </button>
               )}
-
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => { setIsItemModalOpen(false); setEditingItem(null); }}
                   style={{ minHeight: '44px', touchAction: 'manipulation' }}
@@ -982,11 +909,7 @@ export const RABModule: React.FC = () => {
                   style={{ minHeight: '44px', touchAction: 'manipulation' }}
                   className="px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                   <Save className="w-3.5 h-3.5" />
-                  {submitting
-                    ? 'Menyimpan...'
-                    : editingItem
-                    ? 'Simpan Perubahan'
-                    : `Simpan ${bulkRows.filter(r => r.itemName.trim()).length} Item`}
+                  {submitting ? 'Menyimpan...' : editingItem ? 'Simpan Perubahan' : `Simpan ${bulkRows.filter(r => r.itemName.trim()).length} Item`}
                 </button>
               </div>
             </div>
@@ -1009,7 +932,6 @@ export const RABModule: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <div className="p-5 overflow-y-auto flex-1 space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Judul Dokumen</label>
@@ -1034,25 +956,24 @@ export const RABModule: React.FC = () => {
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200">
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
                   <label className="block text-xs font-bold text-amber-900 dark:text-amber-200 mb-1 flex items-center gap-1">
                     <PenTool className="w-3.5 h-3.5" /> TTD Pimpro
                   </label>
                   <input type="text" value={pimproSig} onChange={(e) => setPimproSig(e.target.value)}
                     placeholder="Nama Pimpro"
-                    className="w-full px-3 py-2 rounded-lg border border-amber-300 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                    className="w-full px-3 py-2 rounded-lg border border-amber-300 dark:border-amber-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                 </div>
-                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200">
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
                   <label className="block text-xs font-bold text-emerald-900 dark:text-emerald-200 mb-1 flex items-center gap-1">
                     <PenTool className="w-3.5 h-3.5" /> TTD Bendahara
                   </label>
                   <input type="text" value={bendaharaSig} onChange={(e) => setBendaharaSig(e.target.value)}
                     placeholder="Nama Bendahara"
-                    className="w-full px-3 py-2 rounded-lg border border-emerald-300 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                    className="w-full px-3 py-2 rounded-lg border border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
                 </div>
               </div>
             </div>
-
             <div className="p-4 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-2 shrink-0">
               <button type="button" onClick={() => setIsDocModalOpen(false)}
                 style={{ minHeight: '44px', touchAction: 'manipulation' }}
