@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, Clock, Package, Plus, X, Save, CheckCircle, XCircle,
-  AlertTriangle, Search, Music, Mic, Box, Trash2, Edit3, Info,
-  Settings as SettingsIcon, Send, ShieldAlert, Guitar, Drum,
-  Sparkles,
+  AlertTriangle, Search, Music, Trash2, Edit3, Info,
+  Settings as SettingsIcon, Send, ShieldAlert,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -50,7 +49,7 @@ interface BookingSettings {
   minLeadDays: number;
 }
 
-// ✅ FOKUS: Kategori khusus alat musik
+// ✅ Kategori alat musik
 const MUSIC_CATEGORIES = [
   'Alat Musik Tradisional',
   'Alat Musik Modern',
@@ -58,49 +57,11 @@ const MUSIC_CATEGORIES = [
   'Lainnya',
 ];
 
-// ✅ KATALOG ALAT MUSIK LENGKAP
+// ✅ KATALOG DEFAULT: HANYA 3 ALAT MUSIK
 const DEFAULT_INSTRUMENTS: Omit<Equipment, 'id' | 'classId'>[] = [
-  // ===================== ALAT MUSIK TRADISIONAL KALIMANTAN =====================
-  { name: 'Babun', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Gendang tradisional Kalimantan (Dayak/Kutai)' },
+  { name: 'Babun', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Gendang tradisional Kalimantan' },
+  { name: 'Gong', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Gong untuk pementasan' },
   { name: 'Gambus', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Alat musik petik khas Kalimantan' },
-  { name: 'Sape (Sampe)', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Alat musik petik Dayak Kenyah' },
-  { name: 'Gong', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Gong besar untuk pementasan' },
-  { name: 'Kempul', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Gong kecil' },
-  { name: 'Ketipung', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Gendang kecil Kalimantan' },
-  { name: 'Rebana', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Rebana untuk pengiring' },
-  { name: 'Kuriding', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Suling bambu Kalimantan' },
-  { name: 'Kadire', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Alat musik tiup dari bambu' },
-
-  // ===================== ALAT MUSIK TRADISIONAL NUSANTARA =====================
-  { name: 'Angklung', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Set angklung bambu Sunda' },
-  { name: 'Kendang Jawa', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Kendang untuk pengiring' },
-  { name: 'Kolintang', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Alat musik pukul kayu Minahasa' },
-  { name: 'Sasando', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Alat musik petik NTT' },
-  { name: 'Suling Bambu', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Seruling bambu standar' },
-  { name: 'Gamelan Mini', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Set gamelan kecil (opsional)' },
-
-  // ===================== ALAT MUSIK MODERN =====================
-  { name: 'Gitar Akustik', category: 'Alat Musik Modern', quantity: 2, condition: 'BAIK', notes: 'Gitar akustik standar' },
-  { name: 'Gitar Elektrik', category: 'Alat Musik Modern', quantity: 1, condition: 'BAIK', notes: 'Gitar elektrik + amplifier' },
-  { name: 'Bass Elektrik', category: 'Alat Musik Modern', quantity: 1, condition: 'BAIK', notes: 'Bass elektrik + kabel' },
-  { name: 'Keyboard', category: 'Alat Musik Modern', quantity: 1, condition: 'BAIK', notes: 'Keyboard 61 keys + adaptor' },
-  { name: 'Drum Set', category: 'Alat Musik Modern', quantity: 1, condition: 'BAIK', notes: 'Drum akustik lengkap' },
-  { name: 'Cajon', category: 'Alat Musik Modern', quantity: 1, condition: 'BAIK', notes: 'Cajon box drum' },
-  { name: 'Biola', category: 'Alat Musik Modern', quantity: 1, condition: 'BAIK', notes: 'Biola + bow + case' },
-  { name: 'Ukulele', category: 'Alat Musik Modern', quantity: 2, condition: 'BAIK', notes: 'Ukulele senar 4' },
-  { name: 'Suling Modern', category: 'Alat Musik Modern', quantity: 2, condition: 'BAIK', notes: 'Suling recorder' },
-
-  // ===================== AKSESORIS & PERLENGKAPAN MUSIK =====================
-  { name: 'Stand Mic', category: 'Aksesoris & Perlengkapan Musik', quantity: 2, condition: 'BAIK', notes: 'Stand mic boom + clip' },
-  { name: 'Stand Partitur', category: 'Aksesoris & Perlengkapan Musik', quantity: 2, condition: 'BAIK', notes: 'Stand untuk partitur/naskah' },
-  { name: 'Kabel Jack 6.35mm', category: 'Aksesoris & Perlengkapan Musik', quantity: 4, condition: 'BAIK', notes: 'Kabel instrumen 5m' },
-  { name: 'Tuner Clip-on', category: 'Aksesoris & Perlengkapan Musik', quantity: 2, condition: 'BAIK', notes: 'Alat stem gitar/biola' },
-  { name: 'Pick Gitar', category: 'Aksesoris & Perlengkapan Musik', quantity: 5, condition: 'BAIK', notes: 'Pick gitar (berbagai ketebalan)' },
-  { name: 'Strap Gitar', category: 'Aksesoris & Perlengkapan Musik', quantity: 2, condition: 'BAIK', notes: 'Strap gitar/bass' },
-  { name: 'Senar Cadangan', category: 'Aksesoris & Perlengkapan Musik', quantity: 2, condition: 'BAIK', notes: 'Senar gitar akustik set' },
-  { name: 'Metronome', category: 'Aksesoris & Perlengkapan Musik', quantity: 1, condition: 'BAIK', notes: 'Metronome digital' },
-  { name: 'Stick Drum', category: 'Aksesoris & Perlengkapan Musik', quantity: 4, condition: 'BAIK', notes: 'Stick drum (pasang)' },
-  { name: 'Bow Biola', category: 'Aksesoris & Perlengkapan Musik', quantity: 1, condition: 'BAIK', notes: 'Bow biola cadangan' },
 ];
 
 const CAN_MANAGE_EQUIPMENT_ROLES = [
@@ -450,15 +411,6 @@ export const BookingModule: React.FC = () => {
   const myBookings = bookings.filter(b => b.bookedBy === user?.uid);
   const pendingBookings = bookings.filter(b => b.status === 'PENDING');
 
-  const getCategoryIcon = (cat: string) => {
-    switch (cat) {
-      case 'Alat Musik Tradisional': return Drum;
-      case 'Alat Musik Modern': return Guitar;
-      case 'Aksesoris & Perlengkapan Musik': return Sparkles;
-      default: return Music;
-    }
-  };
-
   const getConditionColor = (cond: string) => {
     switch (cond) {
       case 'BAIK': return 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40';
@@ -476,10 +428,6 @@ export const BookingModule: React.FC = () => {
     }
   };
 
-  // Hitung total per kategori untuk badge di tab
-  const instrumentCount = equipment.filter(e => e.category === 'Alat Musik Tradisional' || e.category === 'Alat Musik Modern').length;
-  const accessoryCount = equipment.filter(e => e.category === 'Aksesoris & Perlengkapan Musik').length;
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -495,8 +443,7 @@ export const BookingModule: React.FC = () => {
               </span>
               <h2 className="text-xl font-black text-white mt-1">Peminjaman Alat Musik</h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                {instrumentCount} alat musik • {accessoryCount} aksesoris •{' '}
-                <strong className="text-amber-300">Minimal H-{minLeadDays}</strong>
+                {equipment.length} alat musik tersedia • Minimal <strong className="text-amber-300">H-{minLeadDays}</strong>
               </p>
             </div>
           </div>
@@ -519,8 +466,8 @@ export const BookingModule: React.FC = () => {
       <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
         <Music className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Khusus alat musik.</strong> Booking alat musik tradisional (Kalimantan & Nusantara), modern, dan aksesorisnya.
-          Ajukan minimal <strong>H-{minLeadDays}</strong> sebelum peminjaman. Verifikasi dilakukan Guru/Koordinator Tata Musik.
+          <strong>Katalog default:</strong> Babun, Gong, Gambus. Butuh alat lain? Klik <strong>"Tambah Alat Musik"</strong>.
+          Booking minimal <strong>H-{minLeadDays}</strong>, diverifikasi Guru/Koordinator Tata Musik.
         </p>
       </div>
 
@@ -546,13 +493,13 @@ export const BookingModule: React.FC = () => {
         )}
       </div>
 
-      {/* Katalog Alat Musik */}
+      {/* Katalog */}
       {activeTab === 'alat' && (
         <>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-              <input type="text" placeholder="Cari alat musik... (babun, gambus, gong, gitar...)"
+              <input type="text" placeholder="Cari alat musik... (babun, gong, gambus...)"
                 value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
             </div>
@@ -565,13 +512,12 @@ export const BookingModule: React.FC = () => {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filteredEquipment.map(eq => {
-              const Icon = getCategoryIcon(eq.category);
               const activeBookings = bookings.filter(b => b.equipmentId === eq.id && b.status === 'APPROVED' && b.date >= new Date().toISOString().slice(0, 10)).length;
               return (
                 <div key={eq.id} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:shadow-md transition space-y-3">
                   <div className="flex items-start gap-3">
                     <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 shrink-0">
-                      <Icon className="w-5 h-5" />
+                      <Music className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug flex items-center gap-1.5 flex-wrap">
@@ -615,9 +561,12 @@ export const BookingModule: React.FC = () => {
           </div>
 
           {filteredEquipment.length === 0 && (
-            <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
-              <Music className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-              <p className="text-xs text-slate-500 dark:text-slate-400">Tidak ada alat musik yang cocok.</p>
+            <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
+              <Music className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+              <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Alat Musik</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {canManageEquipment ? 'Klik "Tambah Alat Musik" untuk menambahkan.' : 'Tunggu Koordinator Tata Musik menambahkan.'}
+              </p>
             </div>
           )}
         </>
@@ -769,7 +718,7 @@ export const BookingModule: React.FC = () => {
               <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
                 <Send className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-blue-800 dark:text-blue-300">
-                  Booking akan diverifikasi oleh <strong>Guru/Koordinator Tata Musik</strong>. Anda akan menerima notifikasi.
+                  Booking akan diverifikasi oleh <strong>Guru/Koordinator Tata Musik</strong>.
                 </p>
               </div>
 
@@ -823,18 +772,14 @@ export const BookingModule: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Alasan Penolakan <span className="text-rose-500">*</span>
-              </label>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Alasan Penolakan <span className="text-rose-500">*</span></label>
               <input type="text" required value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
                 placeholder="Contoh: Tanggal terlalu dekat"
                 className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Arahan untuk Siswa <span className="text-rose-500">*</span>
-              </label>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Arahan untuk Siswa <span className="text-rose-500">*</span></label>
               <textarea rows={3} required value={rejectGuidance} onChange={(e) => setRejectGuidance(e.target.value)}
                 placeholder="Contoh: Silakan ajukan ulang dengan tanggal minimal 2 hari sebelum peminjaman..."
                 className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
@@ -859,7 +804,7 @@ export const BookingModule: React.FC = () => {
           <form onSubmit={handleSaveSettings} className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <SettingsIcon className="w-5 h-5 text-slate-600 dark:text-slate-400" /> Aturan Booking Alat Musik
+                <SettingsIcon className="w-5 h-5 text-slate-600 dark:text-slate-400" /> Aturan Booking
               </h3>
               <button type="button" onClick={() => setIsSettingsModalOpen(false)}
                 className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -879,14 +824,14 @@ export const BookingModule: React.FC = () => {
                   className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700">+</button>
               </div>
               <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                Booking alat musik harus diajukan minimal <strong>H-{settingsMinLead}</strong> ({settingsMinLead} hari) sebelum tanggal peminjaman.
+                Booking minimal <strong>H-{settingsMinLead}</strong> sebelum tanggal peminjaman.
               </p>
             </div>
 
             <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
               <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
               <p className="text-[10px] text-blue-900 dark:text-blue-200">
-                Siswa tidak akan bisa submit booking jika tanggal kurang dari H-{settingsMinLead}. Guru tetap bisa menolak manual dengan arahan.
+                Siswa tidak bisa submit booking jika tanggal kurang dari H-{settingsMinLead}.
               </p>
             </div>
 
@@ -902,7 +847,7 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL EQUIPMENT */}
+      {/* MODAL TAMBAH/EDIT ALAT */}
       {isEquipmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 max-h-[95vh] overflow-y-auto">
@@ -916,11 +861,21 @@ export const BookingModule: React.FC = () => {
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {!editingEquipment && (
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
+                <Music className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                  <strong>Katalog default:</strong> Babun, Gong, Gambus. Butuh alat lain? Tambahkan di sini (mis. Sape, Suling, Biola, Gitar, dll).
+                </p>
+              </div>
+            )}
+
             <form onSubmit={handleSaveEquipment} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nama Alat Musik <span className="text-rose-500">*</span></label>
                 <input type="text" required value={eqName} onChange={(e) => setEqName(e.target.value)}
-                  placeholder="Contoh: Rebab, Seruling, Sasando, Biola..."
+                  placeholder="Contoh: Sape, Suling, Biola, Ukulele..."
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
               </div>
               <div>
