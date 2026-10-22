@@ -22,16 +22,16 @@ interface Equipment {
   condition: 'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT';
   notes: string;
   isCustom?: boolean;
-  addedByName?: string; // ✅ siapa yang tambah manual
+  addedByName?: string;
 }
 
 interface Booking {
   id: string;
   classId: string;
-  className: string;          // ✅ NEW: untuk verifikator lihat kelas asal
+  className: string;
   equipmentId: string;
   equipmentName: string;
-  equipmentCategory: string;  // ✅ NEW: kategori alat
+  equipmentCategory: string;
   bookedBy: string;
   bookerName: string;
   bookerRole: string;
@@ -45,12 +45,40 @@ interface Booking {
   approvedAt?: string;
   rejectionReason?: string;
   rejectionGuidance?: string;
+  // ✅ BARU: untuk audit perubahan jam oleh guru
+  originalStartTime?: string;
+  originalEndTime?: string;
+  verifierNote?: string;
+  wasRescheduledByVerifier?: boolean;
   createdAt: string;
 }
 
 interface BookingSettings {
   minLeadDays: number;
 }
+
+// ✅ Aturan peminjaman
+const MAX_BOOKING_MINUTES = 60; // Maksimal 1 jam per booking
+
+// ✅ Helper waktu
+const timeToMinutes = (timeStr: string): number => {
+  if (!timeStr) return 0;
+  const [h, m] = timeStr.split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+};
+
+const getDurationMinutes = (start: string, end: string): number => {
+  return timeToMinutes(end) - timeToMinutes(start);
+};
+
+const formatDuration = (minutes: number): string => {
+  if (minutes <= 0) return '0 menit';
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m} menit`;
+  if (m === 0) return `${h} jam`;
+  return `${h} jam ${m} menit`;
+};
 
 // ✅ Kategori
 const MUSIC_CATEGORIES = [
@@ -117,14 +145,14 @@ export const BookingModule: React.FC = () => {
   const [settings, setSettings] = useState<BookingSettings>({ minLeadDays: 2 });
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
-  const [filterClass, setFilterClass] = useState<string>('ALL'); // untuk verifikator
+  const [filterClass, setFilterClass] = useState<string>('ALL');
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
 
   // ✅ Tentukan peran
   const isVerifier = !!user && VERIFIER_ROLES.includes(user.role);
-  
+
   // Default tab berdasarkan peran
   const [activeTab, setActiveTab] = useState<string>(isVerifier ? 'pending' : 'katalog');
 
@@ -141,6 +169,14 @@ export const BookingModule: React.FC = () => {
   const [rejectingBooking, setRejectingBooking] = useState<Booking | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectGuidance, setRejectGuidance] = useState('');
+
+  // ✅ Modal approve (guru bisa sesuaikan jam)
+  const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
+  const [approvingBooking, setApprovingBooking] = useState<Booking | null>(null);
+  const [approveStart, setApproveStart] = useState('');
+  const [approveEnd, setApproveEnd] = useState('');
+  const [approveNote, setApproveNote] = useState('');
+  const [approveError, setApproveError] = useState('');
 
   // Modal settings
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
@@ -294,7 +330,9 @@ export const BookingModule: React.FC = () => {
   const handleOpenBooking = (eq: Equipment) => {
     setSelectedEquipment(eq);
     setBookDate(minBookingDate);
-    setBookStart('14:00'); setBookEnd('16:00'); setBookPurpose('');
+    setBookStart('14:00');
+    setBookEnd('15:00'); // ✅ Default 1 jam, bukan 2 jam
+    setBookPurpose('');
     setIsBookingOpen(true);
   };
 
@@ -302,7 +340,21 @@ export const BookingModule: React.FC = () => {
     e.preventDefault();
     if (!user || !activeClass || !selectedEquipment) return;
     if (!bookPurpose.trim()) { showToast('Isi keperluan booking.', 'warning'); return; }
-    if (bookStart >= bookEnd) { showToast('Jam selesai harus > jam mulai.', 'warning'); return; }
+
+    // ✅ VALIDASI DURASI
+    const dur = getDurationMinutes(bookStart, bookEnd);
+    if (dur <= 0) {
+      showToast('Jam selesai harus lebih akhir dari jam mulai.', 'warning');
+      return;
+    }
+    if (dur > MAX_BOOKING_MINUTES) {
+      showToast(
+        `Maksimal ${formatDuration(MAX_BOOKING_MINUTES)} per booking. ` +
+        `Ingin menambah jam? Buat booking terpisah di jam berbeda (tidak boleh bentrok).`,
+        'error'
+      );
+      return;
+    }
 
     const diff = daysDifference(new Date().toISOString().slice(0, 10), bookDate);
     if (diff < minLeadDays) {
@@ -316,7 +368,7 @@ export const BookingModule: React.FC = () => {
     );
     for (const b of existing) {
       if (bookStart < b.endTime && bookEnd > b.startTime) {
-        showToast(`Bentrok dengan booking ${b.bookerName} (${b.startTime}-${b.endTime})`, 'error');
+        showToast(`Bentrok dengan booking ${b.bookerName} (${b.startTime}-${b.endTime}). Pilih jam lain.`, 'error');
         return;
       }
     }
@@ -327,7 +379,7 @@ export const BookingModule: React.FC = () => {
       await setDoc(newRef, {
         id: newRef.id,
         classId: activeClass.id,
-        className: activeClass.name, // ✅ untuk verifikator
+        className: activeClass.name,
         equipmentId: selectedEquipment.id,
         equipmentName: selectedEquipment.name,
         equipmentCategory: selectedEquipment.category,
@@ -344,7 +396,7 @@ export const BookingModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'Booking', targetId: newRef.id,
-        details: `Booking ${selectedEquipment.name} (${bookDate} ${bookStart}-${bookEnd})`,
+        details: `Booking ${selectedEquipment.name} (${bookDate} ${bookStart}-${bookEnd}, ${formatDuration(dur)})`,
       });
 
       try {
@@ -363,30 +415,107 @@ export const BookingModule: React.FC = () => {
   };
 
   // ============== VERIFIKATOR: APPROVE / REJECT ==============
-  const handleApprove = async (booking: Booking) => {
-    if (!user || !isVerifier) return;
+  // ✅ Buka modal approve (bukan langsung approve)
+  const handleOpenApprove = (booking: Booking) => {
+    setApprovingBooking(booking);
+    setApproveStart(booking.startTime);
+    setApproveEnd(booking.endTime);
+    setApproveNote('');
+    setApproveError('');
+    setIsApproveModalOpen(true);
+  };
+
+  // ✅ Konfirmasi approve dengan validasi
+  const handleConfirmApprove = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !approvingBooking || !isVerifier) return;
+
+    // Validasi durasi
+    const dur = getDurationMinutes(approveStart, approveEnd);
+    if (dur <= 0) {
+      setApproveError('Jam selesai harus lebih akhir dari jam mulai.');
+      return;
+    }
+    if (dur > MAX_BOOKING_MINUTES) {
+      setApproveError(`Maksimal ${formatDuration(MAX_BOOKING_MINUTES)} per booking.`);
+      return;
+    }
+
+    // Validasi bentrok dengan booking APPROVED lain (alat + tanggal sama)
+    const conflicting = bookings
+      .filter(b =>
+        b.id !== approvingBooking.id &&
+        b.equipmentId === approvingBooking.equipmentId &&
+        b.date === approvingBooking.date &&
+        b.status === 'APPROVED'
+      )
+      .find(b => approveStart < b.endTime && approveEnd > b.startTime);
+
+    if (conflicting) {
+      setApproveError(`Bentrok dengan booking ${conflicting.bookerName} (${conflicting.startTime}-${conflicting.endTime}).`);
+      return;
+    }
+
+    setApproveError('');
+    setSubmitting(true);
     try {
-      await updateDoc(doc(db, 'bookings', booking.id), {
+      const wasRescheduled =
+        approveStart !== approvingBooking.startTime ||
+        approveEnd !== approvingBooking.endTime;
+
+      await updateDoc(doc(db, 'bookings', approvingBooking.id), {
         status: 'APPROVED',
+        startTime: approveStart,
+        endTime: approveEnd,
         approvedBy: user.displayName,
         approvedAt: new Date().toISOString(),
-      });
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'UPDATE', targetType: 'Booking', targetId: booking.id,
-        details: `Setujui booking ${booking.equipmentName} dari ${booking.className}`,
+        verifierNote: approveNote.trim() || null,
+        // ✅ Simpan jam asli untuk audit
+        originalStartTime: approvingBooking.startTime,
+        originalEndTime: approvingBooking.endTime,
+        wasRescheduledByVerifier: wasRescheduled,
       });
 
-      const notifRef = doc(collection(db, 'notifications'));
-      await setDoc(notifRef, {
-        id: notifRef.id, userId: booking.bookedBy, classId: booking.classId,
-        title: '✅ Booking Alat Musik Disetujui',
-        message: `${user.displayName} menyetujui booking "${booking.equipmentName}" untuk ${booking.date}. Alat siap dipinjam.`,
-        category: 'Feedback', read: false, link: 'booking',
-        createdAt: new Date().toISOString(),
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'Booking', targetId: approvingBooking.id,
+        details: `Setujui booking ${approvingBooking.equipmentName}${wasRescheduled
+          ? ` (jam diubah: ${approvingBooking.startTime}-${approvingBooking.endTime} → ${approveStart}-${approveEnd})`
+          : ''
+        }`,
       });
-      showToast('Booking disetujui.', 'success');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+
+      // Notifikasi ke siswa
+      try {
+        const notifRef = doc(collection(db, 'notifications'));
+        await setDoc(notifRef, {
+          id: notifRef.id,
+          userId: approvingBooking.bookedBy,
+          classId: approvingBooking.classId,
+          title: wasRescheduled
+            ? '✅ Booking Disetujui (Jam Disesuaikan)'
+            : '✅ Booking Disetujui',
+          message: wasRescheduled
+            ? `${user.displayName} menyetujui "${approvingBooking.equipmentName}" untuk ${approvingBooking.date}. Jam disesuaikan menjadi ${approveStart}-${approveEnd}.${approveNote ? ` Catatan: ${approveNote}` : ''}`
+            : `${user.displayName} menyetujui booking "${approvingBooking.equipmentName}" (${approveStart}-${approveEnd}).`,
+          category: 'Feedback', read: false, link: 'booking',
+          createdAt: new Date().toISOString(),
+        });
+      } catch { /* non-fatal */ }
+
+      showToast(
+        wasRescheduled
+          ? 'Booking disetujui dengan jam yang disesuaikan.'
+          : 'Booking disetujui.',
+        'success'
+      );
+      setIsApproveModalOpen(false);
+      setApprovingBooking(null);
+    } catch (err: any) {
+      showToast('Gagal: ' + err.message, 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleOpenReject = (booking: Booking) => {
@@ -476,7 +605,7 @@ export const BookingModule: React.FC = () => {
   };
 
   // =========================================
-  // RENDER: MODE VERIFIKATOR (GURU/ADMIN/PIMPOD/KOOR MUSIK)
+  // RENDER: MODE VERIFIKATOR
   // =========================================
   if (isVerifier) {
     return (
@@ -494,7 +623,7 @@ export const BookingModule: React.FC = () => {
                 </span>
                 <h2 className="text-xl font-black text-white mt-1">Panel Verifikasi</h2>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  {pendingBookings.length} booking menunggu • Aturan: minimal H-{minLeadDays}
+                  {pendingBookings.length} booking menunggu • Aturan: minimal H-{minLeadDays}, maksimal 1 jam
                 </p>
               </div>
             </div>
@@ -509,7 +638,7 @@ export const BookingModule: React.FC = () => {
         <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
           <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
           <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-            Lihat semua pengajuan booking dari semua kelas. Klik <strong>Setujui</strong> atau <strong>Tolak</strong> (dengan arahan). Siswa akan menerima notifikasi otomatis.
+            Lihat semua pengajuan booking dari semua kelas. Klik <strong>Setujui / Atur Jam</strong> — Anda dapat menyesuaikan jam sebelum menyetujui. Atau <strong>Tolak</strong> dengan arahan.
           </p>
         </div>
 
@@ -552,6 +681,8 @@ export const BookingModule: React.FC = () => {
           ) : (
             (activeTab === 'pending' ? pendingBookings : allBookingsFiltered).map(b => {
               const daysLeft = daysDifference(new Date().toISOString().slice(0, 10), b.date);
+              const dur = getDurationMinutes(b.startTime, b.endTime);
+              const isOver = dur > MAX_BOOKING_MINUTES;
               return (
                 <div key={b.id} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 shadow-sm">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -570,6 +701,21 @@ export const BookingModule: React.FC = () => {
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${daysLeft < minLeadDays ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                           H-{daysLeft}
                         </span>
+                        {isOver && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white flex items-center gap-1">
+                            <AlertTriangle className="w-2.5 h-2.5" /> OVER 1 JAM
+                          </span>
+                        )}
+                        {!isOver && dur > 0 && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                            {formatDuration(dur)}
+                          </span>
+                        )}
+                        {(b as any).wasRescheduledByVerifier && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40">
+                            ✎ Disesuaikan
+                          </span>
+                        )}
                       </div>
 
                       {/* Peminjam */}
@@ -588,6 +734,18 @@ export const BookingModule: React.FC = () => {
                       <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 italic p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
                         "{b.purpose}"
                       </p>
+
+                      {/* Original time info */}
+                      {(b as any).wasRescheduledByVerifier && (b as any).originalStartTime && (
+                        <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-1 italic">
+                          Jam asli: {(b as any).originalStartTime}–{(b as any).originalEndTime}
+                        </p>
+                      )}
+                      {(b as any).verifierNote && (
+                        <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-1 italic">
+                          Catatan guru: {(b as any).verifierNote}
+                        </p>
+                      )}
 
                       {/* Rejection info */}
                       {b.status === 'REJECTED' && b.rejectionReason && (
@@ -619,9 +777,9 @@ export const BookingModule: React.FC = () => {
                     <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                       {b.status === 'PENDING' && (
                         <>
-                          <button onClick={() => handleApprove(b)}
+                          <button onClick={() => handleOpenApprove(b)}
                             className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm">
-                            <CheckCircle className="w-4 h-4" /> Setujui
+                            <CheckCircle className="w-4 h-4" /> Setujui / Atur Jam
                           </button>
                           <button onClick={() => handleOpenReject(b)}
                             className="px-4 py-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm">
@@ -641,6 +799,134 @@ export const BookingModule: React.FC = () => {
             })
           )}
         </div>
+
+        {/* ═══════════════════════════════════════════════════════
+            MODAL APPROVE — GURU BISA SESUAIKAN JAM
+            ═══════════════════════════════════════════════════════ */}
+        {isApproveModalOpen && approvingBooking && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+            <form onSubmit={handleConfirmApprove}
+              className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 max-h-[95vh] overflow-y-auto my-auto">
+
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-emerald-500" /> Setujui Booking
+                </h3>
+                <button type="button" onClick={() => setIsApproveModalOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Info booking */}
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
+                <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Booking:</p>
+                <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Music className="w-3.5 h-3.5" /> {approvingBooking.equipmentName}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  {approvingBooking.className} • {approvingBooking.bookerName}
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  📅 {approvingBooking.date} — Diajukan: <strong>{approvingBooking.startTime} – {approvingBooking.endTime}</strong>
+                </p>
+                <p className="text-[11px] italic text-slate-600 dark:text-slate-300 mt-1 p-2 rounded bg-white dark:bg-slate-900">
+                  "{approvingBooking.purpose}"
+                </p>
+              </div>
+
+              {/* Edit jam oleh guru */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" /> Sesuaikan Jam (Opsional)
+                </label>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 italic">
+                  Anda dapat mengubah jam sebelum menyetujui. Maksimal 1 jam per booking.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Jam Mulai</label>
+                    <input type="time" required
+                      value={approveStart}
+                      onChange={(e) => { setApproveStart(e.target.value); setApproveError(''); }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Jam Selesai</label>
+                    <input type="time" required
+                      value={approveEnd}
+                      onChange={(e) => { setApproveEnd(e.target.value); setApproveError(''); }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+                  </div>
+                </div>
+
+                {/* Preview durasi */}
+                {(() => {
+                  const dur = getDurationMinutes(approveStart, approveEnd);
+                  const isOver = dur > MAX_BOOKING_MINUTES;
+                  const invalid = dur <= 0;
+                  if (!approveStart || !approveEnd) return null;
+                  return (
+                    <div className={`mt-2 p-2 rounded-lg border text-[11px] font-bold flex items-center justify-between ${
+                      invalid || isOver
+                        ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300'
+                        : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+                    }`}>
+                      <span>
+                        {invalid ? '❌ Jam selesai harus > jam mulai' : `Durasi: ${formatDuration(dur)}`}
+                      </span>
+                      {isOver && <span className="text-[10px] font-black">MAKS 1 JAM!</span>}
+                    </div>
+                  );
+                })()}
+
+                {(approveStart !== approvingBooking.startTime || approveEnd !== approvingBooking.endTime) && (
+                  <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300 italic flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    Jam akan diubah dari <strong>{approvingBooking.startTime}–{approvingBooking.endTime}</strong> ke <strong>{approveStart}–{approveEnd}</strong>.
+                    Siswa akan mendapat notifikasi.
+                  </p>
+                )}
+              </div>
+
+              {/* Catatan */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Catatan untuk Siswa (Opsional)
+                </label>
+                <textarea rows={2}
+                  value={approveNote}
+                  onChange={(e) => setApproveNote(e.target.value)}
+                  placeholder="Contoh: Jam dimajukan karena alat akan dipakai gladi"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
+              </div>
+
+              {approveError && (
+                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] font-bold text-rose-900 dark:text-rose-200">{approveError}</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
+                <button type="button" onClick={() => setIsApproveModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
+                  Batal
+                </button>
+                <button type="submit"
+                  disabled={
+                    submitting ||
+                    getDurationMinutes(approveStart, approveEnd) <= 0 ||
+                    getDurationMinutes(approveStart, approveEnd) > MAX_BOOKING_MINUTES
+                  }
+                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {submitting ? 'Menyetujui...' : 'Setujui Booking'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* Modal Reject */}
         {isRejectModalOpen && rejectingBooking && (
@@ -737,6 +1023,16 @@ export const BookingModule: React.FC = () => {
                 </p>
               </div>
 
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+                <p className="text-[11px] text-amber-900 dark:text-amber-200 font-bold mb-1 flex items-center gap-1.5">
+                  <Info className="w-3.5 h-3.5" /> Aturan Tetap (Tidak Dapat Diubah):
+                </p>
+                <ul className="text-[10px] text-amber-800 dark:text-amber-300 space-y-0.5 pl-4 list-disc">
+                  <li>Maksimal <strong>1 jam per booking</strong>.</li>
+                  <li>Tidak boleh bentrok dengan booking lain (alat & tanggal sama).</li>
+                </ul>
+              </div>
+
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
                 <button type="button" onClick={() => setIsSettingsModalOpen(false)}
                   className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
@@ -769,7 +1065,7 @@ export const BookingModule: React.FC = () => {
             </span>
             <h2 className="text-xl font-black text-white mt-1">Peminjaman Alat Musik</h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              {equipment.length} alat tersedia • Booking minimal <strong className="text-amber-300">H-{minLeadDays}</strong>
+              {equipment.length} alat tersedia • Booking minimal <strong className="text-amber-300">H-{minLeadDays}</strong> • Maks <strong className="text-amber-300">1 jam/booking</strong>
             </p>
           </div>
         </div>
@@ -884,6 +1180,8 @@ export const BookingModule: React.FC = () => {
           ) : (
             myBookings.map(b => {
               const daysLeft = daysDifference(new Date().toISOString().slice(0, 10), b.date);
+              const dur = getDurationMinutes(b.startTime, b.endTime);
+              const wasRescheduled = (b as any).wasRescheduledByVerifier;
               return (
                 <div key={b.id} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -898,12 +1196,35 @@ export const BookingModule: React.FC = () => {
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${daysLeft < minLeadDays ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                           H-{daysLeft}
                         </span>
+                        {wasRescheduled && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 flex items-center gap-1">
+                            ✎ Jam disesuaikan guru
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 text-[11px] text-slate-600 dark:text-slate-300 mt-1.5 flex-wrap">
                         <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {b.date}</span>
                         <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {b.startTime} - {b.endTime}</span>
+                        {dur > 0 && (
+                          <span className="text-[10px] text-slate-400 italic">({formatDuration(dur)})</span>
+                        )}
                       </div>
                       <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 italic">"{b.purpose}"</p>
+
+                      {/* Original time info kalau disesuaikan guru */}
+                      {wasRescheduled && (b as any).originalStartTime && (
+                        <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-1 italic">
+                          ⚠️ Jam asli Anda: {(b as any).originalStartTime}–{(b as any).originalEndTime}
+                        </p>
+                      )}
+
+                      {/* Catatan guru */}
+                      {(b as any).verifierNote && (
+                        <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-1 italic p-2 rounded bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
+                          💬 Catatan guru: {(b as any).verifierNote}
+                        </p>
+                      )}
+
                       {b.status === 'REJECTED' && b.rejectionReason && (
                         <div className="mt-2 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
                           <div className="flex items-start gap-2">
@@ -972,6 +1293,20 @@ export const BookingModule: React.FC = () => {
               </div>
             </div>
 
+            {/* ✅ ARAHAN PEMINJAMAN */}
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40">
+              <p className="text-xs font-bold text-amber-900 dark:text-amber-200 mb-1.5 flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5" /> Aturan Peminjaman:
+              </p>
+              <ul className="text-[11px] text-amber-800 dark:text-amber-300 space-y-0.5 pl-4 list-disc">
+                <li>Maksimal <strong>1 jam per booking</strong>.</li>
+                <li>Ingin menambah jam? Buat <strong>booking terpisah</strong> di jam berbeda.</li>
+                <li><strong>Tidak boleh bentrok</strong> dengan booking lain (alat & tanggal sama).</li>
+                <li>Ajukan minimal <strong>H-{minLeadDays}</strong> sebelum pemakaian.</li>
+                <li>Guru dapat <strong>menyesuaikan jam</strong> saat verifikasi.</li>
+              </ul>
+            </div>
+
             <form onSubmit={handleSubmitBooking} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Tanggal Pemakaian <span className="text-rose-500">*</span></label>
@@ -997,6 +1332,83 @@ export const BookingModule: React.FC = () => {
                 </div>
               </div>
 
+              {/* ✅ PREVIEW DURASI */}
+              {bookStart && bookEnd && (() => {
+                const dur = getDurationMinutes(bookStart, bookEnd);
+                if (dur <= 0) {
+                  return (
+                    <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+                      <p className="text-[11px] font-bold text-rose-900 dark:text-rose-200">
+                        Jam selesai harus lebih akhir dari jam mulai.
+                      </p>
+                    </div>
+                  );
+                }
+                const isOver = dur > MAX_BOOKING_MINUTES;
+                return (
+                  <div className={`p-2.5 rounded-xl border-2 flex items-center justify-between gap-2 ${
+                    isOver
+                      ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/40'
+                      : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      {isOver
+                        ? <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+                        : <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
+                      <span className={`text-[11px] font-bold ${isOver ? 'text-rose-900 dark:text-rose-200' : 'text-emerald-900 dark:text-emerald-200'}`}>
+                        Durasi: {formatDuration(dur)}
+                      </span>
+                    </div>
+                    {isOver && (
+                      <span className="text-[10px] font-black text-rose-700 dark:text-rose-300">
+                        MAKS 1 JAM!
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* ✅ SLOT YANG SUDAH DIBOOKING */}
+              {(() => {
+                const bookedSlots = bookings
+                  .filter(b =>
+                    b.equipmentId === selectedEquipment.id &&
+                    b.date === bookDate &&
+                    b.status !== 'REJECTED'
+                  )
+                  .sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+                if (bookedSlots.length === 0) return null;
+
+                return (
+                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                    <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1.5 flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Slot sudah dibooking tanggal ini ({bookedSlots.length}):
+                    </p>
+                    <div className="space-y-1">
+                      {bookedSlots.map(b => (
+                        <div key={b.id} className="flex items-center justify-between text-[11px] py-1 px-2 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                            {b.startTime} – {b.endTime}
+                          </span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                            b.status === 'APPROVED'
+                              ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+                              : 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                          }`}>
+                            {b.status === 'APPROVED' ? 'Disetujui' : 'Menunggu'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 italic">
+                      Pilih jam di luar slot di atas agar tidak bentrok.
+                    </p>
+                  </div>
+                );
+              })()}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Keperluan <span className="text-rose-500">*</span></label>
                 <textarea rows={3} required value={bookPurpose} onChange={(e) => setBookPurpose(e.target.value)}
@@ -1014,8 +1426,14 @@ export const BookingModule: React.FC = () => {
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
                 <button type="button" onClick={() => setIsBookingOpen(false)}
                   className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
-                <button type="submit" disabled={submitting || daysDifference(new Date().toISOString().slice(0, 10), bookDate) < minLeadDays}
-                  className="px-5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                <button type="submit"
+                  disabled={
+                    submitting ||
+                    daysDifference(new Date().toISOString().slice(0, 10), bookDate) < minLeadDays ||
+                    getDurationMinutes(bookStart, bookEnd) <= 0 ||
+                    getDurationMinutes(bookStart, bookEnd) > MAX_BOOKING_MINUTES
+                  }
+                  className="px-5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
                   <Save className="w-3.5 h-3.5" /> {submitting ? 'Mengajukan...' : 'Ajukan Booking'}
                 </button>
               </div>
