@@ -12,7 +12,8 @@ import { useToast } from '../common/Toast';
 import { PhotoUploadModal } from '../common/PhotoUploadModal';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-import { RESPONSIBLE_ROLES, DriveFolderKey } from '../../core/driveFolders';
+// ✅ FIX: Import DRIVE_CONFIG, bukan RESPONSIBLE_ROLES
+import { DRIVE_CONFIG, DriveFolderKey } from '../../core/driveFolders';
 
 const ROLE_KEYS = [
   'Pimpinan Produksi', 'Sutradara', 'Sekretaris', 'Bendahara',
@@ -318,33 +319,38 @@ export const SettingsModule: React.FC = () => {
               </div>
             </div>
             
-            {/* Indikator Progress */}
             <div className={`px-3 py-1.5 rounded-lg border-2 flex items-center gap-2 text-xs font-bold ${
               filledLinksCount === totalLinksRequired 
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-300' 
-                : 'bg-rose-50 border-rose-300 text-rose-800 dark:bg-rose-500/20 dark:text-rose-300'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800' 
+                : 'bg-rose-50 border-rose-300 text-rose-800'
             }`}>
               {filledLinksCount === totalLinksRequired ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
               Terisi: {filledLinksCount} / {totalLinksRequired} Folder
             </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 space-y-2">
+          <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 space-y-3">
             <p className="text-xs font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
-              <HelpCircle className="w-4 h-4" /> Panduan Membuat Folder Drive:
+              <HelpCircle className="w-4 h-4" /> Panduan Membuat Folder Drive (Wajib Dibaca):
             </p>
             <ol className="text-[11px] text-blue-800 dark:text-blue-300 list-decimal pl-5 space-y-1 leading-relaxed">
-              <li>Buka aplikasi <strong>Google Drive</strong> di HP/Laptop.</li>
-              <li>Klik tombol <strong>+ (Baru)</strong> lalu pilih <strong>Folder Baru</strong>.</li>
-              <li>Klik kanan folder tersebut, pilih <strong>Bagikan (Share)</strong>.</li>
+              <li><strong>LOGIN</strong> ke akun Google Anda terlebih dahulu.</li>
+              <li>Buka aplikasi <strong>Google Drive</strong> → Klik <strong>+ (Baru)</strong> → <strong>Folder Baru</strong>.</li>
+              <li>Klik kanan folder tersebut → Pilih <strong>Bagikan (Share)</strong>.</li>
               <li>Ubah akses menjadi <strong>"Siapa saja yang memiliki link"</strong>.</li>
-              <li><strong>Salin Link</strong>, lalu tempelkan di kolom di bawah ini.</li>
+              <li className="font-bold text-blue-900 dark:text-blue-200">
+                ⚠️ PERHATIKAN IZINNYA: Jika kotak di bawah bertuliskan "Editor", pastikan Anda memilih <strong>Editor</strong> (agar orang lain bisa upload). Jika bertuliskan "Pelihat", pilih <strong>Pelihat (Viewer)</strong>.
+              </li>
+              <li>Klik <strong>Salin Link</strong>, lalu tempelkan di kolom di bawah ini.</li>
             </ol>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {DRIVE_KEYS.map(item => {
               const isFilled = !!(driveLinks[item.key] && driveLinks[item.key].startsWith('http'));
+              const cfg = DRIVE_CONFIG[item.key];
+              const isEditor = cfg.access === 'EDITOR';
+              
               return (
                 <div key={item.key} className={`p-3 rounded-xl border transition ${
                   isFilled 
@@ -353,7 +359,7 @@ export const SettingsModule: React.FC = () => {
                 }`}>
                   <div className="flex items-start justify-between gap-1 mb-1">
                     <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                      {item.label}
+                      {cfg.label}
                     </label>
                     {isFilled ? (
                       <a href={driveLinks[item.key]} target="_blank" rel="noreferrer" className="text-emerald-600 hover:text-emerald-800 shrink-0" title="Uji Link">
@@ -363,9 +369,18 @@ export const SettingsModule: React.FC = () => {
                       <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                     )}
                   </div>
-                  <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mb-2 flex items-center gap-1">
-                    <User className="w-2.5 h-2.5" /> Tugas: {RESPONSIBLE_ROLES[item.key]}
-                  </p>
+                  
+                  <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                      isEditor ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'
+                    }`}>
+                      Wajib {cfg.access}
+                    </span>
+                    {/* ✅ FIX: Menggunakan cfg.role dari DRIVE_CONFIG */}
+                    <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                      <User className="w-2.5 h-2.5" /> {cfg.role}
+                    </span>
+                  </div>
                   
                   <div className="relative">
                     <Link2 className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
@@ -410,4 +425,4 @@ export const SettingsModule: React.FC = () => {
       {isPhotoModalOpen && <PhotoUploadModal currentPhotoUrl={photoURL} userName={user?.displayName || 'Pengguna'} onSave={handleSavePhoto} onClose={() => setIsPhotoModalOpen(false)} />}
     </div>
   );
-}; 
+};
