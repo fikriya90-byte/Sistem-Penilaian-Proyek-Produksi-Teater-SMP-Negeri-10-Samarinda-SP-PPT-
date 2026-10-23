@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar as CalendarIcon, Clock, MapPin, PlusCircle, Trash2, UserCheck,
-  Users, ChevronLeft, ChevronRight, Check, X, Pencil, Filter, BookOpen, ShieldAlert, Star, CheckSquare, Square
+  Users, ChevronLeft, ChevronRight, Check, X, Pencil, Filter, MessageCircle, Building2
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { ScheduleEvent, ScheduleType, UserProfile } from '../../core/types';
 import {
-  createSchedule, deleteSchedule, recordAuditLog, subscribeSchedules, fetchUsersByClass
+  createSchedule, deleteSchedule, recordAuditLog, subscribeSchedules, fetchUsersByClass, fetchClasses
 } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 import { doc, setDoc, collection, query, where, onSnapshot, updateDoc } from 'firebase/firestore';
@@ -26,6 +26,8 @@ const ALL_DIVISIONS = [
   'Tata Panggung', 'Tata Rias', 'Tata Busana', 'Tata Musik & Suara'
 ];
 
+const ARTISTIK_DIVISIONS = ['Tata Panggung', 'Tata Rias', 'Tata Busana', 'Tata Musik & Suara', 'Pemeran'];
+
 const ALL_ROLES = [
   'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 
   'Sutradara', 'Asisten Sutradara', 'Pemeran',
@@ -37,10 +39,18 @@ const ALL_ROLES = [
   'Koordinator Tata Musik', 'Anggota Tata Musik'
 ];
 
+const ARTISTIK_ROLES = [
+  'Sutradara', 'Asisten Sutradara', 'Pemeran',
+  'Koordinator Tata Panggung', 'Anggota Tata Panggung',
+  'Koordinator Tata Rias', 'Anggota Tata Rias',
+  'Koordinator Tata Busana', 'Anggota Tata Busana',
+  'Koordinator Tata Musik', 'Anggota Tata Musik'
+];
+
 export const ScheduleModule: React.FC = () => {
   const { 
-    user, activeClass, isTeacher, isGuruPengampu, isAdminRole, 
-    isPimprod, isSekretaris 
+    user, activeClass, classes, isGuruPengampu, isAdminRole, 
+    isPimprod, isSekretaris, isSutradara, isAsisten
   } = useAuth();
   const { showToast } = useToast();
 
@@ -51,6 +61,9 @@ export const ScheduleModule: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  
+  // Filter Khusus Guru
+  const [filterClass, setFilterClass] = useState<string>('ALL');
   
   // Form State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -69,19 +82,35 @@ export const ScheduleModule: React.FC = () => {
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
 
-  // Hak Akses (HANYA PIMPRO, SEKRETARIS, GURU, ADMIN)
-  const canCreate = isPimprod || isSekretaris || isGuruPengampu || isAdminRole;
+  // HAK AKSES PEMBUATAN (Koordinator DIHAPUS dari sini)
+  const canCreateGeneral = isPimprod || isSekretaris || isGuruPengampu || isAdminRole;
+  const canCreateArtistic = isSutradara || isAsisten;
+  const canCreate = canCreateGeneral || canCreateArtistic;
+  const canSeeAllClasses = isGuruPengampu || isAdminRole;
 
   useEffect(() => {
-    if (!activeClass) return;
-    const unsub = subscribeSchedules(activeClass.id, setSchedules);
+    if (!activeClass || !user) return;
+
+    let unsubSchedules: () => void;
+
+    if (canSeeAllClasses) {
+      const q = query(collection(db, 'schedules'));
+      unsubSchedules = onSnapshot(q, snap => {
+        setSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id } as ScheduleEvent)));
+      });
+    } else {
+      unsubSchedules = subscribeSchedules(activeClass.id, setSchedules);
+    }
+
     fetchUsersByClass(activeClass.id).then(setClassStudents);
-    const q = query(collection(db, 'scheduleConfirmations'), where('classId', '==', activeClass.id));
-    const unsub2 = onSnapshot(q, snap => {
+    
+    const qConf = query(collection(db, 'scheduleConfirmations'), where('classId', '==', activeClass.id));
+    const unsubConf = onSnapshot(qConf, snap => {
       setConfirmations(snap.docs.map(d => ({ ...d.data(), id: d.id } as any)));
     });
-    return () => { unsub(); unsub2(); };
-  }, [activeClass]);
+
+    return () => { unsubSchedules(); unsubConf(); };
+  }, [activeClass, user, canSeeAllClasses]);
 
   const formatLocalDatetime = (isoString: string) => {
     if (!isoString) return '';
@@ -127,13 +156,19 @@ export const ScheduleModule: React.FC = () => {
     setIsModalOpen(true);
   };
 
-  // LOGIKA MENGUMPULKAN ID TARGET BERDASARKAN CHECKLIST
   const computeTargetIds = (): string[] => {
     let ids: string[] = [];
     const validStudents = classStudents.filter(s => !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role));
 
     if (targetMode === 'ALL') {
-      ids = validStudents.map(s => s.uid);
+      if (canCreateGeneral) {
+        ids = validStudents.map(s => s.uid);
+      } else if (canCreateArtistic) {
+        ids = validStudents.filter(s => 
+          ARTISTIK_DIVISIONS.includes(s.divisionName || '') || 
+          ARTISTIK_ROLES.includes(s.role)
+        ).map(s => s.uid);
+      }
     } else if (targetMode === 'MANUAL') {
       validStudents.forEach(s => {
         const isDivMatch = selectedDivisions.length > 0 && selectedDivisions.includes(s.divisionName || '');
@@ -165,13 +200,14 @@ export const ScheduleModule: React.FC = () => {
       const payload = {
         title: title.trim(),
         classId: activeClass.id,
+        className: activeClass.name,
         type,
         startAt: new Date(startAt).toISOString(),
         endAt: new Date(endAt).toISOString(),
         location: location.trim(),
         participants: 'Sesuai Target', 
         targetUserIds: finalTargetIds, 
-        divisionName: '', // Kosongkan karena ini jadwal umum
+        divisionName: '', 
         pic: user.displayName,
         description: description.trim(),
       };
@@ -195,7 +231,7 @@ export const ScheduleModule: React.FC = () => {
           action: 'CREATE', targetType: 'Schedule', targetId: newId,
           details: `Membuat kalender kegiatan: ${title} (${finalTargetIds.length} target)`,
         });
-        showToast('Kegiatan ditambahkan ke Kalender!', 'success');
+        showToast(`Kegiatan ditambahkan!`, 'success');
       }
       setIsModalOpen(false);
     } catch (err: any) {
@@ -233,10 +269,24 @@ export const ScheduleModule: React.FC = () => {
     }
   };
 
+  const handleShareWA = (event: ScheduleEvent) => {
+    const text = `*AGENDA KEGIATAN: ${event.title}*\n\nHari/Tgl: ${new Date(event.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\nWaktu: ${new Date(event.startAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(event.endAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\nLokasi: ${event.location}\n\nMohon konfirmasi kehadiran Anda di web SP-PPT sebelum acara. Terima kasih.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+  };
+
   const mySchedules = schedules.filter(s => {
-    const targets = (s as any).targetUserIds || [];
-    if (targets.length === 0) return true;
-    return targets.includes(user?.uid || '');
+    if (canSeeAllClasses) {
+       if (filterClass !== 'ALL' && s.classId !== filterClass) return false;
+    } else {
+       if (s.classId !== activeClass?.id) return false;
+    }
+
+    if (!canSeeAllClasses) {
+      const targets = (s as any).targetUserIds || [];
+      if (targets.length === 0) return true;
+      return targets.includes(user?.uid || '');
+    }
+    return true; 
   });
 
   const filteredSchedules = mySchedules.filter(s => {
@@ -248,7 +298,6 @@ export const ScheduleModule: React.FC = () => {
     return true;
   });
 
-  // KALENDER HELPER
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -285,15 +334,13 @@ export const ScheduleModule: React.FC = () => {
     return map[t] || 'border-slate-300 bg-slate-50';
   };
 
-  // ==========================================
-  // UI CHECKLIST TARGET PESERTA (FULL AKSES UNTUK PIMPRO/SEKRETARIS)
-  // ==========================================
   const renderTargetSelector = () => {
     if (!canCreate) return null;
+    const allowedUsers = classStudents.filter(s => !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role));
 
-    const allowedUsers = classStudents.filter(s => 
-      !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role)
-    );
+    // Pembatasan untuk Sutradara (Hanya Artistik)
+    const availableDivisions = canCreateGeneral ? ALL_DIVISIONS : ARTISTIK_DIVISIONS;
+    const availableRoles = canCreateGeneral ? ALL_ROLES : ARTISTIK_ROLES;
 
     return (
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
@@ -301,25 +348,21 @@ export const ScheduleModule: React.FC = () => {
           <Users className="w-4 h-4 text-amber-600" /> Target Peserta Kegiatan <span className="text-rose-500">*</span>
         </label>
 
-        {/* Pilihan Mode Target */}
         <div className="flex gap-2 mb-2">
             <button type="button" onClick={() => setTargetMode('ALL')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${targetMode === 'ALL' ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-white text-slate-600'}`}>
-              Pilih Semua Siswa
+              {canCreateGeneral ? 'Pilih Semua Siswa' : 'Pilih Semua Tim Artistik'}
             </button>
             <button type="button" onClick={() => setTargetMode('MANUAL')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${targetMode === 'MANUAL' ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-white text-slate-600'}`}>
               Pilih Spesifik (Checklist)
             </button>
         </div>
 
-        {/* Area Checklist Manual */}
         {targetMode === 'MANUAL' && (
           <div className="mt-3 space-y-4 max-h-72 overflow-y-auto p-1 custom-scrollbar">
-            
-            {/* 1. Checklist Per Divisi */}
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Berdasarkan Divisi</p>
               <div className="flex flex-wrap gap-1.5">
-                {ALL_DIVISIONS.map(div => (
+                {availableDivisions.map(div => (
                   <label key={div} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
                     <input type="checkbox" checked={selectedDivisions.includes(div)} onChange={(e) => {
                       if (e.target.checked) setSelectedDivisions([...selectedDivisions, div]);
@@ -331,11 +374,10 @@ export const ScheduleModule: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. Checklist Per Peran */}
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Berdasarkan Peran Spesifik</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                {ALL_ROLES.map(role => (
+                {availableRoles.map(role => (
                   <label key={role} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
                     <input type="checkbox" checked={selectedRoles.includes(role)} onChange={(e) => {
                       if (e.target.checked) setSelectedRoles([...selectedRoles, role]);
@@ -347,11 +389,15 @@ export const ScheduleModule: React.FC = () => {
               </div>
             </div>
 
-            {/* 3. Checklist Per Individu (Nama) */}
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Centang Nama Spesifik</p>
               <div className="grid grid-cols-2 gap-1.5">
-                {allowedUsers.map(s => (
+                {allowedUsers.filter(s => {
+                  if (canCreateArtistic && !canCreateGeneral) {
+                    return ARTISTIK_DIVISIONS.includes(s.divisionName || '') || ARTISTIK_ROLES.includes(s.role);
+                  }
+                  return true;
+                }).map(s => (
                   <label key={s.uid} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
                     <input type="checkbox" checked={selectedUserIds.includes(s.uid)} onChange={(e) => {
                       if (e.target.checked) setSelectedUserIds([...selectedUserIds, s.uid]);
@@ -379,15 +425,20 @@ export const ScheduleModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* HEADER DIUBAH MENJADI KALENDER KEGIATAN */}
       <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <span className="p-2 rounded-xl bg-blue-500/10 text-blue-600">
             <CalendarIcon className="w-6 h-6" />
           </span>
           <div>
-            <h2 className="text-xl font-extrabold text-slate-900">Kalender Kegiatan</h2>
-            <p className="text-xs text-slate-500 font-medium">Agenda rapat, gladi, dan acara besar (Bukan jadwal internal divisi).</p>
+            <h2 className="text-xl font-extrabold text-slate-900">
+              {canSeeAllClasses ? 'Kalender Kegiatan (Semua Kelas)' : 'Kalender Kegiatan'}
+            </h2>
+            <p className="text-xs text-slate-500 font-medium">
+              {canSeeAllClasses 
+                ? 'Memantau seluruh agenda lintas kelas yang Anda ampu.' 
+                : 'Agenda rapat, gladi, dan acara besar (Bukan jadwal harian divisi).'}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -395,8 +446,6 @@ export const ScheduleModule: React.FC = () => {
             <button onClick={() => setViewMode('list')} className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>📋 List</button>
             <button onClick={() => setViewMode('calendar')} className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'calendar' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>📅 Kalender</button>
           </div>
-          
-          {/* TOMBOL INI HANYA MUNCUL UNTUK PIMPRO/SEKRETARIS/GURU/ADMIN */}
           {canCreate && (
             <button onClick={openCreate} className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-sm">
               <PlusCircle className="w-4 h-4" /> Tambah Agenda
@@ -405,12 +454,30 @@ export const ScheduleModule: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-        {['ALL', 'Rapat', 'Gladi', 'Pementasan', 'Briefing'].map(t => (
-          <button key={t} onClick={() => setSelectedType(t)} className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${selectedType === t ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
-            {t === 'ALL' ? 'Semua Agenda' : t}
-          </button>
-        ))}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-none flex-1">
+          {['ALL', 'Rapat', 'Gladi', 'Pementasan', 'Briefing'].map(t => (
+            <button key={t} onClick={() => setSelectedType(t)} className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${selectedType === t ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
+              {t === 'ALL' ? 'Semua Agenda' : t}
+            </button>
+          ))}
+        </div>
+        
+        {canSeeAllClasses && classes.length > 0 && (
+          <div className="flex items-center gap-2 shrink-0">
+            <Building2 className="w-4 h-4 text-slate-400" />
+            <select 
+              value={filterClass} 
+              onChange={(e) => setFilterClass(e.target.value)}
+              className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-800 shadow-sm focus:outline-none focus:border-blue-400"
+            >
+              <option value="ALL">Semua Kelas ({classes.length})</option>
+              {classes.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {viewMode === 'calendar' && (
@@ -446,16 +513,24 @@ export const ScheduleModule: React.FC = () => {
                  const canDelete = s.createdBy === user?.uid || isGuruPengampu || isAdminRole;
                  return (
                    <div key={s.id} className={`p-3 mb-2 rounded-xl border-l-4 ${typeColor(s.type)}`}>
-                     <p className="text-xs font-bold text-slate-900">{s.title}</p>
+                     <div className="flex items-center gap-2 mb-1">
+                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-white text-slate-600">{(s as any).className || 'Kelas'}</span>
+                       <p className="text-xs font-bold text-slate-900">{s.title}</p>
+                     </div>
                      <p className="text-[10px] text-slate-500">{new Date(s.startAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {s.location}</p>
                      <div className="flex justify-between mt-2 items-center">
                        <div className="flex gap-1">
                           {myConf ? <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">{myConf.status}</span> : 
-                           <><button onClick={() => handleConfirm(s, 'HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500 text-white rounded">Hadir</button>
-                             <button onClick={() => handleConfirm(s, 'TIDAK_HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-rose-500 text-white rounded">Tidak</button></>
+                           <><button onClick={() => handleConfirm(s, 'HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500 text-white rounded">Saya Akan Datang</button>
+                             <button onClick={() => handleConfirm(s, 'TIDAK_HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-rose-500 text-white rounded">Berhalangan</button></>
                           }
                        </div>
-                       {canDelete && <button onClick={() => handleDelete(s)} className="p-1 text-rose-500 hover:bg-rose-50 rounded"><Trash2 className="w-3.5 h-3.5"/></button>}
+                       {canDelete && (
+                         <div className="flex gap-1">
+                           <button onClick={() => handleShareWA(s)} className="p-1 text-green-600 hover:bg-green-50 rounded"><MessageCircle className="w-3.5 h-3.5"/></button>
+                           <button onClick={() => handleDelete(s)} className="p-1 text-rose-500 hover:bg-rose-50 rounded"><Trash2 className="w-3.5 h-3.5"/></button>
+                         </div>
+                       )}
                      </div>
                    </div>
                  );
@@ -487,6 +562,11 @@ export const ScheduleModule: React.FC = () => {
                     </div>
                     <div>
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        {canSeeAllClasses && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 border border-indigo-300 flex items-center gap-1">
+                            <Building2 className="w-3 h-3" /> {(event as any).className || 'Kelas'}
+                          </span>
+                        )}
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-700">{event.type}</span>
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">Untuk: {targetLabel}</span>
                         <span className="text-[10px] text-slate-500 font-mono">{startObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {endObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
@@ -496,18 +576,21 @@ export const ScheduleModule: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 self-end md:self-center shrink-0">
-                    {myConf ? (
-                      <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'}`}>
-                        {myConf.status === 'HADIR' ? '✅ Hadir' : '❌ Tidak Hadir'}
-                      </span>
-                    ) : (
-                      <>
-                        <button onClick={() => handleConfirm(event, 'HADIR')} className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Hadir</button>
-                        <button onClick={() => handleConfirm(event, 'TIDAK_HADIR')} className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Tidak</button>
-                      </>
+                    {(!canSeeAllClasses || event.classId === activeClass?.id) && (
+                      myConf ? (
+                        <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'}`}>
+                          {myConf.status === 'HADIR' ? '✅ Hadir' : '❌ Tidak Hadir'}
+                        </span>
+                      ) : (
+                        <>
+                          <button onClick={() => handleConfirm(event, 'HADIR')} className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saya Akan Datang</button>
+                          <button onClick={() => handleConfirm(event, 'TIDAK_HADIR')} className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Berhalangan</button>
+                        </>
+                      )
                     )}
                     {canDelete && (
                       <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200">
+                        <button onClick={() => handleShareWA(event)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg" title="Bagikan ke WA"><MessageCircle className="w-4 h-4" /></button>
                         <button onClick={() => openEdit(event)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Edit Agenda"><Pencil className="w-4 h-4" /></button>
                         <button onClick={() => handleDelete(event)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg" title="Hapus Agenda"><Trash2 className="w-4 h-4" /></button>
                       </div>
@@ -565,7 +648,13 @@ export const ScheduleModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* TARGET PESERTA (TAGLIST) */}
+              {canSeeAllClasses && (
+                <div className="p-2 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-800 flex items-center gap-1.5">
+                  <Building2 className="w-4 h-4 shrink-0" />
+                  Agenda ini disimpan untuk kelas: <strong>{activeClass?.name}</strong>
+                </div>
+              )}
+
               {renderTargetSelector()}
 
               <div>
