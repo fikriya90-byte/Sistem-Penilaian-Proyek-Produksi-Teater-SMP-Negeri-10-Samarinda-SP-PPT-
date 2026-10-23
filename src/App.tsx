@@ -56,6 +56,7 @@ import { RABModule } from './components/modules/RABModule';
 import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastModule';
 import { GradeRecapModule } from './components/modules/GradeRecapModule';
 import { TemplateHubModule } from './components/modules/TemplateHubModule';
+import { ActivityCalendarModule } from './components/modules/ActivityCalendarModule'; // ✅ BARU
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
@@ -71,7 +72,7 @@ const IN_CLASS_MODULES = [
   'progress-tugas', 'jadwal', 'master-timeline', 'content-schedule', 'division-schedule',
   'director-timeline', 'properti', 'musik', 'rias', 'busana', 'broadcast', 'aduan',
   'dokumen', 'struktur', 'studio', 'kelola-siswa', 'kelola-tahapan', 'jadwal-penilaian',
-  'moderasi', 'booking', 'admin-dashboard', 'rekap-nilai', 'template-hub',
+  'moderasi', 'booking', 'admin-dashboard', 'rekap-nilai', 'template-hub', 'activity-calendar', // ✅ BARU
 ];
 
 const LoadingScreen = ({ text }: { text: string }) => (
@@ -103,6 +104,7 @@ const WelcomeLayout: React.FC<{
       case 'debug-users': return <DebugUsersModule />;
       case 'welcome-broadcast': return <WelcomeBroadcastModule />;
       case 'welcome-booking': return <BookingModule />;
+      case 'activity-calendar': return <ActivityCalendarModule />;
       case 'dashboard':
       default:
         return isGuruPengampu || isAdminRole ? (
@@ -162,9 +164,7 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     if (!loading && user) {
       if (view === 'in-class' && !activeClass) {
-        const timer = setTimeout(() => {
-          setView('welcome');
-        }, 4000); 
+        const timer = setTimeout(() => { setView('welcome'); }, 4000);
         return () => clearTimeout(timer);
       }
     }
@@ -173,7 +173,7 @@ const MainLayout: React.FC = () => {
   useEffect(() => {
     if (!user || loading) return;
     if (viewInitRef.current) return;
-    
+
     const isGuruOrAdmin = isGuruPengampu || isAdminRole;
     let savedView: 'welcome' | 'in-class' = 'welcome';
     try {
@@ -261,6 +261,7 @@ const MainLayout: React.FC = () => {
                currentModule === 'rab' ? <RABModule /> :
                currentModule === 'rekap-nilai' ? <GradeRecapModule /> :
                currentModule === 'template-hub' ? <TemplateHubModule /> :
+               currentModule === 'activity-calendar' ? <ActivityCalendarModule /> : // ✅ BARU
                <AdminModule />}
             </main>
           </div>
@@ -293,6 +294,7 @@ const MainLayout: React.FC = () => {
       case 'content-schedule': return <ContentScheduleModule />;
       case 'division-schedule': return <DivisionScheduleModule />;
       case 'director-timeline': return <DirectorTimelineModule />;
+      case 'activity-calendar': return <ActivityCalendarModule />; // ✅ BARU
       case 'properti': return <PropertyModule />;
       case 'musik': return <MusicCueModule />;
       case 'rias': return <FaceChartModule />;
@@ -313,7 +315,6 @@ const MainLayout: React.FC = () => {
       case 'panduan': return <GuideModule />;
       case 'notulensi': return <NotulensiModule />;
       case 'booking': return <BookingModule />;
-      // ✅ TAMBAHAN: halaman verifikasi booking bisa dibuka dari notifikasi meski sedang in-class
       case 'welcome-booking': return <BookingModule />;
       case 'inter-class': return <InterClassCoordModule />;
       case 'debug-users': return <DebugUsersModule />;
