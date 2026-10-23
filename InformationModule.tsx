@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Megaphone, PlusCircle, Search, X, Save, Trash2, AlertTriangle,
-  Pin, Clock, User, Filter, Bell, Sparkles, PinOff,
-  Camera, ImagePlus, Link2, CheckSquare, Square, Building2, Users,
-  ExternalLink,
+  Pin, Clock, User, Bell, Sparkles, PinOff,
+  Camera, ImagePlus, Link2, CheckSquare, Building2,
+  ExternalLink, Edit3
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import { recordAuditLog, notifyTeachers } from '../../services/firestoreService';
 import {
   collection, query, where, onSnapshot, doc, deleteDoc, updateDoc,
-  writeBatch, setDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
@@ -73,43 +73,28 @@ const compressImage = (file: File): Promise<string> => {
   });
 };
 
-// =====================================================
-// ✅ FUNGSI DETEKSI LINK (DIPERBAIKI)
-// =====================================================
 function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text-slate-300'): React.ReactNode {
   if (!text) return null;
-  
-  // Regex yang lebih pintar: mendeteksi http/https/www di mana pun berada
   const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
   const parts = text.split(urlRegex);
   
   return parts.map((part, i) => {
-    // Jika bagian ini cocok dengan pola URL
-    if (part.match(urlRegex)) {
+    if (i % 2 === 1) {
       let cleanPart = part;
       let trailingPunct = '';
-      
-      // Pisahkan tanda baca di akhir link (misal titik, koma, tanda tanya)
       const matchPunct = part.match(/[.,;:!?]+$/);
       if (matchPunct) {
         cleanPart = part.slice(0, -matchPunct[0].length);
         trailingPunct = matchPunct[0];
       }
 
-      // Pastikan formatnya benar-benar URL
       if (/^(https?:\/\/[^\s]+|www\.[^\s]+)$/i.test(cleanPart)) {
-        // Tambahkan https:// jika user hanya mengetik www.
         const href = cleanPart.startsWith('http') ? cleanPart : `https://${cleanPart}`;
-        
         return (
           <React.Fragment key={i}>
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 dark:text-blue-400 font-semibold underline decoration-dotted underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300 break-all inline-flex items-center gap-0.5"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <a href={href} target="_blank" rel="noopener noreferrer"
+              className="text-blue-600 dark:text-blue-400 font-semibold underline decoration-dotted break-all inline-flex items-center gap-0.5"
+              onClick={(e) => e.stopPropagation()}>
               {cleanPart}
               <ExternalLink className="w-3 h-3 inline" />
             </a>
@@ -118,7 +103,6 @@ function renderTextWithLinks(text: string, baseClass = 'text-slate-700 dark:text
         );
       }
     }
-    // Jika bukan URL (teks biasa)
     return <span key={i} className={baseClass}>{part}</span>;
   });
 }
@@ -173,14 +157,12 @@ export const InformationModule: React.FC = () => {
     setTitle(''); setContent('');
     setCategory('PENGUMUMAN'); setPriority('MEDIUM'); setIsPinned(false);
     setPhotoUrls([]); setPhotoUrlInput('');
-    
     if (canMultiClass) {
       setSendToAll(false);
       setTargetClassIds(activeClass ? [activeClass.id] : []);
     } else if (activeClass) {
       setTargetClassIds([activeClass.id]);
     }
-    
     setIsModalOpen(true);
   };
 
@@ -188,136 +170,67 @@ export const InformationModule: React.FC = () => {
     setEditing(item);
     setTitle(item.title); setContent(item.content);
     setCategory(item.category); setPriority(item.priority); setIsPinned(item.isPinned);
-    
-    // Set targetClassIds ke kelas asli info ini
     setTargetClassIds([item.classId]);
     setSendToAll(false);
-
     const existingPhotos = item.photoUrls || (item.photoUrl ? [item.photoUrl] : []);
     setPhotoUrls(existingPhotos);
     setPhotoUrlInput('');
-    
     setIsModalOpen(true);
   };
 
   const toggleTargetClass = (id: string) => {
-    setTargetClassIds(prev => 
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
+    setTargetClassIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
     setSendToAll(false);
   };
 
   const handleSendToAllToggle = () => {
     const next = !sendToAll;
     setSendToAll(next);
-    if (next) {
-      setTargetClassIds(classes.map(c => c.id));
-    } else {
-      setTargetClassIds(activeClass ? [activeClass.id] : []);
-    }
+    if (next) setTargetClassIds(classes.map(c => c.id));
+    else setTargetClassIds(activeClass ? [activeClass.id] : []);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
-
     if (photoUrls.length + files.length > 5) {
-      showToast('Maksimal 5 foto. Anda sudah memiliki ' + photoUrls.length + ' foto.', 'warning');
-      e.target.value = '';
-      return;
+      showToast('Maksimal 5 foto.', 'warning'); e.target.value = ''; return;
     }
-
     const newPhotos: string[] = [];
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue;
-      if (file.size > 5 * 1024 * 1024) {
-        showToast('File ' + file.name + ' terlalu besar (maks 5MB).', 'warning');
-        continue;
-      }
-      try {
-        const base64 = await compressImage(file);
-        newPhotos.push(base64);
-      } catch (err) {
-        console.warn('Gagal kompres:', err);
-      }
+      if (file.size > 5 * 1024 * 1024) { showToast('File >5MB dilewati.', 'warning'); continue; }
+      try { newPhotos.push(await compressImage(file)); } catch {}
     }
-
     setPhotoUrls(prev => [...prev, ...newPhotos]);
     e.target.value = '';
   };
 
   const handleAddPhotoUrl = () => {
-    if (!photoUrlInput.trim()) return;
-    if (!photoUrlInput.startsWith('http')) {
-      showToast('URL foto harus dimulai dengan http:// atau https://', 'warning');
-      return;
-    }
-    if (photoUrls.length >= 5) {
-      showToast('Maksimal 5 foto.', 'warning');
-      return;
-    }
+    if (!photoUrlInput.startsWith('http')) { showToast('URL harus http/https.', 'warning'); return; }
+    if (photoUrls.length >= 5) { showToast('Maks 5 foto.', 'warning'); return; }
     setPhotoUrls(prev => [...prev, photoUrlInput.trim()]);
     setPhotoUrlInput('');
   };
 
-  const removePhoto = (index: number) => {
-    setPhotoUrls(prev => prev.filter((_, i) => i !== index));
-  };
+  const removePhoto = (index: number) => setPhotoUrls(prev => prev.filter((_, i) => i !== index));
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
-    
-    if (!title.trim() || !content.trim()) {
-      showToast('Judul dan isi wajib diisi.', 'warning');
-      return;
-    }
-
+    if (!title.trim() || !content.trim()) { showToast('Judul & isi wajib.', 'warning'); return; }
     setSubmitting(true);
-    
     try {
-      // ==========================================
-      // MODE EDIT
-      // ==========================================
       if (editing) {
-        const docRef = doc(db, 'information', editing.id);
-        
-        // 1. Simpan perubahan inti
-        await updateDoc(docRef, {
-          title: title.trim(),
-          content: content.trim(),
-          category, 
-          priority, 
-          isPinned,
-          photoUrls: photoUrls,
-          updatedAt: new Date().toISOString(),
+        await updateDoc(doc(db, 'information', editing.id), {
+          title: title.trim(), content: content.trim(), category, priority, isPinned,
+          photoUrls: photoUrls, updatedAt: new Date().toISOString(),
         });
-        
-        // 2. Catat log (dibungkus terpisah agar jika gagal, edit tetap sukses)
-        try {
-          await recordAuditLog({
-            userId: user.uid, userName: user.displayName, role: user.role,
-            action: 'UPDATE', targetType: 'Information', targetId: editing.id,
-            details: `Edit informasi: "${title}"`,
-          });
-        } catch (auditErr) {
-          console.warn('Log gagal, tapi data tersimpan:', auditErr);
-        }
-
-        showToast('Informasi berhasil diperbarui.', 'success');
-        setIsModalOpen(false);
-        setSubmitting(false);
-        return; 
+        showToast('Informasi diperbarui.', 'success');
+        setIsModalOpen(false); setSubmitting(false); return;
       }
 
-      // ==========================================
-      // MODE CREATE BARU
-      // ==========================================
-      if (targetClassIds.length === 0) {
-        showToast('Pilih minimal 1 kelas tujuan.', 'warning');
-        setSubmitting(false);
-        return;
-      }
+      if (targetClassIds.length === 0) { showToast('Pilih kelas tujuan.', 'warning'); setSubmitting(false); return; }
 
       const batch = writeBatch(db);
       const now = new Date().toISOString();
@@ -326,24 +239,13 @@ export const InformationModule: React.FC = () => {
       targetClassIds.forEach(cid => {
         const newRef = doc(collection(db, 'information'));
         batch.set(newRef, {
-          id: newRef.id,
-          classId: cid,
-          batchId: broadcastGroupId,
-          title: title.trim(),
-          content: content.trim(),
-          category, 
-          priority, 
-          isPinned,
-          photoUrls: photoUrls,
-          photoUrl: '',
-          authorId: user.uid,
-          authorName: user.displayName,
-          authorRole: user.role,
-          createdAt: now,
-          updatedAt: now,
+          id: newRef.id, classId: cid, batchId: broadcastGroupId,
+          title: title.trim(), content: content.trim(), category, priority, isPinned,
+          photoUrls: photoUrls, photoUrl: '',
+          authorId: user.uid, authorName: user.displayName, authorRole: user.role,
+          createdAt: now, updatedAt: now,
         });
       });
-
       await batch.commit();
 
       if (priority === 'HIGH' || category === 'URGENT') {
@@ -353,52 +255,31 @@ export const InformationModule: React.FC = () => {
               title: `${category === 'URGENT' ? 'URGENT: ' : ''}${title.trim()}`,
               message: `${user.displayName} (${user.role}) memposting informasi penting.`,
               category: category === 'URGENT' ? 'Urgent' : 'Pengumuman',
-              link: 'informasi',
-              senderName: user.displayName,
+              link: 'informasi', senderName: user.displayName,
             });
-          } catch (err) { console.warn('Notif error:', err); }
+          } catch {}
         }
       }
 
-      try {
-        await recordAuditLog({
-          userId: user.uid, userName: user.displayName, role: user.role,
-          action: 'CREATE', targetType: 'Information', targetId: 'multiple',
-          details: `Post informasi: "${title}" ke ${targetClassIds.length} kelas`,
-        });
-      } catch (auditErr) {
-        console.warn('Log gagal, tapi data tersimpan:', auditErr);
-      }
-
-      showToast(`Informasi berhasil diposting ke ${targetClassIds.length} kelas!`, 'success');
+      showToast(`Informasi diposting ke ${targetClassIds.length} kelas!`, 'success');
       setIsModalOpen(false);
-
     } catch (err: any) {
-      console.error(err);
-      showToast('Gagal menyimpan: ' + (err?.message || 'Unknown'), 'error');
-    } finally {
-      setSubmitting(false);
-    }
+      showToast('Gagal: ' + (err?.message || 'Error'), 'error');
+    } finally { setSubmitting(false); }
   };
 
   const handleDelete = async (item: Information) => {
-    const msg = item.batchId 
-      ? `Hapus informasi "${item.title}" dari kelas ini? (Info ini juga ada di kelas lain karena broadcast)`
-      : `Hapus informasi "${item.title}"?`;
-      
-    if (!confirm(msg)) return;
+    if (!confirm(`Hapus informasi "${item.title}"?`)) return;
     try {
       await deleteDoc(doc(db, 'information', item.id));
-      showToast('Informasi dihapus dari kelas ini.', 'info');
+      showToast('Informasi dihapus.', 'info');
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   const togglePin = async (item: Information) => {
     try {
-      await updateDoc(doc(db, 'information', item.id), {
-        isPinned: !item.isPinned, updatedAt: new Date().toISOString(),
-      });
-      showToast(item.isPinned ? 'Info dilepas dari pin.' : 'Info disematkan.', 'info');
+      await updateDoc(doc(db, 'information', item.id), { isPinned: !item.isPinned, updatedAt: new Date().toISOString() });
+      showToast(item.isPinned ? 'Pin dilepas.' : 'Disematkan.', 'info');
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
@@ -406,8 +287,7 @@ export const InformationModule: React.FC = () => {
     if (filterCategory !== 'ALL' && it.category !== filterCategory) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      return it.title.toLowerCase().includes(q) || it.content.toLowerCase().includes(q) ||
-        it.authorName.toLowerCase().includes(q);
+      return it.title.toLowerCase().includes(q) || it.content.toLowerCase().includes(q) || it.authorName.toLowerCase().includes(q);
     }
     return true;
   });
@@ -417,20 +297,14 @@ export const InformationModule: React.FC = () => {
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-900 via-slate-900 to-slate-800 text-white shadow-xl border border-amber-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <span className="p-3 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/30">
-              <Megaphone className="w-7 h-7" />
-            </span>
+            <span className="p-3 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/30"><Megaphone className="w-7 h-7" /></span>
             <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">
-                Papan Informasi
-              </span>
-              <h2 className="text-xl font-black text-white mt-1">Pengumuman & Informasi Produksi</h2>
-              <p className="text-xs text-slate-300 mt-0.5">Papan informasi terintegrasi seluruh kelas</p>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-full border border-amber-500/30">Papan Informasi</span>
+              <h2 className="text-xl font-black text-white mt-1">Pengumuman Produksi</h2>
             </div>
           </div>
           {canPost && (
-            <button onClick={openCreate}
-              className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
+            <button onClick={openCreate} className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-lg">
               <PlusCircle className="w-4 h-4" /> Posting Informasi
             </button>
           )}
@@ -440,28 +314,14 @@ export const InformationModule: React.FC = () => {
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-          <input type="text" placeholder="Cari informasi..." value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+          <input type="text" placeholder="Cari informasi..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800" />
         </div>
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-          <button onClick={() => setFilterCategory('ALL')}
-            className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-              filterCategory === 'ALL' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border border-slate-200'
-            }`}>
-            Semua ({items.length})
-          </button>
-          {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => {
-            const count = items.filter((i) => i.category === key).length;
-            return (
-              <button key={key} onClick={() => setFilterCategory(key)}
-                className={`px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
-                  filterCategory === key ? 'bg-amber-500 text-slate-950' : 'bg-white text-slate-600 border border-slate-200'
-                }`}>
-                {cfg.label} ({count})
-              </button>
-            );
-          })}
+          <button onClick={() => setFilterCategory('ALL')} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${filterCategory === 'ALL' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>Semua ({items.length})</button>
+          {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
+            <button key={key} onClick={() => setFilterCategory(key)} className={`px-3 py-2 rounded-xl text-xs font-bold transition ${filterCategory === key ? 'bg-amber-500 text-slate-950' : 'bg-white text-slate-600 border'}`}>{cfg.label} ({items.filter((i) => i.category === key).length})</button>
+          ))}
         </div>
       </div>
 
@@ -469,117 +329,79 @@ export const InformationModule: React.FC = () => {
         <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
           <Megaphone className="w-12 h-12 mx-auto text-slate-300 mb-3" />
           <h3 className="text-sm font-extrabold text-slate-700">Belum Ada Informasi</h3>
-          <p className="text-xs text-slate-500 mt-1">
-            {canPost ? 'Klik "Posting Informasi" untuk membuat pengumuman pertama.' : 'Tunggu info dari pengurus.'}
-          </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        /* ✅ MENGUBAH LIST MENJADI GRID LAYOUT */
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
           {filtered.map((it) => {
             const cfg = CATEGORY_CONFIG[it.category];
             const Icon = cfg.icon;
             const canEdit = isGuruPengampu || isAdminRole || it.authorId === user?.uid;
-            
-            const allPhotos = it.photoUrls && it.photoUrls.length > 0 
-              ? it.photoUrls 
-              : (it.photoUrl ? [it.photoUrl] : []);
+            const allPhotos = it.photoUrls && it.photoUrls.length > 0 ? it.photoUrls : (it.photoUrl ? [it.photoUrl] : []);
 
             return (
-              <div key={it.id} className={`p-5 rounded-3xl border shadow-sm transition ${
+              <div key={it.id} className={`flex flex-col rounded-3xl border shadow-sm transition overflow-hidden ${
                 it.isPinned ? 'bg-amber-50 border-amber-300 ring-2 ring-amber-200' :
-                it.category === 'URGENT' ? 'bg-rose-50 border-rose-300' :
-                'bg-white border-slate-200'
+                it.category === 'URGENT' ? 'bg-rose-50 border-rose-300' : 'bg-white border-slate-200'
               }`}>
-                <div className="flex items-start gap-3">
-                  <span className={`p-2.5 rounded-xl border shrink-0 ${cfg.color}`}>
-                    <Icon className="w-5 h-5" />
+                
+                {/* 1. HEADER CARD (Judul & Badge) */}
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-start gap-3 bg-white dark:bg-slate-900">
+                  <span className={`p-2 rounded-xl border shrink-0 ${cfg.color}`}>
+                    <Icon className="w-4 h-4" />
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${cfg.color}`}>
-                        {cfg.label}
-                      </span>
-                      {it.isPinned && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 flex items-center gap-1">
-                          <Pin className="w-3 h-3" /> DISEMATKAN
-                        </span>
-                      )}
-                      {it.batchId && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1">
-                          <Building2 className="w-3 h-3" /> LINTAS KELAS
-                        </span>
-                      )}
-                      {allPhotos.length > 0 && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                          <ImagePlus className="w-3 h-3" /> {allPhotos.length} FOTO
-                        </span>
-                      )}
-                      {it.priority === 'HIGH' && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white">PENTING</span>
-                      )}
-                      <span className="text-[10px] text-slate-400 ml-auto">
-                        {new Date(it.createdAt).toLocaleString('id-ID', {
-                          day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-                        })}
-                      </span>
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border ${cfg.color}`}>{cfg.label}</span>
+                      {it.isPinned && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-500 text-slate-950 flex items-center gap-0.5"><Pin className="w-2.5 h-2.5" /> DISEMATKAN</span>}
+                      {it.batchId && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-0.5"><Building2 className="w-2.5 h-2.5" /> LINTAS KELAS</span>}
                     </div>
-                    <h3 className="text-sm font-extrabold text-slate-900 leading-snug">{it.title}</h3>
-                    
-                    {/* Render teks dengan tautan otomatis */}
-                    <div className="text-xs mt-1.5 leading-relaxed whitespace-pre-line">
-                      {renderTextWithLinks(it.content, "text-slate-700")}
-                    </div>
-                    
-                    {allPhotos.length > 0 && (
-                      <div className={`mt-3 grid gap-2 ${
-                        allPhotos.length === 1 ? 'grid-cols-1 sm:grid-cols-2' : 
-                        allPhotos.length === 2 ? 'grid-cols-2' : 
-                        'grid-cols-2 sm:grid-cols-3'
-                      }`}>
-                        {allPhotos.map((url, idx) => (
-                          <div key={idx} className="relative aspect-video sm:aspect-square md:aspect-video rounded-xl overflow-hidden border border-slate-200 bg-slate-100">
-                            <img
-                              src={url}
-                              alt={`Foto ${idx + 1}`}
-                              onClick={() => setPreviewPhoto(url)}
-                              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2">
-                      <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                        <User className="w-3 h-3" />
-                        <strong className="text-slate-700">{it.authorName}</strong>
-                        <span className="text-slate-400">({it.authorRole})</span>
-                      </span>
-                      {canPost && (
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => togglePin(it)}
-                            className={`px-2.5 py-1 rounded-lg font-bold text-[10px] flex items-center gap-1 transition ${
-                              it.isPinned ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                            {it.isPinned ? <><PinOff className="w-3 h-3" /> Lepas</> : <><Pin className="w-3 h-3" /> Sematkan</>}
-                          </button>
-                          {canEdit && (
-                            <>
-                              <button onClick={() => openEdit(it)}
-                                className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 font-bold text-[10px]">
-                                Edit
-                              </button>
-                              <button onClick={() => handleDelete(it)}
-                                className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug line-clamp-2">{it.title}</h3>
                   </div>
                 </div>
+
+                {/* 2. BODY / KONTEN (Bisa di-scroll di dalam kotak jika panjang) */}
+                <div className="p-4 flex-1 flex flex-col gap-3 max-h-[300px] overflow-y-auto custom-scrollbar">
+                  <div className="text-xs leading-relaxed whitespace-pre-line">
+                    {renderTextWithLinks(it.content, "text-slate-700 dark:text-slate-300")}
+                  </div>
+                  
+                  {allPhotos.length > 0 && (
+                    <div className={`grid gap-2 ${allPhotos.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                      {allPhotos.map((url, idx) => (
+                        <div key={idx} className="relative aspect-video rounded-lg overflow-hidden border border-slate-200 bg-slate-100">
+                          <img src={url} alt={`Foto ${idx + 1}`} onClick={() => setPreviewPhoto(url)} className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition" />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. FOOTER CARD (Author & Tombol Aksi) */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700 flex items-center justify-between mt-auto">
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 truncate max-w-[60%]">
+                    <User className="w-3 h-3" /> <span className="truncate">{it.authorName}</span>
+                  </span>
+                  
+                  {canPost && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => togglePin(it)} className={`p-1.5 rounded-lg transition ${it.isPinned ? 'text-amber-700 bg-amber-100' : 'text-slate-400 hover:bg-slate-200'}`} title={it.isPinned ? 'Lepas Pin' : 'Sematkan'}>
+                        {it.isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+                      </button>
+                      {canEdit && (
+                        <>
+                          <button onClick={() => openEdit(it)} className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-100 transition" title="Edit">
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleDelete(it)} className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-100 transition" title="Hapus">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
               </div>
             );
           })}
@@ -592,177 +414,86 @@ export const InformationModule: React.FC = () => {
           <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 p-6 my-auto max-h-[95vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <Megaphone className="w-5 h-5 text-amber-500" />
-                {editing ? 'Edit Informasi' : 'Posting Informasi Baru'}
+                <Megaphone className="w-5 h-5 text-amber-500" /> {editing ? 'Edit Informasi' : 'Posting Informasi Baru'}
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
-                <X className="w-5 h-5" />
-              </button>
+              <button onClick={() => setIsModalOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={handleSave} className="space-y-3">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Judul Informasi *</label>
-                <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Contoh: Rapat Pleno Darurat Besok Pukul 14.00"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
+                <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Judul info..." className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
               </div>
               
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Kategori</label>
-                  <select value={category} onChange={(e) => setCategory(e.target.value as Information['category'])}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white">
-                    {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (
-                      <option key={key} value={key}>{cfg.label}</option>
-                    ))}
+                  <select value={category} onChange={(e) => setCategory(e.target.value as any)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold bg-white">
+                    {Object.entries(CATEGORY_CONFIG).map(([key, cfg]) => (<option key={key} value={key}>{cfg.label}</option>))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Prioritas</label>
-                  <select value={priority} onChange={(e) => setPriority(e.target.value as Information['priority'])}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white">
-                    <option value="LOW">Rendah</option>
-                    <option value="MEDIUM">Sedang</option>
-                    <option value="HIGH">Tinggi (Penting)</option>
+                  <select value={priority} onChange={(e) => setPriority(e.target.value as any)} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold bg-white">
+                    <option value="LOW">Rendah</option><option value="MEDIUM">Sedang</option><option value="HIGH">Tinggi (Penting)</option>
                   </select>
                 </div>
               </div>
 
-              {/* MULTI-CLASS SELECTOR (Hanya saat create, dan user berhak) */}
               {!editing && canMultiClass && (
                 <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                  <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4 text-amber-600" />
-                    Pilih Kelas Tujuan *
-                  </label>
-                  
-                  <button type="button" onClick={handleSendToAllToggle}
-                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl border-2 transition mb-2 ${
-                      sendToAll ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'
-                    }`}>
-                    <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
-                      sendToAll ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'
-                    }`}>
-                      {sendToAll && <CheckSquare className="w-3 h-3" />}
-                    </div>
+                  <label className="block text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5"><Building2 className="w-4 h-4 text-amber-600" /> Kelas Tujuan *</label>
+                  <button type="button" onClick={handleSendToAllToggle} className={`w-full flex items-center gap-3 p-2.5 rounded-xl border-2 transition mb-2 ${sendToAll ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                    <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${sendToAll ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300'}`}>{sendToAll && <CheckSquare className="w-3 h-3" />}</div>
                     <span className="text-xs font-bold text-slate-900">SEMUA KELAS ({classes.length})</span>
                   </button>
-
                   <div className="max-h-40 overflow-y-auto space-y-1 p-1">
                     {classes.map(c => {
                       const sel = targetClassIds.includes(c.id);
                       return (
-                        <button key={c.id} type="button" onClick={() => toggleTargetClass(c.id)}
-                          className={`w-full p-2 rounded-lg text-left transition flex items-center gap-2 ${
-                            sel ? 'bg-amber-100 border border-amber-300' : 'bg-white border border-slate-200'
-                          }`}>
-                          <div className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 ${
-                            sel ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'
-                          }`}>
-                            {sel && <CheckSquare className="w-2.5 h-2.5" />}
-                          </div>
+                        <button key={c.id} type="button" onClick={() => toggleTargetClass(c.id)} className={`w-full p-2 rounded-lg text-left transition flex items-center gap-2 ${sel ? 'bg-amber-100 border border-amber-300' : 'bg-white border border-slate-200'}`}>
+                          <div className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 ${sel ? 'bg-amber-500 text-white' : 'border-2 border-slate-300'}`}>{sel && <CheckSquare className="w-2.5 h-2.5" />}</div>
                           <span className="text-[11px] font-bold text-slate-800 truncate">{c.name}</span>
                         </button>
                       );
                     })}
                   </div>
-                  <p className="text-[10px] font-bold text-slate-500 mt-2">
-                    {targetClassIds.length} kelas dipilih
-                  </p>
                 </div>
               )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Isi Informasi *</label>
-                <textarea rows={4} required value={content} onChange={(e) => setContent(e.target.value)}
-                  placeholder="Tuliskan pengumuman lengkap dengan waktu, lokasi, dan hal yang perlu dibawa...&#10;&#10;Tips: Anda bisa menempelkan link YouTube atau Google Drive di sini. Link akan otomatis bisa diklik setelah disimpan."
-                  className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium text-slate-800 leading-relaxed" />
+                <textarea rows={4} required value={content} onChange={(e) => setContent(e.target.value)} placeholder="Tulis detail pengumuman..." className="w-full p-3 rounded-xl border border-slate-200 text-xs font-medium leading-relaxed" />
               </div>
               
-              {/* UPLOAD FOTO MULTIPLE */}
               <div className="p-3 rounded-xl border border-slate-200 bg-slate-50">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <ImagePlus className="w-4 h-4 text-amber-600" />
-                    Foto Pendukung <span className="text-slate-400 font-normal">({photoUrls.length}/5)</span>
-                  </label>
-                </div>
-
                 {photoUrls.length > 0 && (
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
                     {photoUrls.map((url, idx) => (
-                      <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 bg-white group">
-                        <img src={url} alt={`Foto ${idx+1}`} className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removePhoto(idx)}
-                          className="absolute top-1 right-1 p-1 rounded-md bg-rose-600 text-white opacity-0 group-hover:opacity-100 transition shadow-sm"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                      <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border bg-white group">
+                        <img src={url} alt="Foto" className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => removePhoto(idx)} className="absolute top-1 right-1 p-1 rounded-md bg-rose-600 text-white opacity-0 group-hover:opacity-100 transition"><X className="w-3 h-3" /></button>
                       </div>
                     ))}
                   </div>
                 )}
-
                 {photoUrls.length < 5 && (
                   <div className="space-y-2">
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex flex-col items-center gap-1 transition"
-                    >
-                      <Camera className="w-5 h-5" />
-                      Pilih Foto
-                    </button>
-                    
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <Link2 className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
-                        <input
-                          type="url"
-                          placeholder="Atau tempel link foto"
-                          value={photoUrlInput}
-                          onChange={(e) => setPhotoUrlInput(e.target.value)}
-                          className="w-full pl-8 pr-2 py-2 rounded-lg border border-slate-200 text-[11px]"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleAddPhotoUrl}
-                        disabled={!photoUrlInput.trim()}
-                        className="px-3 py-2 rounded-lg bg-slate-800 text-white font-bold text-[11px] disabled:opacity-50"
-                      >
-                        Tambah
-                      </button>
-                    </div>
+                    <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-2.5 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-bold flex items-center justify-center gap-1.5"><Camera className="w-4 h-4" /> Pilih Foto</button>
                   </div>
                 )}
               </div>
 
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-amber-900">
-                  <input type="checkbox" checked={isPinned} onChange={(e) => setIsPinned(e.target.checked)}
-                    className="rounded border-amber-300 text-amber-500" />
-                  <Pin className="w-3.5 h-3.5" />
-                  Sematkan di paling atas (pin)
+                  <input type="checkbox" checked={isPinned} onChange={(e) => setIsPinned(e.target.checked)} className="rounded border-amber-300 text-amber-500" /> <Pin className="w-3.5 h-3.5" /> Sematkan di paling atas (pin)
                 </label>
               </div>
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
-                <button type="button" onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
-                <button type="submit" disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                  <Save className="w-3.5 h-3.5" />
-                  {submitting ? 'Menyimpan...' : (editing ? 'Perbarui' : `Posting ke ${targetClassIds.length} Kelas`)}
+              
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
+                <button type="submit" disabled={submitting} className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
+                  <Save className="w-3.5 h-3.5" /> {submitting ? 'Menyimpan...' : (editing ? 'Perbarui' : `Posting`)}
                 </button>
               </div>
             </form>
@@ -772,23 +503,9 @@ export const InformationModule: React.FC = () => {
 
       {/* LIGHTBOX FOTO */}
       {previewPhoto && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md"
-          onClick={() => setPreviewPhoto(null)}
-        >
-          <button
-            onClick={() => setPreviewPhoto(null)}
-            className="absolute top-4 right-4 p-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition"
-            title="Tutup"
-          >
-            <X className="w-6 h-6" />
-          </button>
-          <img
-            src={previewPhoto}
-            alt="Preview Foto"
-            className="max-w-full max-h-[92vh] object-contain rounded-2xl shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md" onClick={() => setPreviewPhoto(null)}>
+          <button onClick={() => setPreviewPhoto(null)} className="absolute top-4 right-4 p-2.5 rounded-xl bg-white/20 hover:bg-white/30 text-white transition"><X className="w-6 h-6" /></button>
+          <img src={previewPhoto} alt="Preview" className="max-w-full max-h-[92vh] object-contain rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
     </div>
