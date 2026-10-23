@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   Plus, Users, BookOpen, Edit3, Trash2, Hash, Sparkles, X,
   ChevronRight, Copy, RefreshCw, AlertTriangle, Check,
-  ArrowLeft, Camera, Upload,
+  ArrowLeft, Camera, Upload, Calendar
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -18,11 +18,13 @@ import { doc as firestoreDoc, getDoc } from 'firebase/firestore';
 interface ManageClassModuleProps {
   embedded?: boolean;
   onEnterClass?: (c: ClassRoom) => void;
+  onNavigate?: (m: string) => void; // ✅ Tambahan onNavigate
 }
 
 export const ManageClassModule: React.FC<ManageClassModuleProps> = ({
   embedded = false,
   onEnterClass,
+  onNavigate,
 }) => {
   const { user, classes, setActiveClass, reloadClasses } = useAuth();
   const { showToast } = useToast();
@@ -54,7 +56,6 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({
       });
       unsubs.push(unsub);
 
-      // Load kerabat logo
       (async () => {
         try {
           const snap = await getDoc(firestoreDoc(db, 'classes', c.id));
@@ -100,18 +101,11 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({
     }).length;
 
     if (studentCount > 0) {
-      showToast(
-        `Kelas ${c.name} masih memiliki ${studentCount} siswa. Pindahkan atau hapus siswa terlebih dahulu.`,
-        'warning'
-      );
+      showToast(`Kelas ${c.name} masih memiliki ${studentCount} siswa. Pindahkan atau hapus siswa terlebih dahulu.`, 'warning');
       return;
     }
 
-    const confirmCode = prompt(
-      `HAPUS KELAS "${c.name}"?\n\n` +
-      `⚠️ Tindakan ini TIDAK BISA DIBATALKAN!\n\n` +
-      `Untuk konfirmasi, ketik kode kelas berikut:\n${c.code}`
-    );
+    const confirmCode = prompt(`HAPUS KELAS "${c.name}"?\n\n⚠️ Tindakan ini TIDAK BISA DIBATALKAN!\n\nUntuk konfirmasi, ketik kode kelas berikut:\n${c.code}`);
 
     if (confirmCode === null) return;
 
@@ -227,6 +221,18 @@ export const ManageClassModule: React.FC<ManageClassModuleProps> = ({
           <p className="text-xs sm:text-sm text-slate-300 mt-1.5 max-w-xl leading-relaxed">
             Buat, edit, atau hapus kelas. Untuk mengelola siswa, masuk dulu ke kelas lalu pilih "Kelola Siswa".
           </p>
+
+          {/* ✅ TOMBOL VERIFIKASI BOOKING LINTAS KELAS */}
+          {onNavigate && (
+            <div className="mt-5">
+              <button 
+                onClick={() => onNavigate('welcome-booking')}
+                className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm flex items-center gap-2 shadow-lg transition hover:scale-105"
+              >
+                <Calendar className="w-5 h-5" /> Verifikasi Booking Alat (Semua Kelas)
+              </button>
+            </div>
+          )}
         </div>
       )}
 
