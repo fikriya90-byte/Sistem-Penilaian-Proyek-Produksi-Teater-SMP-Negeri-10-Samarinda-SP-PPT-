@@ -89,11 +89,12 @@ const MUSIC_CATEGORIES = [
   'Lainnya',
 ];
 
-// ✅ HANYA 3 ALAT DEFAULT
+// ✅ ALAT DEFAULT (Sesuai instruksi: Hanya Gambus, Babun, Gong, Stand Gong)
 const DEFAULT_INSTRUMENTS: Omit<Equipment, 'id' | 'classId'>[] = [
-  { name: 'Babun', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Gendang tradisional Kalimantan' },
-  { name: 'Gong', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Gong untuk pementasan' },
-  { name: 'Gambus', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Alat musik petik khas Kalimantan' },
+  { name: 'Gambus', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Alat musik petik khas Kalimantan' },
+  { name: 'Babun', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Gendang tradisional Kalimantan' },
+  { name: 'Gong', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Gong untuk pementasan' },
+  { name: 'Stand Gong & Pemukul', category: 'Aksesoris & Perlengkapan Musik', quantity: 1, condition: 'BAIK', notes: 'Stand besi dan pemukul gong' },
 ];
 
 // ✅ HANYA GURU & ADMIN YANG BISA VERIFIKASI
@@ -157,7 +158,7 @@ export const BookingModule: React.FC = () => {
   // Default tab: Guru -> verifikasi, Siswa/Pengurus -> katalog
   const [activeTab, setActiveTab] = useState<string>(isVerifier ? 'pending' : 'katalog');
 
-  // Modal tambah alat (HANYA untuk siswa)
+  // Modal tambah alat
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
   const [eqName, setEqName] = useState('');
   const [eqCategory, setEqCategory] = useState<string>('Alat Musik Tradisional');
@@ -295,7 +296,7 @@ export const BookingModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // ============== TAMBAH ALAT ==============
+  // ============== TAMBAH / HAPUS ALAT ==============
   const openAddEquipment = () => {
     setEqName(''); setEqCategory('Alat Musik Tradisional'); setEqQuantity(1);
     setEqCondition('BAIK'); setEqNotes('');
@@ -333,6 +334,24 @@ export const BookingModule: React.FC = () => {
       setIsEquipmentModalOpen(false);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
     finally { setSubmitting(false); }
+  };
+
+  const handleDeleteEquipment = async (eq: Equipment) => {
+    if (!user) return;
+    if (!(isVerifier || eq.addedByName === user.displayName)) {
+      showToast('Tidak berwenang menghapus.', 'warning');
+      return;
+    }
+    if (!confirm(`Hapus alat "${eq.name}" dari katalog?`)) return;
+    try {
+      await deleteDoc(doc(db, 'equipment', eq.id));
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'DELETE', targetType: 'Equipment', targetId: eq.id,
+        details: `Hapus alat: ${eq.name}`,
+      });
+      showToast('Alat dihapus.', 'info');
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   // ============== BOOKING ==============
@@ -714,7 +733,15 @@ export const BookingModule: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filteredEquipment.map(eq => (
               <div key={eq.id} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
-                <h4 className="text-sm font-extrabold text-slate-900">{eq.name}</h4>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="text-sm font-extrabold text-slate-900">{eq.name}</h4>
+                    <p className="text-[10px] text-slate-500">{eq.category}</p>
+                  </div>
+                  <button onClick={() => handleDeleteEquipment(eq)} className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg" title="Hapus Alat">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
                 <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 rounded-xl bg-indigo-500 text-white font-bold text-xs">
                   Booking Alat Ini (Guru)
                 </button>
@@ -779,7 +806,7 @@ export const BookingModule: React.FC = () => {
   }
 
   // =========================================
-  // RENDER: MODE PEMINJAM (SISWA, PIMPROD, SUTRADARA, DLL)
+  // RENDER: MODE PEMINJAM (SISWA, PIMPROD, SUTRADARA, KOOR MUSIK, DLL)
   // =========================================
   return (
     <div className="space-y-6">
@@ -853,12 +880,22 @@ export const BookingModule: React.FC = () => {
                     <p className="text-[10px] text-slate-500">{eq.category}</p>
                   </div>
                 </div>
-                <div className="flex justify-between text-[11px]">
-                  <span className={`px-2 py-0.5 rounded border font-bold ${getConditionColor(eq.condition)}`}>
-                    {eq.condition}
-                  </span>
-                  <span className="font-bold text-slate-600">Qty: {eq.quantity}</span>
+                
+                <div className="flex justify-between items-center text-[11px]">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-0.5 rounded border font-bold ${getConditionColor(eq.condition)}`}>
+                      {eq.condition === 'BAIK' ? 'Baik' : eq.condition === 'RUSAK_RINGAN' ? 'Rusak Ringan' : 'Rusak Berat'}
+                    </span>
+                    <span className="font-bold text-slate-600">Qty: {eq.quantity}</span>
+                  </div>
+                  {/* Tombol Hapus Alat (Untuk Guru atau Pembuatnya) */}
+                  {(isVerifier || eq.addedByName === user?.displayName) && (
+                    <button onClick={() => handleDeleteEquipment(eq)} className="text-rose-500 hover:bg-rose-100 p-1.5 rounded-lg transition" title="Hapus Alat">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
+
                 <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs transition">
                   Booking Alat Ini
                 </button>
