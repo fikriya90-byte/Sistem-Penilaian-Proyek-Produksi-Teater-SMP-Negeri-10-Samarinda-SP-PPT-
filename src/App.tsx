@@ -63,7 +63,7 @@ const VIEW_STORAGE_KEY = 'spppt-view';
 const WELCOME_MODULES = [
   'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
   'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
-  'welcome-booking', 
+  'welcome-booking',
 ];
 
 const IN_CLASS_MODULES = [
@@ -255,6 +255,7 @@ const MainLayout: React.FC = () => {
                currentModule === 'progress-tugas' ? <TaskProgressModule /> :
                currentModule === 'notulensi' ? <NotulensiModule /> :
                currentModule === 'booking' ? <BookingModule /> :
+               currentModule === 'welcome-booking' ? <BookingModule /> :
                currentModule === 'inter-class' ? <InterClassCoordModule /> :
                currentModule === 'debug-users' ? <DebugUsersModule /> :
                currentModule === 'rab' ? <RABModule /> :
@@ -312,6 +313,8 @@ const MainLayout: React.FC = () => {
       case 'panduan': return <GuideModule />;
       case 'notulensi': return <NotulensiModule />;
       case 'booking': return <BookingModule />;
+      // ✅ TAMBAHAN: halaman verifikasi booking bisa dibuka dari notifikasi meski sedang in-class
+      case 'welcome-booking': return <BookingModule />;
       case 'inter-class': return <InterClassCoordModule />;
       case 'debug-users': return <DebugUsersModule />;
       case 'template-hub': return <TemplateHubModule />;
@@ -368,4 +371,4 @@ export default function App() {
       </ToastProvider>
     </ThemeProvider>
   );
-} 
+}
