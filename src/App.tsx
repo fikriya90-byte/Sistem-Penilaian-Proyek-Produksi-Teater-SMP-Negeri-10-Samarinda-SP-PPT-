@@ -120,7 +120,6 @@ const WelcomeLayout: React.FC<{
           onClose={() => setIsSidebarOpen(false)}
           mode="welcome"
         />
-        {/* ✅ FIX: Tambah pb-32 lg:pb-24 agar konten tidak tertutup FAB */}
         <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
           {renderWelcomeModule()}
         </main>
@@ -169,10 +168,12 @@ const MainLayout: React.FC = () => {
 
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
-  // AUTO-ENTER CLASS UNTUK SISWA
+  // ✅ FIX: AUTO-ENTER CLASS UNTUK SISWA
   useEffect(() => {
     if (!user) return;
+    if (loading) return; // Tunggu auth selesai
     if (viewInitRef.current) return;
+    
     const isGuruOrAdmin = isGuruPengampu || isAdminRole;
     let savedView: 'welcome' | 'in-class' = 'welcome';
     try {
@@ -180,9 +181,15 @@ const MainLayout: React.FC = () => {
       if (s === 'in-class' || s === 'welcome') savedView = s;
     } catch { /* ignore */ }
 
+    // JIKA SISWA PUNYA CLASS ID TAPI ACTIVE CLASS MASIH NULL (sedang loading dari firebase), JANGAN KUNCI VIEW!
+    if (!isGuruOrAdmin && user.classId && !activeClass) {
+      return; 
+    }
+
     if (isGuruOrAdmin) {
       if (activeClass && savedView === 'in-class') { setView('in-class'); viewInitRef.current = true; }
       else if (activeClass && savedView === 'welcome') { setView('welcome'); viewInitRef.current = true; }
+      else if (!activeClass) { setView('welcome'); viewInitRef.current = true; }
     } else {
       if (activeClass) {
         setView('in-class');
@@ -191,7 +198,7 @@ const MainLayout: React.FC = () => {
       }
       viewInitRef.current = true;
     }
-  }, [user?.uid, isGuruPengampu, isAdminRole, activeClass]);
+  }, [user?.uid, isGuruPengampu, isAdminRole, activeClass, loading, user?.classId]);
 
   // AUTO-RUN REMINDER CHECKER
   useEffect(() => {
@@ -267,6 +274,16 @@ const MainLayout: React.FC = () => {
 
   if (!user) return <LoginModal />;
 
+  // ✅ FIX: Tampilkan loading jika siswa punya classId tapi activeClass belum siap
+  if (!isGuruPengampu && !isAdminRole && user.classId && !activeClass) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
+        <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
+        <h2 className="text-lg font-black tracking-tight text-amber-400">Menyiapkan Kelas Anda...</h2>
+      </div>
+    );
+  }
+
   const handleLoginConfirmYes = () => {
     try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
     setShowLoginConfirm(false);
@@ -289,7 +306,6 @@ const MainLayout: React.FC = () => {
           <div className="flex-1 flex max-w-7xl w-full mx-auto">
             <Sidebar currentModule={currentModule} onNavigate={handleNavigate}
               isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-            {/* ✅ FIX: Tambah pb-32 lg:pb-24 */}
             <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
               {currentModule === 'pengaturan' ? <SettingsModule /> :
                currentModule === 'backup' ? <BackupModule /> :
@@ -397,7 +413,6 @@ const MainLayout: React.FC = () => {
             onClose={() => setIsSidebarOpen(false)}
             mode="in-class"
           />
-          {/* ✅ FIX: Tambah pb-32 lg:pb-24 */}
           <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
             {renderCurrentModule()}
           </main>
