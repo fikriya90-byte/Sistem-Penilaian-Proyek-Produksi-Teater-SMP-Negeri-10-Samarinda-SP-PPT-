@@ -2,8 +2,18 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
 export const DRIVE_FOLDERS = {
-  utama: '', publikasi: '', dokumentasi: '', keuangan: '', nota: '',
-  properti: '', panggung: '', rias: '', busana: '', musik: '', naskah: '', lpj: '',
+  utama: '',
+  publikasi: '',
+  dokumentasi: '',
+  keuangan: '',
+  nota: '',
+  properti: '',
+  panggung: '',
+  rias: '',
+  busana: '',
+  musik: '',
+  naskah: '',
+  lpj: '',
 };
 
 export type DriveFolderKey = keyof typeof DRIVE_FOLDERS;
@@ -15,11 +25,11 @@ export interface DriveConfig {
   access: 'EDITOR' | 'VIEWER';
 }
 
-// ✅ KONFIGURASI ATURAN IZIN AKSES (Sangat Penting)
+// ✅ KONFIGURASI ATURAN IZIN AKSES
 export const DRIVE_CONFIG: Record<DriveFolderKey, DriveConfig> = {
   utama:       { label: 'Folder Utama Produksi', desc: 'Folder induk yang menampung semua file', role: 'Pimpinan Produksi / Sekretaris', access: 'EDITOR' },
-  publikasi:   { label: 'Publikasi & Dokumentasi', desc: 'Poster, teaser, BTS, foto (Semua siswa boleh kontribusi)', role: 'Koordinator Publikasi', access: 'EDITOR' }, // Wajib editor
-  dokumentasi: { label: 'Dokumentasi Latihan', desc: 'Foto/video gladi dan latihan (Semua siswa boleh kontribusi)', role: 'Koordinator Publikasi', access: 'EDITOR' }, // Wajib editor
+  publikasi:   { label: 'Publikasi & Dokumentasi', desc: 'Poster, teaser, BTS, foto (Semua siswa boleh kontribusi)', role: 'Koordinator Publikasi', access: 'EDITOR' }, 
+  dokumentasi: { label: 'Dokumentasi Latihan', desc: 'Foto/video gladi dan latihan (Semua siswa boleh kontribusi)', role: 'Koordinator Publikasi', access: 'EDITOR' }, 
   keuangan:    { label: 'Keuangan & RAB', desc: 'File RAB dan laporan keuangan', role: 'Bendahara', access: 'VIEWER' },
   nota:        { label: 'Nota & Kwitansi', desc: 'Bukti pengeluaran belanja', role: 'Bendahara', access: 'VIEWER' },
   properti:    { label: 'Divisi Perlengkapan', desc: 'Desain properti & inventaris', role: 'Koordinator Perlengkapan', access: 'EDITOR' },
