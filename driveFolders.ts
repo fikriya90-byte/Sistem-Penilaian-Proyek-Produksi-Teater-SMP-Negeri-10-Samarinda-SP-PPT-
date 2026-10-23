@@ -25,7 +25,6 @@ export interface DriveConfig {
   access: 'EDITOR' | 'VIEWER';
 }
 
-// ✅ KONFIGURASI ATURAN IZIN AKSES
 export const DRIVE_CONFIG: Record<DriveFolderKey, DriveConfig> = {
   utama:       { label: 'Folder Utama Produksi', desc: 'Folder induk yang menampung semua file', role: 'Pimpinan Produksi / Sekretaris', access: 'EDITOR' },
   publikasi:   { label: 'Publikasi & Dokumentasi', desc: 'Poster, teaser, BTS, foto (Semua siswa boleh kontribusi)', role: 'Koordinator Publikasi', access: 'EDITOR' }, 
