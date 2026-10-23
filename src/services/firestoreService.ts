@@ -1,3 +1,4 @@
+// src/services/firestoreService.ts
 import {
   collection,
   deleteDoc,
@@ -63,11 +64,12 @@ function enrichUser(u: UserProfile): UserProfile {
     role: normalizedRole,
     divisionId: u.divisionId || mapped?.id || '',
     divisionName: u.divisionName || mapped?.name || 'Pemeran',
+    classIds: Array.isArray(u.classIds) ? u.classIds : (u.classId ? [u.classId] : []),
   };
 }
 
 // ==========================================
-// FETCH USERS
+// FETCH USERS — Support classIds array
 // ==========================================
 export async function fetchUsersByClass(classId: string): Promise<UserProfile[]> {
   const path = 'users';
@@ -79,18 +81,30 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     if (classSnap.exists()) className = classSnap.data().name || null;
   } catch (err) { console.warn('fetchUsersByClass: gagal ambil nama kelas:', err); }
 
+  // 1. Full scan + filter di memori (support classId tunggal, classIds array, className)
   try {
     const allSnap = await getDocs(collection(db, path));
     allSnap.docs.forEach(d => {
       const u = { ...d.data(), uid: d.id } as UserProfile;
+
       const matchId = u.classId === classId;
+      const matchIdsArray = Array.isArray(u.classIds) && u.classIds.includes(classId);
       const matchName = className && ((u.className || '').toLowerCase().trim() === className.toLowerCase().trim());
-      if (matchId || matchName) {
-        found[d.id] = enrichUser({ ...u, classId: u.classId || classId, className: u.className || className || '' });
+
+      if (matchId || matchIdsArray || matchName) {
+        found[d.id] = enrichUser({
+          ...u,
+          classId: u.classId || classId,
+          classIds: Array.isArray(u.classIds) && u.classIds.length > 0
+            ? u.classIds
+            : (u.classId ? [u.classId] : [classId]),
+          className: u.className || className || '',
+        });
       }
     });
   } catch (err) { console.error('fetchUsersByClass PRIMARY gagal:', err); }
 
+  // 2. Fallback: query by classId jika scan kosong
   if (Object.keys(found).length === 0) {
     try {
       const q = query(collection(db, path), where('classId', '==', classId));
@@ -99,12 +113,27 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     } catch (err) { console.warn('fetchUsersByClass FALLBACK 1 gagal:', err); }
   }
 
+  // 3. Fallback: query by classIds array-contains (untuk guru multi-kelas)
+  try {
+    const q2 = query(collection(db, path), where('classIds', 'array-contains', classId));
+    const snap2 = await getDocs(q2);
+    snap2.docs.forEach(d => {
+      if (!found[d.id]) {
+        found[d.id] = enrichUser({ ...d.data(), uid: d.id } as UserProfile);
+      }
+    });
+  } catch (err) {
+    // Silent: banyak index firestore belum punya field classIds
+    // console.warn('fetchUsersByClass FALLBACK 2 gagal:', err);
+  }
+
+  // 4. Fallback: query by className
   if (Object.keys(found).length === 0 && className) {
     try {
       const q = query(collection(db, path), where('className', '==', className));
       const snap = await getDocs(q);
       snap.docs.forEach(d => { found[d.id] = enrichUser({ ...d.data(), uid: d.id } as UserProfile); });
-    } catch (err) { console.warn('fetchUsersByClass FALLBACK 2 gagal:', err); }
+    } catch (err) { console.warn('fetchUsersByClass FALLBACK 3 gagal:', err); }
   }
 
   return Object.values(found).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
@@ -120,7 +149,8 @@ export async function repairUsersForClass(classId: string, className: string): P
       total++;
       const matchName = (u.className || '').toLowerCase().trim() === className.toLowerCase().trim();
       const matchId = u.classId === classId;
-      if (matchName || matchId) {
+      const matchIdsArray = Array.isArray(u.classIds) && u.classIds.includes(classId);
+      if (matchName || matchId || matchIdsArray) {
         if (u.classId !== classId || u.className !== className) {
           batch.update(d.ref, { classId, className, updatedAt: new Date().toISOString() });
           fixed++;
@@ -186,7 +216,7 @@ export async function updateProductionStage(prodId: string, stage: any): Promise
 }
 
 // ==========================================
-// TASKS (legacy — keep untuk backward compat)
+// TASKS (legacy)
 // ==========================================
 export function subscribeTasksByClass(
   classId: string,
@@ -231,8 +261,7 @@ export async function deleteTask(taskId: string): Promise<void> {
 }
 
 // ==========================================
-// ✅ NEW: DEADLINES SUBSCRIPTIONS
-// Dipakai oleh DashboardModule & DashboardReminder
+// DEADLINES SUBSCRIPTIONS
 // ==========================================
 export function subscribeDeadlinesByClass(
   classId: string,
@@ -407,7 +436,7 @@ export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>
 }
 
 // ==========================================
-// ✅ NEW: DRIVE SUBMISSIONS (bukti upload dari DriveUploadWidget)
+// DRIVE SUBMISSIONS
 // ==========================================
 export function subscribeDriveSubmissions(
   classId: string,
@@ -467,27 +496,49 @@ export async function createNotification(notif: Omit<SystemNotification, 'id'>):
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
-export async function notifyTeachers(classId: string, notif: { title: string; message: string; category: SystemNotification['category']; link?: string; senderName?: string }): Promise<void> {
+// ==========================================
+// NOTIFY TEACHERS — Hanya Guru Pengampu (support classIds)
+// ==========================================
+export async function notifyTeachers(classId: string, notif: {
+  title: string;
+  message: string;
+  category: SystemNotification['category'];
+  link?: string;
+  senderName?: string;
+}): Promise<void> {
   try {
-    const q = query(collection(db, 'users'), where('classId', '==', classId));
-    const snap = await getDocs(q);
-    const guruList = snap.docs.filter(d => {
-      const role = d.data().role;
-      return role === 'Guru Pengampu' || role === 'Guru Pembina' || role === 'Admin' || role === 'Super Admin';
-    });
+    // Pakai fetchUsersByClass agar support classIds array (guru multi-kelas)
+    const users = await fetchUsersByClass(classId);
+    const guruList = users.filter(u =>
+      u.role === 'Guru Pengampu' ||
+      u.role === 'Admin' ||
+      u.role === 'Super Admin'
+    );
 
     if (guruList.length === 0) {
+      // Fallback: full scan semua guru aktif
       const allSnap = await getDocs(collection(db, 'users'));
       const fallback = allSnap.docs.filter(d => {
         const role = d.data().role;
-        return role === 'Guru Pengampu' || role === 'Guru Pembina' || role === 'Admin' || role === 'Super Admin';
+        return role === 'Guru Pengampu' || role === 'Admin' || role === 'Super Admin';
       });
       if (fallback.length === 0) return;
+
       const batch = writeBatch(db);
       const now = new Date().toISOString();
       fallback.forEach(d => {
         const notifRef = doc(collection(db, 'notifications'));
-        batch.set(notifRef, { id: notifRef.id, userId: d.id, classId, title: notif.title, message: notif.message, category: notif.category, read: false, link: notif.link || '', createdAt: now });
+        batch.set(notifRef, {
+          id: notifRef.id,
+          userId: d.id,
+          classId,
+          title: notif.title,
+          message: notif.message,
+          category: notif.category,
+          read: false,
+          link: notif.link || '',
+          createdAt: now,
+        });
       });
       await batch.commit();
       return;
@@ -495,9 +546,19 @@ export async function notifyTeachers(classId: string, notif: { title: string; me
 
     const batch = writeBatch(db);
     const now = new Date().toISOString();
-    guruList.forEach(d => {
+    guruList.forEach(u => {
       const notifRef = doc(collection(db, 'notifications'));
-      batch.set(notifRef, { id: notifRef.id, userId: d.id, classId, title: notif.title, message: notif.message, category: notif.category, read: false, link: notif.link || '', createdAt: now });
+      batch.set(notifRef, {
+        id: notifRef.id,
+        userId: u.uid,
+        classId,
+        title: notif.title,
+        message: notif.message,
+        category: notif.category,
+        read: false,
+        link: notif.link || '',
+        createdAt: now,
+      });
     });
     await batch.commit();
   } catch (err) { console.warn('Non-fatal notifyTeachers error:', err); }
