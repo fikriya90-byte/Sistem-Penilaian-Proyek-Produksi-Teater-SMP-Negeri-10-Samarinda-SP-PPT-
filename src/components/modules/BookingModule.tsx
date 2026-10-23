@@ -217,7 +217,6 @@ export const BookingModule: React.FC = () => {
   }, [activeClass, isSeeding]);
 
   useEffect(() => {
-    if (!activeClass) return;
     let qBk;
     if (isVerifier) {
       const classIds = classes.map(c => c.id);
@@ -225,6 +224,7 @@ export const BookingModule: React.FC = () => {
         ? query(collection(db, 'bookings'), where('classId', 'in', classIds))
         : query(collection(db, 'bookings'));
     } else {
+      if (!activeClass) return; // Guard for students
       qBk = query(collection(db, 'bookings'), where('classId', '==', activeClass.id));
     }
     const unsubBk = onSnapshot(qBk, snap => {
@@ -300,7 +300,6 @@ export const BookingModule: React.FC = () => {
     if (!user || !activeClass) return;
     if (!eqName.trim()) { showToast('Nama alat musik wajib.', 'warning'); return; }
     
-    // Cek duplikat (abaikan dirinya sendiri jika sedang edit)
     const exists = equipment.some(e => e.name.toLowerCase() === eqName.trim().toLowerCase() && e.id !== editingEquipment?.id);
     if (exists) { showToast(`Alat "${eqName}" sudah ada di katalog.`, 'warning'); return; }
 
@@ -472,12 +471,16 @@ export const BookingModule: React.FC = () => {
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={handleResetCatalog} className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg">
-                <RefreshCw className="w-3.5 h-3.5" /> Reset Katalog
-              </button>
-              <button onClick={() => { setSettingsMinLead(minLeadDays); setIsSettingsModalOpen(true); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg">
-                <SettingsIcon className="w-3.5 h-3.5" /> Atur H-{minLeadDays}
-              </button>
+              {activeClass && (
+                <button onClick={handleResetCatalog} className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg">
+                  <RefreshCw className="w-3.5 h-3.5" /> Reset Katalog
+                </button>
+              )}
+              {activeClass && (
+                <button onClick={() => { setSettingsMinLead(minLeadDays); setIsSettingsModalOpen(true); }} className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg">
+                  <SettingsIcon className="w-3.5 h-3.5" /> Atur H-{minLeadDays}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -486,7 +489,10 @@ export const BookingModule: React.FC = () => {
           <button onClick={() => setActiveTab('pending')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'pending' ? 'bg-rose-600 text-white' : 'bg-white text-slate-600 border'}`}>Perlu Verifikasi ({pendingBookings.length})</button>
           <button onClick={() => setActiveTab('tabel')} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'tabel' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border'}`}><Table className="w-3.5 h-3.5" /> Tabel Jadwal</button>
           <button onClick={() => setActiveTab('kalender')} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'kalender' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border'}`}><Calendar className="w-3.5 h-3.5" /> Kalender</button>
-          <button onClick={() => setActiveTab('katalog')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>Katalog & Pinjam</button>
+          {/* ✅ HANYA TAMPILKAN KATALOG JIKA SUDAH MASUK KELAS */}
+          {activeClass && (
+            <button onClick={() => setActiveTab('katalog')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>Katalog & Pinjam</button>
+          )}
         </div>
 
         {activeTab === 'pending' && (
@@ -523,7 +529,7 @@ export const BookingModule: React.FC = () => {
 
         {activeTab === 'kalender' && <BookingCalendarModule embedded />}
 
-        {activeTab === 'katalog' && (
+        {activeTab === 'katalog' && activeClass && (
           <div className="space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="font-bold text-slate-800">Katalog Alat ({filteredEquipment.length})</h3>
@@ -614,7 +620,7 @@ export const BookingModule: React.FC = () => {
   }
 
   // =========================================
-  // RENDER: PEMINJAM (SISWA, PIMPROD, SUTRADARA, DLL)
+  // RENDER: PEMINJAM (SISWA, PIMPROD, DLL)
   // =========================================
   return (
     <div className="space-y-6">
