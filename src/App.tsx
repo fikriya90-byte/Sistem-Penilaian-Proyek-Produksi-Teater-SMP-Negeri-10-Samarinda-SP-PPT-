@@ -63,7 +63,7 @@ const VIEW_STORAGE_KEY = 'spppt-view';
 const WELCOME_MODULES = [
   'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
   'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
-  'welcome-booking', // ✅ TAMBAHAN: Booking lintas kelas
+  'welcome-booking', // ✅ TAMBAHAN
 ];
 
 const IN_CLASS_MODULES = [
