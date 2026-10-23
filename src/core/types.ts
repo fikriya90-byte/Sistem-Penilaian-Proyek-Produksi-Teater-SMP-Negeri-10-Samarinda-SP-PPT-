@@ -49,9 +49,6 @@ export type ScheduleType =
   | 'Rapat' | 'Latihan' | 'Gladi' | 'Pementasan'
   | 'Evaluasi' | 'Produksi' | 'Fitting' | 'Briefing';
 
-// =====================================================
-// KATEGORI PENILAI (untuk 360°)
-// =====================================================
 export type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
 export interface UserProfile {
@@ -61,6 +58,7 @@ export interface UserProfile {
   displayName: string;
   role: UserRole;
   classId: string;
+  classIds?: string[];         // ← BARU: 1 guru bisa ampu banyak kelas
   className: string;
   productionId?: string;
   divisionId?: string;
@@ -124,9 +122,7 @@ export interface TaskItem {
   proofNote?: string;
   feedback?: string;
   rating?: number;
-  // BARU: penanda tugas kritis (★)
   isCritical?: boolean;
-  // BARU: untuk menyimpan status ketepatan
   completionStatus?: 'AWAL' | 'TEPAT' | 'TELAT_RINGAN' | 'TELAT_BERAT' | 'BELUM';
   createdBy: string;
   creatorName?: string;
@@ -145,16 +141,13 @@ export interface AssessmentRecord {
   assessorId: string;
   assessorName: string;
   assessorRole: UserRole;
-  // BARU: 4 kategori penilai
   assessorCategory: AssessorCategory;
   stage: ProductionStage;
-  // scores: { kerja_sama: 3, kreativitas: 4, teknis: 3 } untuk manual
   scores: Record<string, number>;
-  // BARU: skor otomatis dari sistem
   autoScores?: {
-    tanggung_jawab?: number;   // 1-4
-    kehadiran?: number;        // 1-4
-    kedisiplinan?: number;     // 1-4 (Pemeran)
+    tanggung_jawab?: number;
+    kehadiran?: number;
+    kedisiplinan?: number;
   };
   totalScore: number;
   comment?: string;
