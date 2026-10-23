@@ -1,3 +1,4 @@
+// src/core/authContext.tsx
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import {
   createUserWithEmailAndPassword,
@@ -36,6 +37,7 @@ interface AuthContextType {
     pass: string;
     role: UserRole;
     isTeacherRegistration?: boolean;
+    teacherClassIds?: string[];   // ← BARU: untuk guru multi-kelas
   }) => Promise<{ success: boolean; message: string }>;
   logout: () => Promise<void>;
   resetDemoDatabase: () => Promise<void>;
@@ -131,7 +133,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!isMounted) { clearTimeout(safetyTimer); return; }
 
           if (profile) {
-            // fetchUserProfile SUDAH normalize role via enrichUser
             const fixedProfile = await autoFillDivision(profile);
             if (!isMounted) { clearTimeout(safetyTimer); return; }
             setUser(fixedProfile);
@@ -166,13 +167,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     restoreClassRef.current = false;
   }, [user?.uid]);
 
-  // =====================================================
-  // ✅ FIX: AUTO-SET ACTIVE CLASS UNTUK SISWA
-  // Prioritas:
-  // 1. Saved class di localStorage
-  // 2. Match by user.classId
-  // 3. Fallback: match by user.className
-  // =====================================================
+  // Auto-set active class
   useEffect(() => {
     if (!user || classes.length === 0) return;
     if (restoreClassRef.current) return;
@@ -182,13 +177,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       user.role === 'Admin' ||
       user.role === 'Super Admin';
 
-    // 1. Cek saved class di localStorage
+    // 1. Saved class di localStorage
     let savedId: string | null = null;
     try { savedId = localStorage.getItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
 
     if (savedId) {
       const match = classes.find(c => c.id === savedId);
-      if (match && (isTeacherRole || match.id === user.classId)) {
+      const userClassIds = Array.isArray(user.classIds) && user.classIds.length > 0
+        ? user.classIds
+        : (user.classId ? [user.classId] : []);
+      const hasAccess = isTeacherRole || match?.id === user.classId || userClassIds.includes(match?.id || '');
+
+      if (match && hasAccess) {
         _setActiveClass(match);
         restoreClassRef.current = true;
         return;
@@ -196,7 +196,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try { localStorage.removeItem(ACTIVE_CLASS_KEY(user.uid)); } catch { /* ignore */ }
     }
 
-    // 2. Match by user.classId
+    // 2. Match by user.classId (primary)
     if (!isTeacherRole && user.classId) {
       const match = classes.find(c => c.id === user.classId);
       if (match) {
@@ -205,13 +205,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
-      // 3. ✅ FALLBACK: match by user.className
+      // 3. Fallback: match by user.className
       if (user.className) {
         const matchByName = classes.find(c =>
           (c.name || '').toLowerCase().trim() === (user.className || '').toLowerCase().trim()
         );
         if (matchByName) {
           _setActiveClass(matchByName);
+          restoreClassRef.current = true;
+          return;
+        }
+      }
+    }
+
+    // 4. Guru multi-kelas: pakai kelas pertama dari classIds
+    if (isTeacherRole) {
+      const userClassIds = Array.isArray(user.classIds) && user.classIds.length > 0
+        ? user.classIds
+        : (user.classId ? [user.classId] : []);
+      if (userClassIds.length > 0) {
+        const firstMatch = classes.find(c => userClassIds.includes(c.id));
+        if (firstMatch) {
+          _setActiveClass(firstMatch);
           restoreClassRef.current = true;
           return;
         }
@@ -258,7 +273,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      // fetchUserProfile sudah normalize role, tambahkan division
       profile = await autoFillDivision(profile);
 
       setUser(profile);
@@ -287,6 +301,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // =====================================================
+  // ✅ REGISTER USER — WA wajib untuk semua (termasuk Guru)
+  // Guru support multi-kelas via teacherClassIds
+  // =====================================================
   const registerUser = async (data: {
     classCode: string;
     displayName: string;
@@ -295,31 +313,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     pass: string;
     role: UserRole;
     isTeacherRegistration?: boolean;
+    teacherClassIds?: string[];
   }): Promise<{ success: boolean; message: string }> => {
     const isTeacherReg = !!data.isTeacherRegistration &&
       data.classCode.trim().toUpperCase() === TEACHER_INVITE_CODE.toUpperCase();
 
-    if (!isTeacherReg) {
-      const cleanPhone = (data.phone || '').replace(/\D/g, '');
-      if (cleanPhone.length < 9 || cleanPhone.length > 15) {
-        return { success: false, message: 'Nomor WhatsApp wajib diisi dengan format valid (9-15 digit).' };
-      }
-    }
-
-    let validClass: ClassRoom | undefined;
-    if (isTeacherReg) {
-      validClass = classes[0];
-    } else {
-      validClass = classes.find(c => c.code.toLowerCase() === data.classCode.trim().toLowerCase());
-    }
-
-    if (!validClass) {
+    // ✅ WAJIB: Nomor WhatsApp untuk SEMUA role (guru & siswa)
+    const cleanPhone = (data.phone || '').replace(/\D/g, '');
+    if (cleanPhone.length < 9 || cleanPhone.length > 15) {
       return {
         success: false,
         message: isTeacherReg
-          ? 'Kode Undangan Guru tidak valid.'
-          : 'Kode Kelas tidak valid / belum terdaftar. Tanyakan ke Guru Pengampu.',
+          ? 'Nomor WhatsApp WAJIB diisi dengan format valid (9-15 digit). Guru akan menerima notifikasi booking via WA ini.'
+          : 'Nomor WhatsApp wajib diisi dengan format valid (9-15 digit).',
       };
+    }
+
+    // Tentukan kelas
+    let validClass: ClassRoom | undefined;
+    let teacherClassIds: string[] = [];
+
+    if (isTeacherReg) {
+      // Guru: pakai teacherClassIds jika ada, fallback ke classes[0]
+      const requestedIds = Array.isArray(data.teacherClassIds) && data.teacherClassIds.length > 0
+        ? data.teacherClassIds
+        : (classes.length > 0 ? [classes[0].id] : []);
+
+      if (requestedIds.length === 0) {
+        return { success: false, message: 'Tidak ada kelas tersedia. Hubungi Admin untuk membuat kelas terlebih dahulu.' };
+      }
+
+      // Validasi bahwa kelas yang dipilih ada
+      const validClasses = requestedIds
+        .map(id => classes.find(c => c.id === id))
+        .filter((c): c is ClassRoom => !!c);
+
+      if (validClasses.length === 0) {
+        return { success: false, message: 'Kelas yang dipilih tidak ditemukan. Hubungi Admin.' };
+      }
+
+      teacherClassIds = validClasses.map(c => c.id);
+      validClass = validClasses[0]; // primary class
+    } else {
+      // Siswa: cari kelas via kode kelas
+      validClass = classes.find(c => c.code.toLowerCase() === data.classCode.trim().toLowerCase());
+      if (!validClass) {
+        return {
+          success: false,
+          message: 'Kode Kelas tidak valid / belum terdaftar. Tanyakan ke Guru Pengampu.',
+        };
+      }
     }
 
     try {
@@ -336,8 +379,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cleanEmail,
         displayName: data.displayName.trim(),
         role: isTeacherReg ? 'Guru Pengampu' : (data.role || 'Pemeran'),
-        classId: isTeacherReg ? '' : validClass.id,
-        className: isTeacherReg ? '' : validClass.name,
+        classId: validClass.id,
+        classIds: isTeacherReg ? teacherClassIds : [validClass.id],
+        className: validClass.name,
         phone: data.phone.trim(),
         divisionId: division?.id,
         divisionName: division?.name,
@@ -345,6 +389,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: new Date().toISOString(),
       };
       await setDoc(doc(db, 'users', res.user.uid), newProfile);
+
+      // ✅ Update teacherId di setiap kelas yang diampu guru
+      if (isTeacherReg && teacherClassIds.length > 0) {
+        for (const cid of teacherClassIds) {
+          try {
+            await updateDoc(doc(db, 'classes', cid), {
+              teacherId: res.user.uid,
+              teacherName: data.displayName.trim(),
+              updatedAt: new Date().toISOString(),
+            });
+          } catch { /* non-fatal */ }
+        }
+      }
 
       if (!isTeacherReg) {
         try {
@@ -379,7 +436,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         targetType: 'User',
         targetId: newProfile.uid,
         details: isTeacherReg
-          ? `Guru baru terdaftar: ${newProfile.displayName}`
+          ? `Guru baru terdaftar: ${newProfile.displayName} (${teacherClassIds.length} kelas)`
           : `Siswa baru di ${validClass.name} sebagai ${newProfile.role}`,
       });
 
@@ -393,7 +450,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      return { success: true, message: 'Registrasi berhasil! Akun Anda siap digunakan.' };
+      return {
+        success: true,
+        message: isTeacherReg
+          ? `Registrasi guru berhasil! Anda mengampu ${teacherClassIds.length} kelas.`
+          : 'Registrasi berhasil! Akun Anda siap digunakan.',
+      };
     } catch (err: any) {
       const code = err?.code || '';
       if (code === 'auth/email-already-in-use') return { success: false, message: 'Email sudah terdaftar. Silakan login atau hubungi Admin.' };
@@ -483,18 +545,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const canCreateDeadline = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
   const canCreateBroadcast = isTeacher || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator || isBendahara;
 
-  // =====================================================
-  // ✅ canAssessTarget — Single source of truth
-  // Pakai matrix dari SISI TARGET + normalize role
-  // =====================================================
   const canAssessTarget = (target: UserProfile): boolean => {
     if (!user) return false;
     if (target.uid === user.uid) return false;
 
-    // Guru & Admin boleh menilai siapa saja
     if (isGuruPengampu || isAdminRole) return true;
 
-    // Cek matrix dari SISI TARGET (dengan normalisasi role)
     const targetRole = normalizeUserRole(target.role);
     const matrix = getAssessmentMatrix(targetRole);
 
