@@ -17,7 +17,7 @@ const GUIDES: Record<string, { title: string; desc: string; tips: string[] }> = 
   },
   absensi: {
     title: 'Panduan Presensi & Absensi',
-    desc: 'Halaman ini khusus untuk mengisi kehadiran Anda. Sistem akan menutup absen otomatis jika waktu sudah habis.',
+    desc: 'Halaman ini khusus untuk mengisi kehadiran Anda. Sistem akan menutup absen otomatis jika waktu yang ditentukan sudah habis.',
     tips: [
       'Cari sesi presensi yang sesuai dengan nama atau divisi Anda.',
       'Klik tombol "Hadir", "Izin", "Sakit", atau "Alpa" dengan jujur.',
@@ -25,12 +25,20 @@ const GUIDES: Record<string, { title: string; desc: string; tips: string[] }> = 
     ]
   },
   jadwal: {
-    title: 'Panduan Jadwal Kegiatan',
-    desc: 'Di sini Anda bisa melihat jadwal latihan, rapat, atau gladi. Hanya jadwal yang ditujukan untuk Anda (atau divisi Anda) yang akan muncul.',
+    title: 'Panduan Kalender Kegiatan',
+    desc: 'Di sini Anda bisa melihat agenda rapat atau gladi besar. Hanya jadwal yang ditujukan untuk Anda (atau divisi Anda) yang akan muncul.',
     tips: [
       'Klik tombol "Hadir" untuk mengonfirmasi bahwa Anda tahu dan akan datang.',
-      'Jadwal buatan Sutradara (Latihan Pemain) berbeda dengan jadwal buatan Pimpinan Produksi (Rapat Pengurus).',
+      'Untuk jadwal latihan rutin khusus divisi Anda, silakan cek menu "Jadwal Divisi".',
       'Gunakan tampilan "Kalender" untuk melihat jadwal sebulan penuh.'
+    ]
+  },
+  'division-schedule': {
+    title: 'Panduan Jadwal Internal Divisi',
+    desc: 'Ini adalah jadwal khusus untuk divisi Anda (dibuat oleh Koordinator Divisi Anda).',
+    tips: [
+      'Hanya anggota divisi yang bisa melihat jadwal ini.',
+      'Jika Anda Koordinator, Anda bisa menambah dan menghapus jadwal di sini.'
     ]
   },
   tugas: {
@@ -42,9 +50,17 @@ const GUIDES: Record<string, { title: string; desc: string; tips: string[] }> = 
       'Jangan menunda, tugas yang terlambat akan memengaruhi nilai Anda.'
     ]
   },
+  'progress-tugas': {
+    title: 'Panduan Progress Tugas',
+    desc: 'Lihat seberapa jauh Anda dan teman-teman satu kelas telah menyelesaikan tugas-tugas yang diberikan.',
+    tips: [
+      'Gunakan grafik dan tabel untuk melihat siapa yang sudah selesai dan belum.',
+      'Jika progress Anda rendah, segera hubungi koordinator divisi Anda untuk bantuan.'
+    ]
+  },
   'nilai-saya': {
     title: 'Panduan Rapor & Nilai',
-    desc: 'Ini adalah rapor digital Anda. Nilai akan otomatis muncul di sini setelah semua proses penilaian selesai.',
+    desc: 'Ini adalah rapor digital Anda. Nilai akan otomatis muncul di sini setelah proses penilaian selesai.',
     tips: [
       'Jika nilai Anda terkunci (ada ikon gembok), artinya Anda belum menilai rekan kerja Anda. Selesaikan penilaian di menu "Penilaian 360".',
       'Anda bisa mengunduh rapor dalam bentuk Excel atau mencetaknya menjadi PDF.'
@@ -90,15 +106,70 @@ const GUIDES: Record<string, { title: string; desc: string; tips: string[] }> = 
       'Lihat tabel untuk memastikan apakah nama Anda sudah dicentang (lunas) atau belum oleh Bendahara.',
       'Jika Anda sudah bayar tapi belum tercentang, segera hubungi Bendahara dengan membawa bukti transfer.'
     ]
+  },
+  properti: {
+    title: 'Panduan Manajemen Properti',
+    desc: 'Halaman ini digunakan Divisi Perlengkapan untuk mendata barang, set panggung, dan properti yang dipakai.',
+    tips: [
+      'Update status pembuatan properti (Belum, Proses, Selesai) secara berkala.',
+      'Pastikan barang yang dicatat sesuai dengan kebutuhan adegan di naskah.'
+    ]
+  },
+  rias: {
+    title: 'Panduan Tata Rias & Face Chart',
+    desc: 'Divisi Tata Rias menggunakan halaman ini untuk merancang desain makeup (Face Chart) tiap pemain.',
+    tips: [
+      'Unggah foto referensi (moodboard) agar memudahkan saat merias di hari-H.',
+      'Bagi tugas per pemain (siapa merias siapa) agar tidak menumpuk di satu orang.'
+    ]
+  },
+  busana: {
+    title: 'Panduan Tata Busana & Kostum',
+    desc: 'Halaman untuk melacak proses pembuatan kostum, dari desain, potong kain, jahit, hingga fitting.',
+    tips: [
+      'Isi ukuran badan pemain (LD, LP, dll) agar kostum pas dan tidak perlu bolak-balik revisi.',
+      'Catat jumlah kain (meteran) yang dibutuhkan agar Bendahara bisa menyiapkan dana.'
+    ]
+  },
+  musik: {
+    title: 'Panduan Musik & Cue Sheet',
+    desc: 'Halaman untuk mendata lagu apa saja yang diputar, kapan diputar (Cue), dan berapa volumenya.',
+    tips: [
+      'Gunakan link YouTube atau Google Drive agar file mudah diakses oleh operator.',
+      'Selalu lakukan "Sound Check" sebelum pementasan dimulai.'
+    ]
+  },
+  aduan: {
+    title: 'Panduan Aduan & Konseling',
+    desc: 'Gunakan fitur ini JIKA Anda mengalami masalah serius (Bullying, Kekerasan, dsb) yang butuh bantuan Guru segera.',
+    tips: [
+      'Tulis kronologi kejadian dengan jelas dan lengkap.',
+      'Aduan akan langsung diteruskan ke WhatsApp Guru. Jangan takut, identitas Anda dirahasiakan.'
+    ]
+  },
+  dokumen: {
+    title: 'Panduan Arsip Dokumen',
+    desc: 'Pusat penyimpanan file naskah, proposal, LPJ, dan dokumentasi foto/video.',
+    tips: [
+      'Gunakan Google Drive untuk menyimpan file, lalu tempel link-nya di sini.',
+      'Beri nama file yang rapi (contoh: Naskah_Babak1.pdf) agar mudah dicari.'
+    ]
+  },
+  struktur: {
+    title: 'Panduan Kerabat Kerja',
+    desc: 'Lihat siapa saja yang terlibat dalam produksi ini beserta peran dan kontak WhatsApp mereka.',
+    tips: [
+      'Klik tombol "Chat WA" jika Anda perlu menghubungi koordinator atau teman satu tim.',
+      'Jika ada nomor WA yang kosong, minta mereka mengisinya di menu Pengaturan.'
+    ]
   }
 };
 
 export const PageGuide: React.FC<PageGuideProps> = ({ currentModule, isTeacher }) => {
   const [isVisible, setIsVisible] = useState(false);
 
-  // Tampilkan panduan otomatis setiap kali pindah halaman (khusus siswa)
   useEffect(() => {
-    if (isTeacher) return; // Guru tidak perlu melihat panduan siswa terus-menerus
+    if (isTeacher) return; // Panduan hanya untuk siswa
     if (GUIDES[currentModule]) {
       setIsVisible(true);
     } else {
@@ -111,7 +182,7 @@ export const PageGuide: React.FC<PageGuideProps> = ({ currentModule, isTeacher }
   const guide = GUIDES[currentModule];
 
   return (
-    <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 shadow-sm relative animate-in fade-in slide-in-from-top-4">
+    <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-200 shadow-sm relative animate-in fade-in slide-in-from-top-4 print:hidden">
       <button 
         onClick={() => setIsVisible(false)}
         className="absolute top-3 right-3 p-1.5 rounded-lg text-blue-400 hover:bg-blue-100 hover:text-blue-700 transition"
