@@ -67,4 +67,4 @@ export async function openDriveFolder(key: DriveFolderKey) {
     alert('Terjadi kesalahan sistem. Membuka Google Drive...');
     window.open('https://drive.google.com', '_blank', 'noopener,noreferrer');
   }
-}
+} 
