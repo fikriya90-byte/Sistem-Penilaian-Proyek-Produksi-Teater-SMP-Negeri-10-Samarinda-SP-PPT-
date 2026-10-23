@@ -2,18 +2,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
 export const DRIVE_FOLDERS = {
-  utama: '',
-  publikasi: '',
-  dokumentasi: '',
-  keuangan: '',
-  nota: '',
-  properti: '',
-  panggung: '',
-  rias: '',
-  busana: '',
-  musik: '',
-  naskah: '',
-  lpj: '',
+  utama: '', publikasi: '', dokumentasi: '', keuangan: '', nota: '',
+  properti: '', panggung: '', rias: '', busana: '', musik: '', naskah: '', lpj: '',
 };
 
 export type DriveFolderKey = keyof typeof DRIVE_FOLDERS;
@@ -25,7 +15,6 @@ export interface DriveConfig {
   access: 'EDITOR' | 'VIEWER';
 }
 
-// ✅ PASTIKAN BARIS INI ADA DAN DIEKSPOR
 export const DRIVE_CONFIG: Record<DriveFolderKey, DriveConfig> = {
   utama:       { label: 'Folder Utama Produksi', desc: 'Folder induk', role: 'Pimpinan Produksi / Sekretaris', access: 'EDITOR' },
   publikasi:   { label: 'Publikasi & Dokumentasi', desc: 'Foto/Video', role: 'Koordinator Publikasi', access: 'EDITOR' }, 
@@ -50,6 +39,7 @@ export async function openDriveFolder(key: DriveFolderKey) {
       url = (snap.data()[key] || '').trim();
     }
     
+    // Jika link kosong, beri peringatan dan buka Google Drive utama
     if (!url || !url.startsWith('http')) {
       const config = DRIVE_CONFIG[key];
       alert(
@@ -61,10 +51,11 @@ export async function openDriveFolder(key: DriveFolderKey) {
       return;
     }
     
+    // Jika link sudah ada, buka link tersebut
     window.open(url, '_blank', 'noopener,noreferrer');
   } catch (error) {
     console.error('Gagal buka drive:', error);
     alert('Terjadi kesalahan sistem. Membuka Google Drive...');
     window.open('https://drive.google.com', '_blank', 'noopener,noreferrer');
   }
-} 
+}
