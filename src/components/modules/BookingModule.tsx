@@ -19,9 +19,6 @@ import { BookingCalendarModule } from './BookingCalendarModule';
 import { BookingGuideModal } from './BookingGuideModal';
 import { PhotoEvidenceUploader, PhotoEvidence, checkPhotoContent } from '../common/PhotoEvidenceUploader';
 
-// ═══════════════════════════════════════════════════════
-// TIPE DATA
-// ═══════════════════════════════════════════════════════
 interface Equipment {
   id: string;
   classId: string;
@@ -55,7 +52,6 @@ interface Booking {
   endTime: string;
   purpose: string;
   status: BookingStatus;
-
   approvedBy?: string;
   approvedAt?: string;
   rejectionReason?: string;
@@ -63,26 +59,21 @@ interface Booking {
   recommendedDate?: string;
   recommendedStartTime?: string;
   recommendedEndTime?: string;
-
   checkedOutAt?: string;
   checkoutPhotoUrl?: string;
   checkoutNote?: string;
-
   returnedAt?: string;
   returnPhotoUrl?: string;
   returnCondition?: 'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT';
   returnNote?: string;
   isLateReturn?: boolean;
-
   cancelledAt?: string;
   cancelledBy?: string;
   cancelledReason?: string;
-
   verifierNote?: string;
   wasRescheduledByVerifier?: boolean;
   originalStartTime?: string;
   originalEndTime?: string;
-
   createdAt: string;
 }
 
@@ -90,9 +81,6 @@ interface BookingSettings {
   minLeadDays: number;
 }
 
-// ═══════════════════════════════════════════════════════
-// KONSTANTA
-// ═══════════════════════════════════════════════════════
 const MAX_BOOKING_MINUTES = 60;
 const RETURN_TOLERANCE_MINUTES = 10;
 const SCHOOL_WIDE = 'SCHOOL_WIDE';
@@ -143,9 +131,6 @@ const generateSessionId = (): string => {
   return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 };
 
-// ═══════════════════════════════════════════════════════
-// KOMPONEN UTAMA
-// ═══════════════════════════════════════════════════════
 export const BookingModule: React.FC = () => {
   const { user, activeClass, classes, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -164,7 +149,6 @@ export const BookingModule: React.FC = () => {
 
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
-  // Multi-select booking
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([]);
   const [bookDate, setBookDate] = useState(new Date().toISOString().slice(0, 10));
@@ -173,7 +157,6 @@ export const BookingModule: React.FC = () => {
   const [bookPurpose, setBookPurpose] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Checkout / Return modals
   const [checkoutSession, setCheckoutSession] = useState<Booking[] | null>(null);
   const [checkoutPhotos, setCheckoutPhotos] = useState<PhotoEvidence[]>([]);
   const [checkoutNote, setCheckoutNote] = useState('');
@@ -182,7 +165,6 @@ export const BookingModule: React.FC = () => {
   const [returnCondition, setReturnCondition] = useState<'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT'>('BAIK');
   const [returnNote, setReturnNote] = useState('');
 
-  // Success modal
   const [successSession, setSuccessSession] = useState<{ className: string; equipNames: string[]; date: string; startTime: string; endTime: string } | null>(null);
   const [successGuru, setSuccessGuru] = useState<{
     name: string; phone?: string; className: string; role: string;
@@ -191,7 +173,6 @@ export const BookingModule: React.FC = () => {
   const [successWAUrl, setSuccessWAUrl] = useState<string | null>(null);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
 
-  // Equipment CRUD
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
   const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null);
   const [eqName, setEqName] = useState('');
@@ -200,7 +181,6 @@ export const BookingModule: React.FC = () => {
   const [eqCondition, setEqCondition] = useState<'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT'>('BAIK');
   const [eqNotes, setEqNotes] = useState('');
 
-  // Reject with recommendation
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectingBooking, setRejectingBooking] = useState<Booking | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -209,7 +189,6 @@ export const BookingModule: React.FC = () => {
   const [rejectRecStart, setRejectRecStart] = useState('');
   const [rejectRecEnd, setRejectRecEnd] = useState('');
 
-  // Approve
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [approvingBooking, setApprovingBooking] = useState<Booking | null>(null);
   const [approveStart, setApproveStart] = useState('');
@@ -217,11 +196,9 @@ export const BookingModule: React.FC = () => {
   const [approveNote, setApproveNote] = useState('');
   const [approveError, setApproveError] = useState('');
 
-  // Settings
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsMinLead, setSettingsMinLead] = useState(2);
 
-  // Cancel modal
   const [cancelTarget, setCancelTarget] = useState<{ session: Booking[]; reason: string } | null>(null);
 
   const minLeadDays = settings.minLeadDays;
@@ -243,7 +220,6 @@ export const BookingModule: React.FC = () => {
     } catch { /* ignore */ }
   }, [user]);
 
-  // DEDUPE KATALOG
   const dedupedEquipment = useMemo(() => {
     const map: Record<string, Equipment> = {};
     equipment.forEach(eq => {
@@ -260,7 +236,6 @@ export const BookingModule: React.FC = () => {
 
   const duplicateCount = equipment.length - dedupedEquipment.length;
 
-  // SUBSCRIPTIONS
   useEffect(() => {
     if (!activeClass) return;
     (async () => {
@@ -320,7 +295,6 @@ export const BookingModule: React.FC = () => {
     return () => unsubBk();
   }, []);
 
-  // HELPERS
   const isLate = (b: Booking): boolean => {
     if (b.status !== 'CHECKED_OUT' && b.status !== 'OVERDUE') return false;
     if (!b.checkedOutAt) return false;
@@ -371,7 +345,6 @@ export const BookingModule: React.FC = () => {
     return groups;
   };
 
-  // MIGRATE
   const handleMigrateToShared = async () => {
     if (!user) return;
     if (isMigrated) { showToast('Katalog sudah terintegrasi.', 'info'); return; }
@@ -409,7 +382,6 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // SETTINGS
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
@@ -424,7 +396,6 @@ export const BookingModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // EQUIPMENT CRUD
   const openAddEquipment = () => {
     setEditingEquipment(null);
     setEqName(''); setEqCategory('Alat Musik Tradisional'); setEqQuantity(1);
@@ -475,7 +446,6 @@ export const BookingModule: React.FC = () => {
     catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // BOOKING MODAL
   const openMultiBooking = (preselected?: Equipment) => {
     if (!activeClass) { showToast('Masuk ke kelas dulu.', 'warning'); return; }
     setSelectedEquipmentIds(preselected ? [preselected.id] : []);
@@ -565,7 +535,7 @@ export const BookingModule: React.FC = () => {
       }
       await batch.commit();
 
-      // ✅ CARI GURU PENGAMPU — support multi-kelas (classId ATAU classIds.includes)
+      // ✅ CARI GURU PENGAMPU + KOOR MUSIK
       let primaryGuru: any = null;
       try {
         const teachers = await fetchUsersByClass(activeClass.id);
@@ -576,20 +546,30 @@ export const BookingModule: React.FC = () => {
           )
         ) || null;
 
-        if (primaryGuru) {
+        const koorMusik = teachers.find(t =>
+          t.role === 'Koordinator Tata Musik' && t.classId === activeClass.id
+        );
+
+        const recipients: any[] = [];
+        if (primaryGuru) recipients.push(primaryGuru);
+        if (koorMusik && koorMusik.uid !== primaryGuru?.uid) recipients.push(koorMusik);
+
+        if (recipients.length > 0) {
           const notifBatch = writeBatch(db);
           const nowStr = new Date().toISOString();
-          const nRef = doc(collection(db, 'notifications'));
-          notifBatch.set(nRef, {
-            id: nRef.id,
-            userId: primaryGuru.uid,
-            classId: activeClass.id,
-            title: `Booking Baru: ${equipNames.length} Alat`,
-            message: `${user.displayName} (${activeClass.name}) mengajukan booking ${equipNames.join('; ')} untuk ${bookDate} pukul ${bookStart}-${bookEnd}. Keperluan: ${bookPurpose.trim()}`,
-            category: 'Tugas',
-            read: false,
-            link: 'welcome-booking',
-            createdAt: nowStr,
+          recipients.forEach((r: any) => {
+            const nRef = doc(collection(db, 'notifications'));
+            notifBatch.set(nRef, {
+              id: nRef.id,
+              userId: r.uid,
+              classId: activeClass.id,
+              title: `Booking Baru: ${equipNames.length} Alat`,
+              message: `${user.displayName} (${activeClass.name}) mengajukan booking ${equipNames.join('; ')} untuk ${bookDate} pukul ${bookStart}-${bookEnd}.`,
+              category: 'Tugas',
+              read: false,
+              link: 'welcome-booking',
+              createdAt: nowStr,
+            });
           });
           await notifBatch.commit();
         }
@@ -603,7 +583,6 @@ export const BookingModule: React.FC = () => {
         details: `Session ${equipNames.length} alat: ${equipNames.join('; ')}${primaryGuru ? ` → Guru: ${primaryGuru.displayName}` : ' (guru tidak ditemukan)'}`,
       });
 
-      // ✅ BUILD WA INFO
       let waUrl: string | null = null;
       let guruInfoForModal: {
         name: string; phone?: string; className: string; role: string;
@@ -660,7 +639,6 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // APPROVE / REJECT
   const handleOpenApprove = (b: Booking) => {
     setApprovingBooking(b);
     setApproveStart(b.startTime); setApproveEnd(b.endTime);
@@ -726,7 +704,6 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // CHECKOUT
   const openCheckout = (session: Booking[]) => {
     setCheckoutSession(session);
     setCheckoutPhotos([]);
@@ -767,7 +744,6 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // RETURN
   const openReturn = (session: Booking[]) => {
     setReturnSession(session);
     setReturnPhotos([]);
@@ -862,7 +838,6 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // CANCEL
   const openCancel = (session: Booking[], reason = '') => {
     setCancelTarget({ session, reason });
   };
@@ -893,7 +868,6 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // WA OVERDUE
   const handleWAOverdue = (b: Booking) => {
     (async () => {
       try {
@@ -914,7 +888,6 @@ export const BookingModule: React.FC = () => {
     })();
   };
 
-  // DATA
   const filteredEquipment = dedupedEquipment.filter(eq => {
     if (filterCategory !== 'ALL' && eq.category !== filterCategory) return false;
     if (searchQuery.trim()) return eq.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -1034,6 +1007,52 @@ export const BookingModule: React.FC = () => {
 
         {activeTab === 'pending' && (
           <div className="space-y-3">
+            {/* ✅ APPROVE ALL SESSION */}
+            {(() => {
+              const pendingGroups = groupBySession(pendingBookings);
+              const multiSessions = Object.entries(pendingGroups).filter(([_, list]) => list.length > 1);
+              return multiSessions.length > 0 ? (
+                <div className="p-3 rounded-2xl bg-indigo-50 border-2 border-indigo-300 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-indigo-900">
+                      {multiSessions.length} sesi multi-alat ({pendingBookings.length} alat total)
+                    </span>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!user || !confirm(`Setujui semua ${pendingBookings.length} alat dari ${multiSessions.length} sesi?`)) return;
+                      setSubmitting(true);
+                      try {
+                        const batch = writeBatch(db);
+                        const nowIso = new Date().toISOString();
+                        pendingBookings.forEach(b => {
+                          batch.update(doc(db, 'bookings', b.id), {
+                            status: 'APPROVED',
+                            approvedBy: user.displayName,
+                            approvedAt: nowIso,
+                            verifierNote: 'Disetujui via bulk approve',
+                          });
+                        });
+                        await batch.commit();
+                        await recordAuditLog({
+                          userId: user.uid, userName: user.displayName, role: user.role,
+                          action: 'UPDATE', targetType: 'BookingBulkApprove', targetId: 'multiple',
+                          details: `Approve semua ${pendingBookings.length} alat`,
+                        });
+                        showToast(`${pendingBookings.length} alat disetujui sekaligus.`, 'success');
+                      } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+                      finally { setSubmitting(false); }
+                    }}
+                    disabled={submitting}
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <CheckCircle className="w-3 h-3" /> Setujui Semua
+                  </button>
+                </div>
+              ) : null;
+            })()}
+
             {pendingBookings.length === 0 ? (
               <div className="p-12 text-center bg-white rounded-3xl border">
                 <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
@@ -1205,6 +1224,7 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
+        {/* Modals Guru */}
         {isApproveModalOpen && approvingBooking && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
             <form onSubmit={handleConfirmApprove} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
@@ -1556,7 +1576,6 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Booking Modal Multi-Alat */}
       {isBookingOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6 space-y-4 my-auto max-h-[95vh] overflow-y-auto">
@@ -1642,7 +1661,6 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Checkout Modal */}
       {checkoutSession && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-lg bg-white rounded-3xl p-6 space-y-4 my-auto max-h-[95vh] overflow-y-auto">
@@ -1693,7 +1711,6 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Return Modal */}
       {returnSession && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-lg bg-white rounded-3xl p-6 space-y-4 my-auto max-h-[95vh] overflow-y-auto">
@@ -1754,7 +1771,6 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Cancel Modal */}
       {cancelTarget && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-3">
@@ -1787,7 +1803,6 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Success Modal + WA */}
       {isSuccessModalOpen && successSession && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl my-auto overflow-hidden">
@@ -1824,7 +1839,6 @@ export const BookingModule: React.FC = () => {
                 </div>
               </div>
 
-              {/* ✅ 3 KONDISI WA */}
               {successGuru && successGuru.hasPhone && successWAUrl ? (
                 <div className="space-y-2">
                   <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
