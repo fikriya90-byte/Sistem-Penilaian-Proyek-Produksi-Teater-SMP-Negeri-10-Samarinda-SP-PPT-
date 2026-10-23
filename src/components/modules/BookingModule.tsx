@@ -5,6 +5,7 @@ import {
   AlertTriangle, Search, Music, Trash2, Edit3, Info,
   Settings as SettingsIcon, Send, ShieldAlert, Building2, User as UserIcon,
   Table, Bell, MapPin, RefreshCw, MessageCircle, Sparkles, Layers,
+  Camera, RotateCcw, BookOpen, CheckSquare, Square, Ban, AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -15,6 +16,8 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { BookingCalendarModule } from './BookingCalendarModule';
+import { BookingGuideModal } from './BookingGuideModal';
+import { PhotoEvidenceUploader, PhotoEvidence, checkPhotoContent } from '../common/PhotoEvidenceUploader';
 
 // ═══════════════════════════════════════════════════════
 // TIPE DATA
@@ -33,8 +36,11 @@ interface Equipment {
   createdAt?: string;
 }
 
+type BookingStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'CHECKED_OUT' | 'RETURNED' | 'OVERDUE';
+
 interface Booking {
   id: string;
+  sessionId: string;  // grouping multi-alat
   classId: string;
   className: string;
   equipmentId: string;
@@ -48,15 +54,40 @@ interface Booking {
   startTime: string;
   endTime: string;
   purpose: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: BookingStatus;
+
+  // Approval
   approvedBy?: string;
   approvedAt?: string;
   rejectionReason?: string;
   rejectionGuidance?: string;
-  originalStartTime?: string;
-  originalEndTime?: string;
+  recommendedDate?: string;
+  recommendedStartTime?: string;
+  recommendedEndTime?: string;
+
+  // Checkout
+  checkedOutAt?: string;
+  checkoutPhotoUrl?: string;
+  checkoutNote?: string;
+
+  // Return
+  returnedAt?: string;
+  returnPhotoUrl?: string;
+  returnCondition?: 'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT';
+  returnNote?: string;
+  isLateReturn?: boolean;
+
+  // Cancel
+  cancelledAt?: string;
+  cancelledBy?: string;
+  cancelledReason?: string;
+
+  // Verifier note
   verifierNote?: string;
   wasRescheduledByVerifier?: boolean;
+  originalStartTime?: string;
+  originalEndTime?: string;
+
   createdAt: string;
 }
 
@@ -68,6 +99,7 @@ interface BookingSettings {
 // KONSTANTA
 // ═══════════════════════════════════════════════════════
 const MAX_BOOKING_MINUTES = 60;
+const RETURN_TOLERANCE_MINUTES = 10;
 const SCHOOL_WIDE = 'SCHOOL_WIDE';
 
 const timeToMinutes = (t: string): number => {
@@ -100,13 +132,6 @@ const DEFAULT_INSTRUMENTS: Omit<Equipment, 'id' | 'classId'>[] = [
 
 const VERIFIER_ROLES = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'];
 
-const REJECTION_TEMPLATES = (minLeadDays: number) => [
-  { label: `Minimal H-${minLeadDays}`, reason: 'Tanggal terlalu dekat', guidance: `Booking minimal ${minLeadDays} hari sebelum peminjaman.` },
-  { label: 'Sedang dipakai latihan', reason: 'Dipakai latihan', guidance: 'Silakan pilih tanggal lain.' },
-  { label: 'Rusak / perawatan', reason: 'Rusak / perawatan', guidance: 'Alat tidak dapat dipinjam.' },
-  { label: 'Bentrok Gladi/Pementasan', reason: 'Bentrok jadwal', guidance: 'Prioritas untuk Gladi/Pementasan.' },
-];
-
 const calculateMinDate = (minLeadDays: number): string => {
   const d = new Date();
   d.setDate(d.getDate() + minLeadDays);
@@ -117,6 +142,10 @@ const daysDifference = (fromDate: string, toDate: string): number => {
   const from = new Date(fromDate).getTime();
   const to = new Date(toDate).getTime();
   return Math.ceil((to - from) / 86400000);
+};
+
+const generateSessionId = (): string => {
+  return `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 };
 
 // ═══════════════════════════════════════════════════════
@@ -132,12 +161,38 @@ export const BookingModule: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterClass, setFilterClass] = useState<string>('ALL');
-  const [isBookingOpen, setIsBookingOpen] = useState(false);
-  const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
   const [stageConfig, setStageConfig] = useState<any>(null);
+  const [now, setNow] = useState(new Date());
 
   const isVerifier = !!user && VERIFIER_ROLES.includes(user.role);
   const [activeTab, setActiveTab] = useState<string>(isVerifier ? 'pending' : 'katalog');
+
+  // Guide
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
+
+  // Multi-select booking
+  const [isBookingOpen, setIsBookingOpen] = useState(false);
+  const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>([]);
+  const [bookDate, setBookDate] = useState(new Date().toISOString().slice(0, 10));
+  const [bookStart, setBookStart] = useState('14:00');
+  const [bookEnd, setBookEnd] = useState('15:00');
+  const [bookPurpose, setBookPurpose] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // Checkout / Return modals
+  const [checkoutSession, setCheckoutSession] = useState<Booking[] | null>(null);
+  const [checkoutPhotos, setCheckoutPhotos] = useState<PhotoEvidence[]>([]);
+  const [checkoutNote, setCheckoutNote] = useState('');
+  const [returnSession, setReturnSession] = useState<Booking[] | null>(null);
+  const [returnPhotos, setReturnPhotos] = useState<PhotoEvidence[]>([]);
+  const [returnCondition, setReturnCondition] = useState<'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT'>('BAIK');
+  const [returnNote, setReturnNote] = useState('');
+
+  // Success modal
+  const [successSession, setSuccessSession] = useState<{ className: string; equipNames: string[]; date: string; startTime: string; endTime: string } | null>(null);
+  const [successGuru, setSuccessGuru] = useState<{ name: string; phone?: string } | null>(null);
+  const [successWAUrl, setSuccessWAUrl] = useState<string | null>(null);
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
 
   // Equipment CRUD
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
@@ -148,38 +203,57 @@ export const BookingModule: React.FC = () => {
   const [eqCondition, setEqCondition] = useState<'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT'>('BAIK');
   const [eqNotes, setEqNotes] = useState('');
 
-  // Reject / Approve / Settings
+  // Reject with recommendation
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
   const [rejectingBooking, setRejectingBooking] = useState<Booking | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectGuidance, setRejectGuidance] = useState('');
+  const [rejectRecDate, setRejectRecDate] = useState('');
+  const [rejectRecStart, setRejectRecStart] = useState('');
+  const [rejectRecEnd, setRejectRecEnd] = useState('');
+
+  // Approve
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [approvingBooking, setApprovingBooking] = useState<Booking | null>(null);
   const [approveStart, setApproveStart] = useState('');
   const [approveEnd, setApproveEnd] = useState('');
   const [approveNote, setApproveNote] = useState('');
   const [approveError, setApproveError] = useState('');
+
+  // Settings
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsMinLead, setSettingsMinLead] = useState(2);
 
-  // Booking Form
-  const [bookDate, setBookDate] = useState(new Date().toISOString().slice(0, 10));
-  const [bookStart, setBookStart] = useState('14:00');
-  const [bookEnd, setBookEnd] = useState('15:00');
-  const [bookPurpose, setBookPurpose] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  // Success modal
-  const [successBooking, setSuccessBooking] = useState<Booking | null>(null);
-  const [successGuru, setSuccessGuru] = useState<{ name: string; phone?: string } | null>(null);
-  const [successWAUrl, setSuccessWAUrl] = useState<string | null>(null);
-  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  // Cancel modal
+  const [cancelTarget, setCancelTarget] = useState<{ session: Booking[]; reason: string } | null>(null);
 
   const minLeadDays = settings.minLeadDays;
   const minBookingDate = calculateMinDate(minLeadDays);
 
   // ═══════════════════════════════════════════════════════
-  // DEDUPE di UI
+  // TIMER: deteksi overdue (per menit)
+  // ═══════════════════════════════════════════════════════
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
+
+  // ═══════════════════════════════════════════════════════
+  // AUTO-SHOW GUIDE (sekali per user)
+  // ═══════════════════════════════════════════════════════
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const key = `spppt-booking-guide-read-${user.uid}`;
+      if (localStorage.getItem(key) !== 'done') {
+        const t = setTimeout(() => setIsGuideOpen(true), 800);
+        return () => clearTimeout(t);
+      }
+    } catch { /* ignore */ }
+  }, [user]);
+
+  // ═══════════════════════════════════════════════════════
+  // DEDUPE KATALOG
   // ═══════════════════════════════════════════════════════
   const dedupedEquipment = useMemo(() => {
     const map: Record<string, Equipment> = {};
@@ -198,7 +272,7 @@ export const BookingModule: React.FC = () => {
   const duplicateCount = equipment.length - dedupedEquipment.length;
 
   // ═══════════════════════════════════════════════════════
-  // LOAD SETTINGS (per kelas)
+  // SUBSCRIPTIONS
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
@@ -207,8 +281,7 @@ export const BookingModule: React.FC = () => {
         const ref = doc(db, 'classes', activeClass.id, 'config', 'booking');
         const snap = await getDoc(ref);
         if (snap.exists()) {
-          const data = snap.data();
-          const loadedMin = Math.max(2, Number(data.minLeadDays ?? 2));
+          const loadedMin = Math.max(2, Number(snap.data().minLeadDays ?? 2));
           setSettings({ minLeadDays: loadedMin });
           setSettingsMinLead(loadedMin);
         }
@@ -224,12 +297,8 @@ export const BookingModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // ═══════════════════════════════════════════════════════
-  // KATALOG SHARED — seed sekali via getDocs
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     let isCancelled = false;
-
     (async () => {
       try {
         const snap = await getDocs(collection(db, 'equipment'));
@@ -238,36 +307,22 @@ export const BookingModule: React.FC = () => {
           DEFAULT_INSTRUMENTS.forEach(eq => {
             const newRef = doc(collection(db, 'equipment'));
             batch.set(newRef, {
-              id: newRef.id,
-              classId: SCHOOL_WIDE,
-              isSchoolWide: true,
-              isCustom: false,
-              createdAt: new Date().toISOString(),
-              ...eq,
+              id: newRef.id, classId: SCHOOL_WIDE, isSchoolWide: true,
+              isCustom: false, createdAt: new Date().toISOString(), ...eq,
             });
           });
           await batch.commit();
         }
-      } catch (err) {
-        console.warn('Seed error:', err);
-      }
+      } catch (err) { console.warn('Seed error:', err); }
     })();
 
     const unsub = onSnapshot(collection(db, 'equipment'), snap => {
       if (isCancelled) return;
-      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Equipment));
-      setEquipment(items);
+      setEquipment(snap.docs.map(d => ({ ...d.data(), id: d.id } as Equipment)));
     });
-
-    return () => {
-      isCancelled = true;
-      unsub();
-    };
+    return () => { isCancelled = true; unsub(); };
   }, []);
 
-  // ═══════════════════════════════════════════════════════
-  // BOOKINGS SHARED
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     const qBk = query(collection(db, 'bookings'));
     const unsubBk = onSnapshot(qBk, snap => {
@@ -279,51 +334,86 @@ export const BookingModule: React.FC = () => {
   }, []);
 
   // ═══════════════════════════════════════════════════════
-  // MIGRASI KE SHARED KATALOG
+  // HELPERS
   // ═══════════════════════════════════════════════════════
+  const isLate = (b: Booking): boolean => {
+    if (b.status !== 'CHECKED_OUT' && b.status !== 'OVERDUE') return false;
+    if (!b.checkedOutAt) return false;
+    const endMin = timeToMinutes(b.endTime);
+    const [eh, em] = b.endTime.split(':').map(Number);
+    const endDateTime = new Date(b.date);
+    endDateTime.setHours(eh || 0, em || 0, 0, 0);
+    const deadline = endDateTime.getTime() + RETURN_TOLERANCE_MINUTES * 60000;
+    return now.getTime() > deadline;
+  };
+
   const isMigrated = equipment.length > 0 && equipment.every(e =>
     e.isSchoolWide === true || e.classId === SCHOOL_WIDE
   );
 
+  const getStatusColor = (status: BookingStatus) => {
+    switch (status) {
+      case 'APPROVED': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+      case 'REJECTED': return 'bg-rose-100 text-rose-800 border-rose-300';
+      case 'CANCELLED': return 'bg-slate-100 text-slate-600 border-slate-300';
+      case 'CHECKED_OUT': return 'bg-blue-100 text-blue-800 border-blue-300';
+      case 'RETURNED': return 'bg-purple-100 text-purple-800 border-purple-300';
+      case 'OVERDUE': return 'bg-rose-600 text-white border-rose-700';
+      default: return 'bg-amber-100 text-amber-800 border-amber-300';
+    }
+  };
+
+  const getStatusLabel = (status: BookingStatus) => {
+    const map: Record<BookingStatus, string> = {
+      PENDING: 'Menunggu', APPROVED: 'Disetujui', REJECTED: 'Ditolak',
+      CANCELLED: 'Dibatalkan', CHECKED_OUT: 'Diambil', RETURNED: 'Dikembalikan', OVERDUE: 'Terlambat',
+    };
+    return map[status] || status;
+  };
+
+  const getConditionColor = (c: string) => {
+    if (c === 'BAIK') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+    if (c === 'RUSAK_RINGAN') return 'bg-amber-100 text-amber-800 border-amber-300';
+    return 'bg-rose-100 text-rose-800 border-rose-300';
+  };
+
+  // Group bookings by sessionId
+  const groupBySession = (list: Booking[]): Record<string, Booking[]> => {
+    const groups: Record<string, Booking[]> = {};
+    list.forEach(b => {
+      const sid = b.sessionId || b.id;
+      if (!groups[sid]) groups[sid] = [];
+      groups[sid].push(b);
+    });
+    return groups;
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // MIGRATE
+  // ═══════════════════════════════════════════════════════
   const handleMigrateToShared = async () => {
     if (!user) return;
-    if (isMigrated) {
-      showToast('Katalog sudah terintegrasi ke seluruh sekolah.', 'info');
-      return;
-    }
-    if (!confirm(
-      'MIGRASI KATALOG KE SELURUH SEKOLAH?\n\n' +
-      `• Ditemukan ${equipment.length} alat, akan di-dedupe jadi ${dedupedEquipment.length} alat unik.\n` +
-      '• Alat dengan nama sama akan di-dedupe (ID terlama dipertahankan).\n' +
-      '• Booking lama tetap valid karena ID alat pertama dipertahankan.\n\n' +
-      'Lanjutkan?'
-    )) return;
+    if (isMigrated) { showToast('Katalog sudah terintegrasi.', 'info'); return; }
+    if (!confirm(`MIGRASI KATALOG?\n\n${equipment.length} alat akan di-dedupe jadi ${dedupedEquipment.length} alat unik. Booking lama tetap valid.`)) return;
 
     setSubmitting(true);
     try {
       const snap = await getDocs(collection(db, 'equipment'));
       const byName: Record<string, { id: string; createdAt: string }> = {};
       const toDelete: string[] = [];
-
       snap.docs.forEach(d => {
-        const data = d.data();
-        const key = (data.name || '').trim().toLowerCase();
+        const key = (d.data().name || '').trim().toLowerCase();
         if (!key) return;
-        const createdAt = data.createdAt || '';
+        const createdAt = d.data().createdAt || '';
         if (!byName[key] || (createdAt && (!byName[key].createdAt || createdAt < byName[key].createdAt))) {
           if (byName[key]) toDelete.push(byName[key].id);
           byName[key] = { id: d.id, createdAt };
-        } else {
-          toDelete.push(d.id);
-        }
+        } else toDelete.push(d.id);
       });
 
       const batch = writeBatch(db);
       Object.values(byName).forEach(entry => {
-        batch.update(doc(db, 'equipment', entry.id), {
-          classId: SCHOOL_WIDE,
-          isSchoolWide: true,
-        });
+        batch.update(doc(db, 'equipment', entry.id), { classId: SCHOOL_WIDE, isSchoolWide: true });
       });
       toDelete.forEach(id => batch.delete(doc(db, 'equipment', id)));
       await batch.commit();
@@ -331,15 +421,11 @@ export const BookingModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'UPDATE', targetType: 'EquipmentMigration', targetId: SCHOOL_WIDE,
-        details: `Migrasi katalog: ${Object.keys(byName).length} alat unik, ${toDelete.length} duplikat dihapus`,
+        details: `Migrasi: ${Object.keys(byName).length} unik, ${toDelete.length} hapus`,
       });
-
-      showToast(`Migrasi selesai! ${Object.keys(byName).length} alat unik tersimpan.`, 'success');
-    } catch (err: any) {
-      showToast('Gagal migrasi: ' + (err?.message || 'Unknown'), 'error');
-    } finally {
-      setSubmitting(false);
-    }
+      showToast(`Migrasi selesai! ${Object.keys(byName).length} alat unik.`, 'success');
+    } catch (err: any) { showToast('Gagal: ' + (err?.message || 'Unknown'), 'error'); }
+    finally { setSubmitting(false); }
   };
 
   // ═══════════════════════════════════════════════════════
@@ -348,18 +434,13 @@ export const BookingModule: React.FC = () => {
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
-    if (settingsMinLead < 2 || settingsMinLead > 30) {
-      showToast('Minimal H-2 dan maksimal H-30 hari.', 'warning');
-      return;
-    }
+    if (settingsMinLead < 2 || settingsMinLead > 30) { showToast('Minimal H-2, maksimal H-30.', 'warning'); return; }
     try {
       await setDoc(doc(db, 'classes', activeClass.id, 'config', 'booking'), {
-        minLeadDays: settingsMinLead,
-        updatedAt: new Date().toISOString(),
-        updatedBy: user.displayName,
+        minLeadDays: settingsMinLead, updatedAt: new Date().toISOString(), updatedBy: user.displayName,
       }, { merge: true });
       setSettings({ minLeadDays: settingsMinLead });
-      showToast(`Aturan disimpan: minimal H-${settingsMinLead}.`, 'success');
+      showToast(`Aturan: minimal H-${settingsMinLead}.`, 'success');
       setIsSettingsModalOpen(false);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
@@ -383,39 +464,27 @@ export const BookingModule: React.FC = () => {
 
   const handleSaveEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
-    if (!eqName.trim()) { showToast('Nama alat wajib.', 'warning'); return; }
-
-    const exists = dedupedEquipment.some(e =>
-      e.name.toLowerCase() === eqName.trim().toLowerCase() && e.id !== editingEquipment?.id
-    );
-    if (exists) { showToast(`Alat "${eqName}" sudah ada di katalog.`, 'warning'); return; }
+    if (!user || !eqName.trim()) return;
+    const exists = dedupedEquipment.some(e => e.name.toLowerCase() === eqName.trim().toLowerCase() && e.id !== editingEquipment?.id);
+    if (exists) { showToast(`Alat "${eqName}" sudah ada.`, 'warning'); return; }
 
     setSubmitting(true);
     try {
       if (editingEquipment) {
         await updateDoc(doc(db, 'equipment', editingEquipment.id), {
           name: eqName.trim(), category: eqCategory, quantity: eqQuantity,
-          condition: eqCondition, notes: eqNotes.trim(),
-          updatedAt: new Date().toISOString(),
+          condition: eqCondition, notes: eqNotes.trim(), updatedAt: new Date().toISOString(),
         });
-        showToast(`Alat "${eqName}" diperbarui.`, 'success');
+        showToast('Alat diperbarui.', 'success');
       } else {
         const newRef = doc(collection(db, 'equipment'));
         await setDoc(newRef, {
-          id: newRef.id,
-          classId: SCHOOL_WIDE,
-          isSchoolWide: true,
-          name: eqName.trim(),
-          category: eqCategory,
-          quantity: eqQuantity,
-          condition: eqCondition,
-          notes: eqNotes.trim(),
-          isCustom: true,
-          addedByName: user.displayName,
-          createdAt: new Date().toISOString(),
+          id: newRef.id, classId: SCHOOL_WIDE, isSchoolWide: true,
+          name: eqName.trim(), category: eqCategory, quantity: eqQuantity,
+          condition: eqCondition, notes: eqNotes.trim(), isCustom: true,
+          addedByName: user.displayName, createdAt: new Date().toISOString(),
         });
-        showToast(`Alat "${eqName}" ditambahkan.`, 'success');
+        showToast('Alat ditambahkan.', 'success');
       }
       setIsEquipmentModalOpen(false);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
@@ -423,27 +492,18 @@ export const BookingModule: React.FC = () => {
   };
 
   const handleDeleteEquipment = async (eq: Equipment) => {
-    if (!user) return;
-    if (!isVerifier) {
-      showToast('Hanya Guru/Admin yang dapat menghapus alat dari katalog sekolah.', 'warning');
-      return;
-    }
-    if (!confirm(`Hapus alat "${eq.name}" dari katalog?`)) return;
-    try {
-      await deleteDoc(doc(db, 'equipment', eq.id));
-      showToast('Alat dihapus.', 'info');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    if (!user || !isVerifier) { showToast('Hanya Guru/Admin.', 'warning'); return; }
+    if (!confirm(`Hapus alat "${eq.name}"?`)) return;
+    try { await deleteDoc(doc(db, 'equipment', eq.id)); showToast('Alat dihapus.', 'info'); }
+    catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   // ═══════════════════════════════════════════════════════
-  // BOOKING FLOW
+  // BOOKING MODAL (MULTI-ALAT)
   // ═══════════════════════════════════════════════════════
-  const handleOpenBooking = (eq: Equipment) => {
-    if (!activeClass) {
-      showToast('Masuk ke kelas dulu untuk melakukan booking.', 'warning');
-      return;
-    }
-    setSelectedEquipment(eq);
+  const openMultiBooking = (preselected?: Equipment) => {
+    if (!activeClass) { showToast('Masuk ke kelas dulu.', 'warning'); return; }
+    setSelectedEquipmentIds(preselected ? [preselected.id] : []);
     setBookDate(minBookingDate);
     setBookStart('14:00');
     setBookEnd('15:00');
@@ -451,10 +511,15 @@ export const BookingModule: React.FC = () => {
     setIsBookingOpen(true);
   };
 
+  const toggleEquipmentSelection = (id: string) => {
+    setSelectedEquipmentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
   const handleSubmitBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !activeClass || !selectedEquipment) return;
-    if (!bookPurpose.trim()) { showToast('Isi keperluan booking.', 'warning'); return; }
+    if (!user || !activeClass) return;
+    if (selectedEquipmentIds.length === 0) { showToast('Pilih minimal 1 alat.', 'warning'); return; }
+    if (!bookPurpose.trim()) { showToast('Isi keperluan.', 'warning'); return; }
 
     const dur = getDurationMinutes(bookStart, bookEnd);
     if (dur <= 0) { showToast('Jam selesai harus > jam mulai.', 'warning'); return; }
@@ -463,41 +528,71 @@ export const BookingModule: React.FC = () => {
     const diff = daysDifference(new Date().toISOString().slice(0, 10), bookDate);
     if (diff < minLeadDays) { showToast(`Booking minimal H-${minLeadDays}.`, 'error'); return; }
 
-    const existing = bookings.filter(b =>
-      b.equipmentId === selectedEquipment.id &&
-      b.date === bookDate &&
-      b.status !== 'REJECTED'
-    );
-    for (const b of existing) {
-      if (bookStart < b.endTime && bookEnd > b.startTime) {
-        showToast(`Bentrok dengan ${b.bookerName} (${b.startTime}-${b.endTime}).`, 'error');
+    // Cek bentrok + slot yang dibatalkan oleh kelas ini
+    for (const eqId of selectedEquipmentIds) {
+      const sameEq = bookings.filter(b =>
+        b.equipmentId === eqId &&
+        b.date === bookDate &&
+        !['REJECTED', 'CANCELLED'].includes(b.status)
+      );
+      for (const b of sameEq) {
+        if (bookStart < b.endTime && bookEnd > b.startTime) {
+          showToast(`Bentrok: "${b.equipmentName}" sudah dipinjam ${b.bookerName} jam ${b.startTime}-${b.endTime}.`, 'error');
+          return;
+        }
+      }
+
+      // Slot yang dibatalkan oleh kelas ini — tidak bisa rebook
+      const cancelledByMe = bookings.find(b =>
+        b.equipmentId === eqId &&
+        b.date === bookDate &&
+        b.classId === activeClass.id &&
+        b.status === 'CANCELLED' &&
+        bookStart < b.endTime && bookEnd > b.startTime
+      );
+      if (cancelledByMe) {
+        const eq = dedupedEquipment.find(e => e.id === eqId);
+        showToast(`Kelas Anda sudah membatalkan slot ${bookStart}-${bookEnd} untuk "${eq?.name}". Tidak bisa dipesan ulang.`, 'error');
         return;
       }
     }
 
     setSubmitting(true);
     try {
-      const newRef = doc(collection(db, 'bookings'));
-      const bookingData: Booking = {
-        id: newRef.id,
-        classId: activeClass.id,
-        className: activeClass.name,
-        equipmentId: selectedEquipment.id,
-        equipmentName: selectedEquipment.name,
-        equipmentCategory: selectedEquipment.category,
-        bookedBy: user.uid,
-        bookerName: user.displayName,
-        bookerRole: user.role,
-        bookerDivision: user.divisionName || '',
-        date: bookDate,
-        startTime: bookStart,
-        endTime: bookEnd,
-        purpose: bookPurpose.trim(),
-        status: 'PENDING',
-        createdAt: new Date().toISOString(),
-      };
-      await setDoc(newRef, bookingData);
+      const sessionId = generateSessionId();
+      const nowIso = new Date().toISOString();
+      const batch = writeBatch(db);
+      const equipNames: string[] = [];
 
+      for (const eqId of selectedEquipmentIds) {
+        const eq = dedupedEquipment.find(e => e.id === eqId);
+        if (!eq) continue;
+        equipNames.push(eq.name);
+        const newRef = doc(collection(db, 'bookings'));
+        const bookingData: Booking = {
+          id: newRef.id,
+          sessionId,
+          classId: activeClass.id,
+          className: activeClass.name,
+          equipmentId: eq.id,
+          equipmentName: eq.name,
+          equipmentCategory: eq.category,
+          bookedBy: user.uid,
+          bookerName: user.displayName,
+          bookerRole: user.role,
+          bookerDivision: user.divisionName || '',
+          date: bookDate,
+          startTime: bookStart,
+          endTime: bookEnd,
+          purpose: bookPurpose.trim(),
+          status: 'PENDING',
+          createdAt: nowIso,
+        };
+        batch.set(newRef, bookingData);
+      }
+      await batch.commit();
+
+      // Notif ke guru
       let guruList: any[] = [];
       try {
         const teachers = await fetchUsersByClass(activeClass.id);
@@ -508,64 +603,55 @@ export const BookingModule: React.FC = () => {
           guruList.forEach(g => {
             const nRef = doc(collection(db, 'notifications'));
             notifBatch.set(nRef, {
-              id: nRef.id,
-              userId: g.uid,
-              classId: activeClass.id,
-              title: `Booking Baru: ${selectedEquipment.name}`,
-              message: `${user.displayName} (${activeClass.name}) mengajukan booking ${selectedEquipment.name} untuk ${bookDate} pukul ${bookStart}-${bookEnd}. Keperluan: ${bookPurpose.trim()}`,
-              category: 'Tugas',
-              read: false,
-              link: 'welcome-booking',
-              createdAt: nowStr,
+              id: nRef.id, userId: g.uid, classId: activeClass.id,
+              title: `Booking Baru (${equipNames.length} alat)`,
+              message: `${user.displayName} (${activeClass.name}) booking ${equipNames.join('; ')} untuk ${bookDate} pukul ${bookStart}-${bookEnd}. Perlu verifikasi per alat.`,
+              category: 'Tugas', read: false, link: 'welcome-booking', createdAt: nowStr,
             });
           });
           await notifBatch.commit();
         }
-      } catch (err) {
-        console.warn('Notif guru gagal:', err);
-      }
+      } catch (err) { console.warn('Notif gagal:', err); }
 
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'CREATE', targetType: 'Booking', targetId: newRef.id,
-        details: `Booking ${selectedEquipment.name} - ${bookDate} ${bookStart}-${bookEnd}`,
+        action: 'CREATE', targetType: 'BookingSession', targetId: sessionId,
+        details: `Session ${equipNames.length} alat: ${equipNames.join('; ')}`,
       });
 
       const primaryGuru = guruList[0];
-      const hasPhone = primaryGuru?.phone;
       let waUrl: string | null = null;
-
-      if (hasPhone) {
+      if (primaryGuru?.phone) {
         let clean = primaryGuru.phone.replace(/\D/g, '');
         if (clean.startsWith('0')) clean = '62' + clean.slice(1);
-        const equipmentList = [selectedEquipment.name].join('; ');
         const kerabatText = activeClass.kerabatKerja ? ` (Kerabat Kerja: ${activeClass.kerabatKerja})` : '';
-        const formattedDate = new Date(bookDate).toLocaleDateString('id-ID', {
-          weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-        });
+        const fmtDate = new Date(bookDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
         const waText =
           `Halo Pak/Bu ${primaryGuru.displayName},\n\n` +
           `Saya ${user.displayName} dari kelas ${activeClass.name}${kerabatText},\n` +
           `sudah mengajukan booking alat:\n\n` +
-          `Alat: ${equipmentList}\n` +
-          `Tanggal: ${formattedDate}\n` +
+          equipNames.map((n, i) => `${i + 1}. ${n}`).join('\n') + '\n\n' +
+          `Tanggal: ${fmtDate}\n` +
           `Waktu: ${bookStart} - ${bookEnd}\n` +
           `Keperluan: ${bookPurpose.trim()}\n\n` +
           `Mohon verifikasi booking saya di SP-PPT. Terima kasih.`;
         waUrl = `https://wa.me/${clean}?text=${encodeURIComponent(waText)}`;
       }
 
-      setSuccessBooking(bookingData);
+      setSuccessSession({
+        className: activeClass.name,
+        equipNames,
+        date: bookDate,
+        startTime: bookStart,
+        endTime: bookEnd,
+      });
       setSuccessGuru(primaryGuru ? { name: primaryGuru.displayName, phone: primaryGuru.phone } : null);
       setSuccessWAUrl(waUrl);
       setIsSuccessModalOpen(true);
       setIsBookingOpen(false);
-      setSelectedEquipment(null);
-    } catch (err: any) {
-      showToast('Gagal: ' + err.message, 'error');
-    } finally {
-      setSubmitting(false);
-    }
+      setSelectedEquipmentIds([]);
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setSubmitting(false); }
   };
 
   // ═══════════════════════════════════════════════════════
@@ -573,10 +659,8 @@ export const BookingModule: React.FC = () => {
   // ═══════════════════════════════════════════════════════
   const handleOpenApprove = (b: Booking) => {
     setApprovingBooking(b);
-    setApproveStart(b.startTime);
-    setApproveEnd(b.endTime);
-    setApproveNote('');
-    setApproveError('');
+    setApproveStart(b.startTime); setApproveEnd(b.endTime);
+    setApproveNote(''); setApproveError('');
     setIsApproveModalOpen(true);
   };
 
@@ -596,16 +680,13 @@ export const BookingModule: React.FC = () => {
     ).find(b => approveStart < b.endTime && approveEnd > b.startTime);
     if (conflicting) { setApproveError(`Bentrok dengan ${conflicting.bookerName}.`); return; }
 
-    setApproveError('');
-    setSubmitting(true);
+    setApproveError(''); setSubmitting(true);
     try {
       const wasRescheduled = approveStart !== approvingBooking.startTime || approveEnd !== approvingBooking.endTime;
       await updateDoc(doc(db, 'bookings', approvingBooking.id), {
         status: 'APPROVED',
-        startTime: approveStart,
-        endTime: approveEnd,
-        approvedBy: user.displayName,
-        approvedAt: new Date().toISOString(),
+        startTime: approveStart, endTime: approveEnd,
+        approvedBy: user.displayName, approvedAt: new Date().toISOString(),
         verifierNote: approveNote.trim() || null,
         originalStartTime: approvingBooking.startTime,
         originalEndTime: approvingBooking.endTime,
@@ -623,31 +704,226 @@ export const BookingModule: React.FC = () => {
     if (!user || !rejectingBooking || !isVerifier) return;
     setSubmitting(true);
     try {
-      await updateDoc(doc(db, 'bookings', rejectingBooking.id), {
+      const updateData: any = {
         status: 'REJECTED',
-        approvedBy: user.displayName,
-        approvedAt: new Date().toISOString(),
+        approvedBy: user.displayName, approvedAt: new Date().toISOString(),
         rejectionReason: rejectReason.trim(),
         rejectionGuidance: rejectGuidance.trim(),
-      });
+      };
+      if (rejectRecDate) {
+        updateData.recommendedDate = rejectRecDate;
+        updateData.recommendedStartTime = rejectRecStart || rejectingBooking.startTime;
+        updateData.recommendedEndTime = rejectRecEnd || rejectingBooking.endTime;
+      }
+      await updateDoc(doc(db, 'bookings', rejectingBooking.id), updateData);
       showToast('Booking ditolak.', 'success');
-      setIsRejectModalOpen(false);
-      setRejectingBooking(null);
+      setIsRejectModalOpen(false); setRejectingBooking(null);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
     finally { setSubmitting(false); }
   };
 
-  const handleDeleteBooking = async (b: Booking) => {
-    if (!user || !(b.bookedBy === user.uid || isVerifier)) return;
-    if (!confirm(`Hapus booking "${b.equipmentName}"?`)) return;
+  // ═══════════════════════════════════════════════════════
+  // CHECKOUT (Lapor Pengambilan)
+  // ═══════════════════════════════════════════════════════
+  const openCheckout = (session: Booking[]) => {
+    setCheckoutSession(session);
+    setCheckoutPhotos([]);
+    setCheckoutNote('');
+  };
+
+  const handleCheckout = async () => {
+    if (!user || !checkoutSession) return;
+    if (checkoutPhotos.length === 0) { showToast('Wajib foto alat.', 'warning'); return; }
+    for (const p of checkoutPhotos) {
+      if (p.caption && checkPhotoContent(p.caption).has) { showToast('Kata tidak pantas di keterangan foto.', 'error'); return; }
+    }
+
+    setSubmitting(true);
     try {
-      await deleteDoc(doc(db, 'bookings', b.id));
-      showToast('Booking dihapus.', 'info');
+      const batch = writeBatch(db);
+      const nowIso = new Date().toISOString();
+      const photoUrl = checkoutPhotos[0].dataUrl;
+      const note = checkoutNote.trim() || checkoutPhotos[0].caption || '';
+
+      for (const b of checkoutSession) {
+        batch.update(doc(db, 'bookings', b.id), {
+          status: 'CHECKED_OUT',
+          checkedOutAt: nowIso,
+          checkoutPhotoUrl: photoUrl,
+          checkoutNote: note,
+        });
+      }
+      await batch.commit();
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'BookingSession', targetId: checkoutSession[0]?.sessionId || '',
+        details: `Checkout ${checkoutSession.length} alat`,
+      });
+      showToast(`Pengambilan ${checkoutSession.length} alat dilaporkan.`, 'success');
+      setCheckoutSession(null);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setSubmitting(false); }
   };
 
   // ═══════════════════════════════════════════════════════
-  // DATA FILTERS
+  // RETURN (Lapor Pengembalian) + auto serah-terima notif
+  // ═══════════════════════════════════════════════════════
+  const openReturn = (session: Booking[]) => {
+    setReturnSession(session);
+    setReturnPhotos([]);
+    setReturnCondition('BAIK');
+    setReturnNote('');
+  };
+
+  const handleReturn = async () => {
+    if (!user || !returnSession || !activeClass) return;
+    if (returnPhotos.length === 0) { showToast('Wajib foto pengembalian.', 'warning'); return; }
+    for (const p of returnPhotos) {
+      if (p.caption && checkPhotoContent(p.caption).has) { showToast('Kata tidak pantas di keterangan foto.', 'error'); return; }
+    }
+
+    setSubmitting(true);
+    try {
+      const batch = writeBatch(db);
+      const nowIso = new Date().toISOString();
+      const photoUrl = returnPhotos[0].dataUrl;
+      const note = returnNote.trim() || returnPhotos[0].caption || '';
+
+      // Cek late per item
+      const lateIds: string[] = [];
+      for (const b of returnSession) {
+        const [eh, em] = b.endTime.split(':').map(Number);
+        const endDateTime = new Date(b.date);
+        endDateTime.setHours(eh || 0, em || 0, 0, 0);
+        const deadline = endDateTime.getTime() + RETURN_TOLERANCE_MINUTES * 60000;
+        const isLate = Date.now() > deadline;
+        if (isLate) lateIds.push(b.id);
+
+        batch.update(doc(db, 'bookings', b.id), {
+          status: 'RETURNED',
+          returnedAt: nowIso,
+          returnPhotoUrl: photoUrl,
+          returnCondition,
+          returnNote: note,
+          isLateReturn: isLate,
+        });
+      }
+
+      // Deteksi serah terima ke kelas berikutnya
+      const nextClassNotifs: { classId: string; equipNames: string[]; time: string }[] = [];
+      for (const b of returnSession) {
+        const sameDaySameEq = bookings.filter(x =>
+          x.equipmentId === b.equipmentId &&
+          x.date === b.date &&
+          x.classId !== b.classId &&
+          x.status === 'APPROVED' &&
+          x.startTime >= b.endTime
+        );
+        for (const next of sameDaySameEq) {
+          const existing = nextClassNotifs.find(n => n.classId === next.classId);
+          if (existing) existing.equipNames.push(next.equipmentName);
+          else nextClassNotifs.push({ classId: next.classId, equipNames: [next.equipmentName], time: next.startTime });
+        }
+      }
+      await batch.commit();
+
+      // Kirim notif ke kelas berikutnya
+      if (nextClassNotifs.length > 0) {
+        const notifBatch = writeBatch(db);
+        const nowStr = new Date().toISOString();
+        for (const grp of nextClassNotifs) {
+          try {
+            const nextUsers = await fetchUsersByClass(grp.classId);
+            nextUsers.forEach(u => {
+              if (u.uid === user.uid) return;
+              const nRef = doc(collection(db, 'notifications'));
+              notifBatch.set(nRef, {
+                id: nRef.id, userId: u.uid, classId: grp.classId,
+                title: 'Alat Diserahkan dari Kelas Sebelumnya',
+                message: `${activeClass.name} sudah menyerahkan ${grp.equipNames.join('; ')} untuk jadwal ${grp.time}. Silakan konfirmasi terima & gunakan via Koordinasi Lintas Kelas.`,
+                category: 'Sistem', read: false, link: 'inter-class', createdAt: nowStr,
+              });
+            });
+          } catch { /* skip */ }
+        }
+        await notifBatch.commit();
+      }
+
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'UPDATE', targetType: 'BookingSession', targetId: returnSession[0]?.sessionId || '',
+        details: `Return ${returnSession.length} alat${lateIds.length > 0 ? ` (${lateIds.length} terlambat)` : ''}`,
+      });
+
+      if (lateIds.length > 0) {
+        showToast(`Pengembalian dilaporkan. ${lateIds.length} alat terlambat.`, 'warning');
+      } else {
+        showToast(`Pengembalian ${returnSession.length} alat dilaporkan.`, 'success');
+      }
+      setReturnSession(null);
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setSubmitting(false); }
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // CANCEL
+  // ═══════════════════════════════════════════════════════
+  const openCancel = (session: Booking[], reason = '') => {
+    setCancelTarget({ session, reason });
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!user || !cancelTarget) return;
+    setSubmitting(true);
+    try {
+      const batch = writeBatch(db);
+      const nowIso = new Date().toISOString();
+      for (const b of cancelTarget.session) {
+        batch.update(doc(db, 'bookings', b.id), {
+          status: 'CANCELLED',
+          cancelledAt: nowIso,
+          cancelledBy: user.displayName,
+          cancelledReason: cancelTarget.reason.trim() || 'Dibatalkan oleh peminjam',
+        });
+      }
+      await batch.commit();
+      await recordAuditLog({
+        userId: user.uid, userName: user.displayName, role: user.role,
+        action: 'DELETE', targetType: 'BookingSession', targetId: cancelTarget.session[0]?.sessionId || '',
+        details: `Cancel ${cancelTarget.session.length} alat. Slot dikunci untuk kelas ini.`,
+      });
+      showToast(`Booking dibatalkan. Slot dikunci untuk kelas Anda.`, 'info');
+      setCancelTarget(null);
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setSubmitting(false); }
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // WA OVERDUE
+  // ═══════════════════════════════════════════════════════
+  const handleWAOverdue = (b: Booking) => {
+    // Cari nomor HP peminjam dari users
+    (async () => {
+      try {
+        const users = await fetchUsersByClass(b.classId);
+        const booker = users.find(u => u.uid === b.bookedBy);
+        if (!booker?.phone) { showToast('Nomor WA peminjam tidak tersedia.', 'warning'); return; }
+
+        let clean = booker.phone.replace(/\D/g, '');
+        if (clean.startsWith('0')) clean = '62' + clean.slice(1);
+
+        const overdue = Math.max(0, Math.round((now.getTime() - (new Date(`${b.date}T${b.endTime}:00`).getTime() + RETURN_TOLERANCE_MINUTES * 60000)) / 60000));
+        const text =
+          `Halo ${b.bookerName},\n\n` +
+          `Booking "${b.equipmentName}" untuk ${b.date} pukul ${b.startTime}-${b.endTime} sudah melewati batas pengembalian (${overdue} menit).\n\n` +
+          `Mohon segera kembalikan alat dan lapor pengembalian di SP-PPT.\n\nTerima kasih.`;
+        window.open(`https://wa.me/${clean}?text=${encodeURIComponent(text)}`, '_blank');
+      } catch { showToast('Gagal buka WA.', 'error'); }
+    })();
+  };
+
+  // ═══════════════════════════════════════════════════════
+  // DATA
   // ═══════════════════════════════════════════════════════
   const filteredEquipment = dedupedEquipment.filter(eq => {
     if (filterCategory !== 'ALL' && eq.category !== filterCategory) return false;
@@ -655,32 +931,26 @@ export const BookingModule: React.FC = () => {
     return true;
   });
 
-  const myBookings = bookings.filter(b => b.bookedBy === user?.uid);
+  const mySessions = useMemo(() => {
+    const mine = bookings.filter(b => b.bookedBy === user?.uid);
+    return groupBySession(mine);
+  }, [bookings, user?.uid]);
+
   const pendingBookings = bookings.filter(b => b.status === 'PENDING');
-  const allBookingsFiltered = bookings.filter(b => filterClass === 'ALL' || b.classId === filterClass);
+  const overdueBookings = bookings.filter(b => isLate(b));
 
   const tableBookings = useMemo(() => {
-    return [...bookings].filter(b => b.status !== 'REJECTED').sort((a, b) => {
-      const dateCompare = a.date.localeCompare(b.date);
-      if (dateCompare !== 0) return dateCompare;
-      return a.startTime.localeCompare(b.startTime);
-    });
+    return [...bookings]
+      .filter(b => !['REJECTED', 'CANCELLED'].includes(b.status))
+      .sort((a, b) => {
+        const dc = a.date.localeCompare(b.date);
+        if (dc !== 0) return dc;
+        return a.startTime.localeCompare(b.startTime);
+      });
   }, [bookings]);
 
-  const getConditionColor = (cond: string) => {
-    if (cond === 'BAIK') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-    if (cond === 'RUSAK_RINGAN') return 'bg-amber-100 text-amber-800 border-amber-300';
-    return 'bg-rose-100 text-rose-800 border-rose-300';
-  };
-
-  const getStatusColor = (status: string) => {
-    if (status === 'APPROVED') return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-    if (status === 'REJECTED') return 'bg-rose-100 text-rose-800 border-rose-300';
-    return 'bg-amber-100 text-amber-800 border-amber-300';
-  };
-
   // ═══════════════════════════════════════════════════════
-  // RENDER: VERIFIKATOR (GURU / ADMIN)
+  // RENDER: VERIFIKATOR
   // ═══════════════════════════════════════════════════════
   if (isVerifier) {
     return (
@@ -697,7 +967,7 @@ export const BookingModule: React.FC = () => {
                 </span>
                 <h2 className="text-xl font-black text-white mt-1">Verifikasi Booking</h2>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  {pendingBookings.length} menunggu • H-{minLeadDays} • Maks 1 jam • {dedupedEquipment.length} alat tersedia
+                  {pendingBookings.length} menunggu • {overdueBookings.length} terlambat • {dedupedEquipment.length} alat
                 </p>
               </div>
             </div>
@@ -705,45 +975,59 @@ export const BookingModule: React.FC = () => {
               {!isMigrated && duplicateCount > 0 && (
                 <button onClick={handleMigrateToShared} disabled={submitting}
                   className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg disabled:opacity-50">
-                  <Sparkles className="w-3.5 h-3.5" /> Migrasi ({duplicateCount} duplikat)
+                  <Sparkles className="w-3.5 h-3.5" /> Migrasi ({duplicateCount})
                 </button>
               )}
               {isMigrated && (
                 <span className="px-3 py-2 rounded-xl bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 font-bold text-xs flex items-center gap-1.5">
-                  <CheckCircle className="w-3.5 h-3.5" /> Katalog Terintegrasi
+                  <CheckCircle className="w-3.5 h-3.5" /> Terintegrasi
                 </span>
               )}
               {activeClass && (
                 <button onClick={() => { setSettingsMinLead(minLeadDays); setIsSettingsModalOpen(true); }}
                   className="px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg">
-                  <SettingsIcon className="w-3.5 h-3.5" /> Atur H-{minLeadDays}
+                  <SettingsIcon className="w-3.5 h-3.5" /> H-{minLeadDays}
                 </button>
               )}
             </div>
           </div>
         </div>
 
-        {!isMigrated && duplicateCount > 0 && (
-          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        {overdueBookings.length > 0 && (
+          <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 animate-pulse" />
             <div className="flex-1">
-              <p className="text-sm font-extrabold text-amber-900 dark:text-amber-200">
-                {duplicateCount} Duplikat Terdeteksi di Firestore
+              <p className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
+                {overdueBookings.length} Booking Terlambat Dikembalikan
               </p>
-              <p className="text-xs text-amber-800 dark:text-amber-300 mt-1 leading-relaxed">
-                Katalog sudah menampilkan <strong>{dedupedEquipment.length} alat unik</strong> (duplikat disembunyikan otomatis). Klik <strong>Migrasi</strong> untuk menghapus data duplikat dari database.
-              </p>
+              <p className="text-xs text-rose-800 dark:text-rose-300 mt-1">Buka tab "Terlambat" untuk kirim WA pengingat.</p>
             </div>
           </div>
         )}
 
-        {/* ✅ PATCH 1: Tabs scrollable (GURU) */}
+        {!isMigrated && duplicateCount > 0 && (
+          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-extrabold text-amber-900 dark:text-amber-200">{duplicateCount} Duplikat Terdeteksi</p>
+              <p className="text-xs text-amber-800 dark:text-amber-300 mt-1">Klik Migrasi untuk bersihkan.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Tabs */}
         <div className="relative">
           <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none touch-pan-x snap-x snap-mandatory">
             <button onClick={() => setActiveTab('pending')}
               className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'pending' ? 'bg-rose-600 text-white' : 'bg-white text-slate-600 border'}`}>
-              Perlu Verifikasi ({pendingBookings.length})
+              Pending ({pendingBookings.length})
             </button>
+            {overdueBookings.length > 0 && (
+              <button onClick={() => setActiveTab('overdue')}
+                className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1 ${activeTab === 'overdue' ? 'bg-rose-700 text-white' : 'bg-white text-rose-600 border border-rose-300'}`}>
+                <AlertCircle className="w-3.5 h-3.5" /> Terlambat ({overdueBookings.length})
+              </button>
+            )}
             <button onClick={() => setActiveTab('tabel')}
               className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'tabel' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border'}`}>
               <Table className="w-3.5 h-3.5" /> Tabel
@@ -757,10 +1041,9 @@ export const BookingModule: React.FC = () => {
               Katalog ({dedupedEquipment.length})
             </button>
           </div>
-          <div className="absolute right-0 top-0 bottom-2 w-8 bg-gradient-to-l from-slate-50 dark:from-slate-950 to-transparent pointer-events-none" />
         </div>
 
-        {/* ✅ PATCH 3: Pending card guru — tambah Kelas + Kerabat */}
+        {/* Pending */}
         {activeTab === 'pending' && (
           <div className="space-y-3">
             {pendingBookings.length === 0 ? (
@@ -799,7 +1082,7 @@ export const BookingModule: React.FC = () => {
                         className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1">
                         <CheckCircle className="w-3 h-3" /> Setujui
                       </button>
-                      <button onClick={() => { setRejectingBooking(b); setRejectReason(''); setRejectGuidance(''); setIsRejectModalOpen(true); }}
+                      <button onClick={() => { setRejectingBooking(b); setRejectReason(''); setRejectGuidance(''); setRejectRecDate(''); setRejectRecStart(''); setRejectRecEnd(''); setIsRejectModalOpen(true); }}
                         className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-xs font-bold flex items-center gap-1">
                         <XCircle className="w-3 h-3" /> Tolak
                       </button>
@@ -811,11 +1094,53 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* ✅ PATCH 2: Tabel guru — tambah Kelas + Kerabat */}
+        {/* Overdue */}
+        {activeTab === 'overdue' && (
+          <div className="space-y-3">
+            {overdueBookings.length === 0 ? (
+              <div className="p-12 text-center bg-white rounded-3xl border">
+                <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+                <h3 className="font-bold">Tidak Ada Terlambat</h3>
+              </div>
+            ) : overdueBookings.map(b => {
+              const cls = classes.find(c => c.id === b.classId);
+              return (
+                <div key={b.id} className="p-4 rounded-2xl bg-rose-50 border-2 border-rose-300 shadow-sm">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white flex items-center gap-1">
+                          <AlertCircle className="w-2.5 h-2.5" /> TERLAMBAT
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300">
+                          {b.className || cls?.name || '-'}
+                        </span>
+                      </div>
+                      <p className="text-sm font-bold text-rose-900">{b.bookerName}</p>
+                      <p className="text-xs text-rose-800 mt-1 flex items-center gap-1.5 flex-wrap">
+                        <Music className="w-3 h-3" /> {b.equipmentName}
+                        <span>•</span>
+                        <span className="font-mono">{b.date}</span>
+                        <span>•</span>
+                        <span className="font-mono">{b.startTime}-{b.endTime}</span>
+                      </p>
+                    </div>
+                    <button onClick={() => handleWAOverdue(b)}
+                      className="px-3 py-2 bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0">
+                      <MessageCircle className="w-3.5 h-3.5" /> WA Pengingat
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Tabel */}
         {activeTab === 'tabel' && (
           <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs min-w-[820px]">
+              <table className="w-full text-left text-xs min-w-[900px]">
                 <thead className="bg-slate-50 border-b">
                   <tr>
                     <th className="p-3">Tanggal</th>
@@ -830,6 +1155,8 @@ export const BookingModule: React.FC = () => {
                 <tbody className="divide-y divide-slate-100">
                   {tableBookings.map(b => {
                     const cls = classes.find(c => c.id === b.classId);
+                    const late = isLate(b);
+                    const displayStatus = late ? 'OVERDUE' : b.status;
                     return (
                       <tr key={b.id}>
                         <td className="p-3 font-bold">{b.date}</td>
@@ -841,12 +1168,10 @@ export const BookingModule: React.FC = () => {
                             {b.className || cls?.name || '-'}
                           </span>
                         </td>
-                        <td className="p-3 text-[11px] text-slate-600 italic">
-                          {cls?.kerabatKerja || '-'}
-                        </td>
+                        <td className="p-3 text-[11px] text-slate-600 italic">{cls?.kerabatKerja || '-'}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(b.status)}`}>
-                            {b.status}
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(displayStatus as BookingStatus)}`}>
+                            {getStatusLabel(displayStatus as BookingStatus)}
                           </span>
                         </td>
                       </tr>
@@ -868,7 +1193,7 @@ export const BookingModule: React.FC = () => {
             <div className="flex justify-between items-center flex-wrap gap-2">
               <h3 className="font-bold text-slate-800">Katalog Alat ({filteredEquipment.length} unik)</h3>
               <button onClick={openAddEquipment} className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm">
-                <Plus className="w-4 h-4" /> Tambah Alat Baru
+                <Plus className="w-4 h-4" /> Tambah Alat
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -888,9 +1213,6 @@ export const BookingModule: React.FC = () => {
                     <span className={`px-2 py-0.5 rounded border font-bold ${getConditionColor(eq.condition)}`}>{eq.condition}</span>
                     <span className="font-bold">Qty: {eq.quantity}</span>
                   </div>
-                  {activeClass && (
-                    <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 bg-indigo-500 text-white rounded font-bold text-xs">Booking Alat Ini</button>
-                  )}
                 </div>
               ))}
             </div>
@@ -906,7 +1228,7 @@ export const BookingModule: React.FC = () => {
                 <input type="time" value={approveStart} onChange={e => setApproveStart(e.target.value)} className="px-3 py-2 border rounded-xl" />
                 <input type="time" value={approveEnd} onChange={e => setApproveEnd(e.target.value)} className="px-3 py-2 border rounded-xl" />
               </div>
-              <textarea rows={2} value={approveNote} onChange={e => setApproveNote(e.target.value)} placeholder="Catatan verifikator (opsional)" className="w-full px-3 py-2 border rounded-xl text-xs" />
+              <textarea rows={2} value={approveNote} onChange={e => setApproveNote(e.target.value)} placeholder="Catatan (opsional)" className="w-full px-3 py-2 border rounded-xl text-xs" />
               {approveError && <p className="text-xs text-rose-600 font-bold">{approveError}</p>}
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsApproveModalOpen(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
@@ -917,11 +1239,30 @@ export const BookingModule: React.FC = () => {
         )}
 
         {isRejectModalOpen && rejectingBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
-            <form onSubmit={handleSubmitReject} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+            <form onSubmit={handleSubmitReject} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-3 my-auto max-h-[95vh] overflow-y-auto">
               <h3 className="text-base font-extrabold text-slate-900">Tolak Booking</h3>
-              <input type="text" required value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Alasan..." className="w-full px-3 py-2 border rounded-xl text-xs" />
-              <textarea required value={rejectGuidance} onChange={e => setRejectGuidance(e.target.value)} placeholder="Arahan..." className="w-full px-3 py-2 border rounded-xl text-xs" />
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Alasan <span className="text-rose-500">*</span></label>
+                <input type="text" required value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Alasan penolakan..." className="w-full px-3 py-2 border rounded-xl text-xs" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Arahan untuk Siswa <span className="text-rose-500">*</span></label>
+                <textarea required value={rejectGuidance} onChange={e => setRejectGuidance(e.target.value)} placeholder="Apa yang harus dilakukan siswa..." className="w-full px-3 py-2 border rounded-xl text-xs" />
+              </div>
+              <div className="p-3 rounded-xl bg-blue-50 border border-blue-200">
+                <p className="text-[11px] font-bold text-blue-900 mb-2 flex items-center gap-1">
+                  <Info className="w-3 h-3" /> Rekomendasi Waktu Alternatif (Opsional)
+                </p>
+                <div className="space-y-2">
+                  <input type="date" value={rejectRecDate} onChange={e => setRejectRecDate(e.target.value)} className="w-full px-3 py-2 border rounded-lg text-xs" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="time" value={rejectRecStart} onChange={e => setRejectRecStart(e.target.value)} className="px-3 py-2 border rounded-lg text-xs" placeholder="Mulai" />
+                    <input type="time" value={rejectRecEnd} onChange={e => setRejectRecEnd(e.target.value)} className="px-3 py-2 border rounded-lg text-xs" placeholder="Selesai" />
+                  </div>
+                  <p className="text-[10px] text-blue-700 italic">Siswa akan melihat rekomendasi ini di "Booking Saya".</p>
+                </div>
+              </div>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsRejectModalOpen(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
                 <button type="submit" className="px-5 py-2 bg-rose-500 text-white font-bold text-xs rounded-xl">Tolak</button>
@@ -933,13 +1274,11 @@ export const BookingModule: React.FC = () => {
         {isSettingsModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
             <form onSubmit={handleSaveSettings} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
-              <h3 className="text-base font-extrabold text-slate-900">Atur Minimal Lead Time</h3>
+              <h3 className="text-base font-extrabold text-slate-900">Minimal Lead Time</h3>
               <input type="number" min="2" max="30" value={settingsMinLead}
                 onChange={e => setSettingsMinLead(Math.max(2, parseInt(e.target.value) || 2))}
                 className="w-full px-3 py-2 border rounded-xl text-center text-xl font-bold" />
-              <p className="text-xs text-amber-600 font-bold flex items-center gap-1.5">
-                <ShieldAlert className="w-3.5 h-3.5" /> Minimal H-2 (tidak dapat diturunkan)
-              </p>
+              <p className="text-xs text-amber-600 font-bold flex items-center gap-1.5"><ShieldAlert className="w-3.5 h-3.5" /> Minimal H-2</p>
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsSettingsModalOpen(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
                 <button type="submit" className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl">Simpan</button>
@@ -960,9 +1299,7 @@ export const BookingModule: React.FC = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <input type="number" required value={eqQuantity} onChange={e => setEqQuantity(parseInt(e.target.value) || 1)} placeholder="Qty" className="w-full px-3 py-2 border rounded-xl text-xs" />
                   <select value={eqCondition} onChange={e => setEqCondition(e.target.value as any)} className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
-                    <option value="BAIK">Baik</option>
-                    <option value="RUSAK_RINGAN">Rusak Ringan</option>
-                    <option value="RUSAK_BERAT">Rusak Berat</option>
+                    <option value="BAIK">Baik</option><option value="RUSAK_RINGAN">Rusak Ringan</option><option value="RUSAK_BERAT">Rusak Berat</option>
                   </select>
                 </div>
                 <textarea rows={2} value={eqNotes} onChange={e => setEqNotes(e.target.value)} placeholder="Catatan (opsional)" className="w-full px-3 py-2 border rounded-xl text-xs" />
@@ -974,6 +1311,8 @@ export const BookingModule: React.FC = () => {
             </div>
           </div>
         )}
+
+        {isGuideOpen && <BookingGuideModal onClose={() => setIsGuideOpen(false)} />}
       </div>
     );
   }
@@ -981,36 +1320,34 @@ export const BookingModule: React.FC = () => {
   // ═══════════════════════════════════════════════════════
   // RENDER: SISWA
   // ═══════════════════════════════════════════════════════
+  const mySessionsList = Object.entries(mySessions).map(([sid, list]) => ({ sid, list }));
+  mySessionsList.sort((a, b) => new Date(b.list[0]?.createdAt || 0).getTime() - new Date(a.list[0]?.createdAt || 0).getTime());
+
   return (
     <div className="space-y-6">
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl border border-indigo-500/20">
-        <div className="flex items-center gap-3">
-          <span className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-            <Music className="w-7 h-7" />
-          </span>
-          <div>
-            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
-              Peminjaman Alat Sekolah
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <span className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <Music className="w-7 h-7" />
             </span>
-            <h2 className="text-xl font-black text-white mt-1">Katalog & Jadwal</h2>
-            <p className="text-xs text-slate-300 mt-0.5">
-              {dedupedEquipment.length} alat tersedia • H-{minLeadDays} • Maks 1 Jam
-            </p>
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
+                Peminjaman Alat
+              </span>
+              <h2 className="text-xl font-black text-white mt-1">Katalog & Jadwal</h2>
+              <p className="text-xs text-slate-300 mt-0.5">
+                {dedupedEquipment.length} alat • H-{minLeadDays} • Maks 1 jam • Toleransi 10 menit
+              </p>
+            </div>
           </div>
+          <button onClick={() => setIsGuideOpen(true)}
+            className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-bold flex items-center gap-1.5">
+            <BookOpen className="w-3.5 h-3.5" /> Panduan
+          </button>
         </div>
       </div>
 
-      {user?.role === 'Koordinator Tata Musik' && stageConfig?.currentStage === 'PERSIAPAN' && (
-        <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 flex items-start gap-3 shadow-sm">
-          <Bell className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-bounce" />
-          <div>
-            <h4 className="text-sm font-extrabold text-amber-900">Pengingat Tata Musik (Persiapan)</h4>
-            <p className="text-xs text-amber-800 mt-1">Pastikan Anda telah membooking alat musik. Peminjaman maks 1 jam per booking.</p>
-          </div>
-        </div>
-      )}
-
-      {/* ✅ PATCH 1: Tabs scrollable (SISWA) */}
       <div className="relative">
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none touch-pan-x snap-x snap-mandatory">
           <button onClick={() => setActiveTab('katalog')}
@@ -1027,10 +1364,9 @@ export const BookingModule: React.FC = () => {
           </button>
           <button onClick={() => setActiveTab('saya')}
             className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'saya' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
-            Booking Saya ({myBookings.length})
+            Booking Saya ({mySessionsList.length})
           </button>
         </div>
-        <div className="absolute right-0 top-0 bottom-2 w-8 bg-gradient-to-l from-slate-50 dark:from-slate-950 to-transparent pointer-events-none" />
       </div>
 
       {activeTab === 'katalog' && (
@@ -1041,8 +1377,8 @@ export const BookingModule: React.FC = () => {
               <input type="text" placeholder="Cari alat..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 rounded-xl border text-xs font-semibold" />
             </div>
-            <button onClick={openAddEquipment} className="px-4 py-2 rounded-xl bg-amber-500 font-bold text-xs flex items-center justify-center gap-1.5">
-              <Plus className="w-3.5 h-3.5" /> Tambah Alat
+            <button onClick={() => openMultiBooking()} className="px-4 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs flex items-center justify-center gap-1.5">
+              <Plus className="w-3.5 h-3.5" /> Booking Multi-Alat
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1053,36 +1389,29 @@ export const BookingModule: React.FC = () => {
                     <h4 className="font-bold">{eq.name}</h4>
                     <p className="text-[10px] text-slate-500">{eq.category}</p>
                   </div>
-                  {eq.addedByName === user?.displayName && (
-                    <div className="flex gap-1">
-                      <button onClick={() => openEditEquipment(eq)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg"><Edit3 className="w-4 h-4" /></button>
-                    </div>
-                  )}
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
                   <span className={`px-2 py-0.5 rounded border font-bold ${getConditionColor(eq.condition)}`}>{eq.condition}</span>
                   <span className="font-bold">Qty: {eq.quantity}</span>
                 </div>
-                <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 bg-indigo-500 text-white rounded-xl font-bold text-xs">Booking Alat Ini</button>
+                <button onClick={() => openMultiBooking(eq)} className="w-full py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-bold text-xs">
+                  Booking Alat Ini
+                </button>
               </div>
             ))}
           </div>
         </>
       )}
 
-      {/* ✅ PATCH 2: Tabel siswa — tambah Kelas + Kerabat */}
       {activeTab === 'jadwal' && (
         <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs min-w-[760px]">
               <thead className="bg-slate-50 border-b">
                 <tr>
-                  <th className="p-3">Tanggal</th>
-                  <th className="p-3">Waktu</th>
-                  <th className="p-3">Alat</th>
-                  <th className="p-3">Peminjam</th>
-                  <th className="p-3">Kelas</th>
-                  <th className="p-3">Kerabat Kerja</th>
+                  <th className="p-3">Tanggal</th><th className="p-3">Waktu</th>
+                  <th className="p-3">Alat</th><th className="p-3">Peminjam</th>
+                  <th className="p-3">Kelas</th><th className="p-3">Kerabat Kerja</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1099,9 +1428,7 @@ export const BookingModule: React.FC = () => {
                           {b.className || cls?.name || '-'}
                         </span>
                       </td>
-                      <td className="p-3 text-[11px] text-slate-600 italic">
-                        {cls?.kerabatKerja || '-'}
-                      </td>
+                      <td className="p-3 text-[11px] text-slate-600 italic">{cls?.kerabatKerja || '-'}</td>
                     </tr>
                   );
                 })}
@@ -1116,61 +1443,219 @@ export const BookingModule: React.FC = () => {
 
       {activeTab === 'kalender' && <BookingCalendarModule embedded />}
 
-      {/* ✅ PATCH 4: Card "Booking Saya" — tambah Kelas + Kerabat */}
       {activeTab === 'saya' && (
         <div className="space-y-3">
-          {myBookings.length === 0 ? (
+          {mySessionsList.length === 0 ? (
             <div className="p-12 text-center bg-white border rounded-3xl text-slate-400 text-xs">Belum ada booking.</div>
-          ) : myBookings.map(b => {
-            const cls = classes.find(c => c.id === b.classId);
+          ) : mySessionsList.map(({ sid, list }) => {
+            const first = list[0];
+            const allPending = list.every(b => b.status === 'PENDING');
+            const allApproved = list.every(b => b.status === 'APPROVED');
+            const anyCheckedOut = list.some(b => b.status === 'CHECKED_OUT' || b.status === 'OVERDUE');
+            const anyReturned = list.every(b => b.status === 'RETURNED');
+            const anyRejected = list.some(b => b.status === 'REJECTED');
+            const anyCancelled = list.every(b => b.status === 'CANCELLED');
+            const sessionLate = list.some(b => isLate(b));
+            const cls = classes.find(c => c.id === first.classId);
+
+            // Status keseluruhan session
+            let sessionStatus: BookingStatus = 'PENDING';
+            let sessionLabel = 'Menunggu Persetujuan';
+            if (anyCancelled) { sessionStatus = 'CANCELLED'; sessionLabel = 'Dibatalkan'; }
+            else if (anyRejected) { sessionStatus = 'REJECTED'; sessionLabel = 'Ditolak Sebagian'; }
+            else if (anyReturned) { sessionStatus = 'RETURNED'; sessionLabel = 'Selesai'; }
+            else if (anyCheckedOut) { sessionStatus = sessionLate ? 'OVERDUE' : 'CHECKED_OUT'; sessionLabel = sessionLate ? 'TERLAMBAT' : 'Sedang Dipakai'; }
+            else if (allApproved) { sessionStatus = 'APPROVED'; sessionLabel = 'Disetujui — Siap Diambil'; }
+            else if (allPending) { sessionStatus = 'PENDING'; sessionLabel = 'Menunggu Persetujuan'; }
+
             return (
-              <div key={b.id} className="p-4 rounded-2xl bg-white border shadow-sm flex justify-between items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getStatusColor(b.status)}`}>
-                      {b.status}
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300">
-                      {b.className || cls?.name || '-'}
-                    </span>
-                  </div>
-                  <p className="font-bold text-sm mt-1 flex items-center gap-1.5">
-                    <Music className="w-3.5 h-3.5 text-slate-400" /> {b.equipmentName}
+              <div key={sid} className="p-4 rounded-2xl bg-white border-2 shadow-sm space-y-3">
+                {/* Header session */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getStatusColor(sessionStatus)}`}>
+                    {sessionLabel}
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300">
+                    {first.className || cls?.name || '-'}
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-800 border border-indigo-300">
+                    {list.length} alat
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap text-xs text-slate-600 dark:text-slate-300">
+                  <Clock className="w-3.5 h-3.5" />
+                  <strong>{first.date}</strong>
+                  <span>•</span>
+                  <strong>{first.startTime} - {first.endTime}</strong>
+                </div>
+
+                {cls?.kerabatKerja && (
+                  <p className="text-[10px] text-slate-400 italic flex items-center gap-1">
+                    <Sparkles className="w-2.5 h-2.5" /> {cls.kerabatKerja}
                   </p>
-                  <p className="text-xs text-slate-500 mt-0.5">{b.date} • {b.startTime}-{b.endTime}</p>
-                  {cls?.kerabatKerja && (
-                    <p className="text-[10px] text-slate-400 italic mt-1 flex items-center gap-1">
-                      <Sparkles className="w-2.5 h-2.5" /> {cls.kerabatKerja}
-                    </p>
+                )}
+
+                {/* Daftar alat dengan status per-alat */}
+                <div className="space-y-1.5 p-2 rounded-xl bg-slate-50 border border-slate-200">
+                  {list.map(b => (
+                    <div key={b.id} className="flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <Music className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span className="font-bold truncate">{b.equipmentName}</span>
+                      </div>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border shrink-0 ${getStatusColor(b.status)}`}>
+                        {getStatusLabel(b.status)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tampil rekomendasi jika ada yang direject dengan saran */}
+                {list.some(b => b.recommendedDate) && (
+                  <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200">
+                    <p className="text-[10px] font-bold text-blue-900 mb-1">Rekomendasi Guru:</p>
+                    {list.filter(b => b.recommendedDate).map(b => (
+                      <p key={b.id} className="text-[11px] text-blue-800">
+                        {b.equipmentName}: <strong>{b.recommendedDate}</strong> pukul {b.recommendedStartTime}-{b.recommendedEndTime}
+                      </p>
+                    ))}
+                    <button
+                      onClick={() => {
+                        const rec = list.find(b => b.recommendedDate);
+                        if (rec) {
+                          openMultiBooking();
+                          setSelectedEquipmentIds(list.map(x => x.equipmentId));
+                          setBookDate(rec.recommendedDate!);
+                          setBookStart(rec.recommendedStartTime || '14:00');
+                          setBookEnd(rec.recommendedEndTime || '15:00');
+                        }
+                      }}
+                      className="mt-2 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-[10px] font-bold">
+                      Ajukan Ulang Sesuai Rekomendasi
+                    </button>
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
+                  {allApproved && (
+                    <button onClick={() => openCheckout(list)}
+                      className="px-3 py-2 rounded-xl bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold flex items-center gap-1.5">
+                      <Camera className="w-3.5 h-3.5" /> Lapor Pengambilan
+                    </button>
+                  )}
+                  {anyCheckedOut && !anyReturned && (
+                    <button onClick={() => openReturn(list)}
+                      className="px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5" /> Lapor Pengembalian
+                    </button>
+                  )}
+                  {(allPending || allApproved) && (
+                    <button onClick={() => openCancel(list)}
+                      className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold flex items-center gap-1.5">
+                      <Ban className="w-3.5 h-3.5" /> Batalkan
+                    </button>
+                  )}
+                  {first.checkoutPhotoUrl && (
+                    <a href={first.checkoutPhotoUrl} target="_blank" rel="noreferrer"
+                      className="px-2 py-1 rounded-lg bg-slate-100 text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                      <Camera className="w-3 h-3" /> Foto Ambil
+                    </a>
+                  )}
+                  {first.returnPhotoUrl && (
+                    <a href={first.returnPhotoUrl} target="_blank" rel="noreferrer"
+                      className="px-2 py-1 rounded-lg bg-slate-100 text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                      <RotateCcw className="w-3 h-3" /> Foto Kembali
+                    </a>
                   )}
                 </div>
-                {b.bookedBy === user?.uid && b.status === 'PENDING' && (
-                  <button onClick={() => handleDeleteBooking(b)} className="text-rose-500 p-1 shrink-0"><Trash2 className="w-4 h-4" /></button>
-                )}
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Booking Form */}
-      {isBookingOpen && selectedEquipment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 space-y-4">
-            <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <Music className="w-5 h-5 text-indigo-500" /> Booking {selectedEquipment.name}
-            </h3>
+      {/* Booking Modal Multi-Alat */}
+      {isBookingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl p-6 space-y-4 my-auto max-h-[95vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <Music className="w-5 h-5 text-indigo-500" /> Booking Alat ({selectedEquipmentIds.length})
+              </h3>
+              <button onClick={() => setIsBookingOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
             <form onSubmit={handleSubmitBooking} className="space-y-3">
-              <input type="date" required value={bookDate} min={minBookingDate} onChange={(e) => setBookDate(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-xs" />
-              <div className="grid grid-cols-2 gap-3">
-                <input type="time" required value={bookStart} onChange={(e) => setBookStart(e.target.value)} className="px-3 py-2 border rounded-xl text-xs" />
-                <input type="time" required value={bookEnd} onChange={(e) => setBookEnd(e.target.value)} className="px-3 py-2 border rounded-xl text-xs" />
+              {/* Pilih alat (checkbox list) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">
+                  Pilih Alat <span className="text-rose-500">*</span>
+                  <span className="text-slate-400 font-normal ml-1">({dedupedEquipment.length} tersedia)</span>
+                </label>
+                <div className="max-h-48 overflow-y-auto p-2 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  {dedupedEquipment.map(eq => {
+                    const isSelected = selectedEquipmentIds.includes(eq.id);
+                    return (
+                      <button key={eq.id} type="button" onClick={() => toggleEquipmentSelection(eq.id)}
+                        className={`w-full p-2 rounded-lg text-left text-xs transition flex items-center gap-2 ${
+                          isSelected ? 'bg-indigo-100 border border-indigo-300' : 'bg-white border border-slate-200'
+                        }`}>
+                        <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                          isSelected ? 'bg-indigo-500 text-white' : 'border-2 border-slate-300'
+                        }`}>
+                          {isSelected && <CheckSquare className="w-3 h-3" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{eq.name}</p>
+                          <p className="text-[9px] text-slate-500">{eq.category}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {selectedEquipmentIds.length > 0 && (
+                  <p className="text-[10px] text-indigo-600 font-bold mt-1">
+                    {selectedEquipmentIds.length} alat dipilih
+                  </p>
+                )}
               </div>
-              <textarea rows={3} required value={bookPurpose} onChange={(e) => setBookPurpose(e.target.value)} placeholder="Keperluan booking..." className="w-full p-3 border rounded-xl text-xs" />
-              <div className="flex justify-end gap-2">
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Tanggal <span className="text-rose-500">*</span></label>
+                <input type="date" required value={bookDate} min={minBookingDate}
+                  onChange={(e) => setBookDate(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-xs" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Mulai</label>
+                  <input type="time" required value={bookStart} onChange={(e) => setBookStart(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-xs" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Selesai</label>
+                  <input type="time" required value={bookEnd} onChange={(e) => setBookEnd(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-xs" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Keperluan <span className="text-rose-500">*</span></label>
+                <textarea rows={2} required value={bookPurpose} onChange={(e) => setBookPurpose(e.target.value)}
+                  placeholder="Contoh: Latihan adegan 3, properti panggung..." className="w-full p-2.5 border rounded-xl text-xs" />
+              </div>
+
+              <div className="p-2 rounded-lg bg-amber-50 border border-amber-200 text-[10px] text-amber-800 leading-relaxed">
+                <strong>Catatan:</strong> Guru akan verifikasi <strong>per alat</strong>. Semua alat bisa disetujui berbeda. Pengambilan & pengembalian dilakukan per sesi.
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setIsBookingOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
-                <button type="submit" disabled={submitting} className="px-5 py-2 bg-indigo-500 text-white rounded-xl font-bold text-xs disabled:opacity-50">
-                  {submitting ? 'Mengirim...' : 'Ajukan'}
+                <button type="submit" disabled={submitting || selectedEquipmentIds.length === 0}
+                  className="px-5 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-bold text-xs disabled:opacity-50">
+                  {submitting ? 'Mengirim...' : `Ajukan ${selectedEquipmentIds.length} Alat`}
                 </button>
               </div>
             </form>
@@ -1178,103 +1663,219 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Equipment Modal untuk Siswa */}
-      {isEquipmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-3">
-            <h3 className="text-base font-extrabold text-slate-900">{editingEquipment ? 'Edit Alat' : 'Tambah Alat'}</h3>
-            <form onSubmit={handleSaveEquipment} className="space-y-3">
-              <input type="text" required value={eqName} onChange={e => setEqName(e.target.value)} placeholder="Nama Alat" className="w-full px-3 py-2 border rounded-xl text-xs" />
-              <select value={eqCategory} onChange={e => setEqCategory(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
-                {MUSIC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+      {/* Checkout Modal */}
+      {checkoutSession && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl p-6 space-y-4 my-auto max-h-[95vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <Camera className="w-5 h-5 text-blue-500" /> Lapor Pengambilan
+              </h3>
+              <button onClick={() => setCheckoutSession(null)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-xs">
+              <p className="font-bold text-blue-900 mb-1">Alat yang diambil:</p>
+              <ul className="list-disc pl-5 text-blue-800 space-y-0.5">
+                {checkoutSession.map(b => <li key={b.id}>{b.equipmentName}</li>)}
+              </ul>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Foto Alat <span className="text-rose-500">*</span></label>
+              <PhotoEvidenceUploader
+                photos={checkoutPhotos}
+                onChange={setCheckoutPhotos}
+                maxPhotos={2}
+                required
+                hint="Foto alat sebelum dipakai — tampak keseluruhan + close-up kondisi"
+                maxWidth={600}
+                quality={0.5}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Catatan</label>
+              <textarea rows={2} value={checkoutNote} onChange={e => setCheckoutNote(e.target.value)}
+                placeholder="Kondisi awal alat, keperluan, dll"
+                className="w-full p-2.5 border rounded-xl text-xs" />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setCheckoutSession(null)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+              <button onClick={handleCheckout} disabled={submitting || checkoutPhotos.length === 0}
+                className="px-5 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-bold text-xs disabled:opacity-50">
+                {submitting ? 'Menyimpan...' : 'Lapor Pengambilan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Return Modal */}
+      {returnSession && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-lg bg-white rounded-3xl p-6 space-y-4 my-auto max-h-[95vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-emerald-500" /> Lapor Pengembalian
+              </h3>
+              <button onClick={() => setReturnSession(null)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+              <p className="font-bold text-emerald-900 mb-1">Alat yang dikembalikan:</p>
+              <ul className="list-disc pl-5 text-emerald-800 space-y-0.5">
+                {returnSession.map(b => <li key={b.id}>{b.equipmentName}</li>)}
+              </ul>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Foto Alat <span className="text-rose-500">*</span></label>
+              <PhotoEvidenceUploader
+                photos={returnPhotos}
+                onChange={setReturnPhotos}
+                maxPhotos={2}
+                required
+                hint="Foto alat setelah dipakai — pastikan kerusakan (jika ada) terlihat jelas"
+                maxWidth={600}
+                quality={0.5}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Kondisi Akhir <span className="text-rose-500">*</span></label>
+              <select value={returnCondition} onChange={e => setReturnCondition(e.target.value as any)}
+                className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
+                <option value="BAIK">Baik (sama seperti awal)</option>
+                <option value="RUSAK_RINGAN">Rusak Ringan</option>
+                <option value="RUSAK_BERAT">Rusak Berat</option>
               </select>
-              <div className="grid grid-cols-2 gap-3">
-                <input type="number" required value={eqQuantity} onChange={e => setEqQuantity(parseInt(e.target.value) || 1)} placeholder="Qty" className="w-full px-3 py-2 border rounded-xl text-xs" />
-                <select value={eqCondition} onChange={e => setEqCondition(e.target.value as any)} className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
-                  <option value="BAIK">Baik</option>
-                  <option value="RUSAK_RINGAN">Rusak Ringan</option>
-                  <option value="RUSAK_BERAT">Rusak Berat</option>
-                </select>
-              </div>
-              <textarea rows={2} value={eqNotes} onChange={e => setEqNotes(e.target.value)} placeholder="Catatan (opsional)" className="w-full px-3 py-2 border rounded-xl text-xs" />
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setIsEquipmentModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
-                <button type="submit" disabled={submitting} className="px-5 py-2 bg-amber-500 rounded-xl font-bold text-xs">{submitting ? 'Menyimpan...' : 'Simpan'}</button>
-              </div>
-            </form>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Catatan</label>
+              <textarea rows={2} value={returnNote} onChange={e => setReturnNote(e.target.value)}
+                placeholder="Kondisi alat, kerusakan, dll"
+                className="w-full p-2.5 border rounded-xl text-xs" />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setReturnSession(null)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+              <button onClick={handleReturn} disabled={submitting || returnPhotos.length === 0}
+                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-xs disabled:opacity-50">
+                {submitting ? 'Menyimpan...' : 'Lapor Pengembalian'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Modal */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-3">
+            <h3 className="text-base font-extrabold text-rose-900 flex items-center gap-2">
+              <Ban className="w-5 h-5 text-rose-500" /> Batalkan Booking?
+            </h3>
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 leading-relaxed">
+              <strong>Perhatian:</strong> Setelah dibatalkan, kelas Anda <strong>tidak bisa memesan slot yang sama</strong> untuk alat yang sama di tanggal & jam ini. Kelas lain tetap bisa.
+            </div>
+            <div className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+              <p className="font-bold text-slate-700 mb-1">Alat yang dibatalkan:</p>
+              <ul className="list-disc pl-5 text-slate-600">
+                {cancelTarget.session.map(b => <li key={b.id}>{b.equipmentName}</li>)}
+              </ul>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Alasan (opsional)</label>
+              <textarea rows={2} value={cancelTarget.reason} onChange={e => setCancelTarget({ ...cancelTarget, reason: e.target.value })}
+                placeholder="Kenapa ingin batalkan?"
+                className="w-full p-2.5 border rounded-xl text-xs" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setCancelTarget(null)} className="px-4 py-2 text-xs font-bold text-slate-600">Tidak</button>
+              <button onClick={handleConfirmCancel} disabled={submitting}
+                className="px-5 py-2 bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs rounded-xl disabled:opacity-50">
+                {submitting ? 'Membatalkan...' : 'Ya, Batalkan'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* Success Modal + WA */}
-      {isSuccessModalOpen && successBooking && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto overflow-hidden">
+      {isSuccessModalOpen && successSession && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl my-auto overflow-hidden">
             <div className="p-5 bg-gradient-to-r from-emerald-500 to-emerald-700 text-white text-center">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/20 mb-3">
                 <CheckCircle className="w-9 h-9" />
               </div>
               <h3 className="text-lg font-black">Booking Berhasil Diajukan</h3>
-              <p className="text-xs opacity-90 mt-1">Menunggu verifikasi guru</p>
+              <p className="text-xs opacity-90 mt-1">{successSession.equipNames.length} alat menunggu verifikasi</p>
             </div>
             <div className="p-5 space-y-3">
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1.5 text-xs">
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-500 dark:text-slate-400">Alat:</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-right">{successBooking.equipmentName}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-500 dark:text-slate-400">Kelas:</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-right">{successBooking.className}</span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-500 dark:text-slate-400">Tanggal:</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-right">
-                    {new Date(successBooking.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <span className="text-slate-500 dark:text-slate-400">Waktu:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">{successBooking.startTime} - {successBooking.endTime}</span>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+                <p className="font-bold text-slate-500 text-[10px] uppercase">Alat</p>
+                <ul className="space-y-1">
+                  {successSession.equipNames.map((n, i) => (
+                    <li key={i} className="flex items-center gap-1.5">
+                      <Music className="w-3 h-3 text-indigo-500" /> <strong>{n}</strong>
+                    </li>
+                  ))}
+                </ul>
+                <div className="pt-2 border-t border-slate-200 space-y-1">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-500">Kelas:</span>
+                    <span className="font-bold">{successSession.className}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-500">Tanggal:</span>
+                    <span className="font-bold">{new Date(successSession.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-500">Waktu:</span>
+                    <span className="font-bold">{successSession.startTime}-{successSession.endTime}</span>
+                  </div>
                 </div>
               </div>
 
               {successGuru && successWAUrl ? (
-                <a
-                  href={successWAUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                  Hubungi {successGuru.name} via WhatsApp
+                <a href={successWAUrl} target="_blank" rel="noopener noreferrer"
+                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition">
+                  <MessageCircle className="w-4 h-4" /> Hubungi {successGuru.name} via WA
                 </a>
               ) : (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                    <strong>Nomor WA guru belum tersedia.</strong> Silakan hubungi {successGuru?.name || 'guru pengampu'} secara manual untuk konfirmasi booking Anda.
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-900 leading-relaxed">
+                    <strong>Nomor WA guru belum tersedia.</strong> Hubungi {successGuru?.name || 'guru pengampu'} manual.
                   </p>
                 </div>
               )}
 
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-                  Guru sudah menerima notifikasi booking Anda. Mohon tunggu verifikasi sebelum menggunakan alat.
+              <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-start gap-2">
+                <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-blue-900 leading-relaxed">
+                  Guru akan verifikasi per alat. Setelah disetujui, lakukan <strong>Lapor Pengambilan</strong> dari menu "Booking Saya".
                 </p>
               </div>
 
-              <button
-                onClick={() => { setIsSuccessModalOpen(false); setSuccessBooking(null); setSuccessGuru(null); setSuccessWAUrl(null); }}
-                className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs transition"
-              >
+              <button onClick={() => { setIsSuccessModalOpen(false); setSuccessSession(null); setSuccessGuru(null); setSuccessWAUrl(null); }}
+                className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs">
                 Tutup
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {isGuideOpen && <BookingGuideModal onClose={() => setIsGuideOpen(false)} />}
     </div>
   );
 };
