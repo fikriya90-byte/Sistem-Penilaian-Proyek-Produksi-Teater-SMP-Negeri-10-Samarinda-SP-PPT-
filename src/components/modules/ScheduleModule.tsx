@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar as CalendarIcon, Clock, MapPin, PlusCircle, Trash2, UserCheck,
-  Users, ChevronLeft, ChevronRight, Check, X, Pencil,
+  Users, ChevronLeft, ChevronRight, Check, X, Pencil, Filter, BookOpen, ShieldAlert, Star
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
-import { DivisionType, ScheduleEvent, ScheduleType } from '../../core/types';
+import { ScheduleEvent, ScheduleType } from '../../core/types';
 import {
   createSchedule, deleteSchedule, recordAuditLog, subscribeSchedules,
 } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 import { doc, setDoc, collection, query, where, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-import { PageGuideOverlay } from '../common/PageGuideOverlay';
 
 interface AttendanceConfirm {
   id: string;
@@ -22,14 +21,17 @@ interface AttendanceConfirm {
   confirmedAt: string;
 }
 
-const SCHEDULE_GUIDE = [
-  { title: 'Kalender Agenda Umum', description: 'Halaman ini menampilkan jadwal rapat, latihan, dan agenda umum dari pengurus inti maupun koordinator divisi.' },
-  { title: 'Konfirmasi Kehadiran', description: 'Klik tombol "Hadir" atau "Tidak Hadir" pada agenda untuk memberi tahu pengurus bahwa Anda sudah membaca jadwal.' },
-  { title: 'Hak Akses Edit', description: 'Anda hanya bisa mengedit atau menghapus jadwal yang Anda buat sendiri. Jadwal buatan Pimpro, Sekretaris, atau Sutradara terkunci dan hanya bisa diubah oleh mereka.' }
-];
+type ScheduleCategory = 'UMUM' | 'PEMAIN' | 'DIVISI' | 'RAPAT';
+
+const CATEGORY_CONFIG: Record<ScheduleCategory, { label: string; color: string; icon: any }> = {
+  UMUM: { label: 'Jadwal Umum', color: 'bg-slate-100 text-slate-800 border-slate-300', icon: BookOpen },
+  PEMAIN: { label: 'Latihan Pemain', color: 'bg-purple-100 text-purple-800 border-purple-300', icon: Star },
+  DIVISI: { label: 'Kerja Divisi', color: 'bg-orange-100 text-orange-800 border-orange-300', icon: Users },
+  RAPAT: { label: 'Rapat Pengurus', color: 'bg-blue-100 text-blue-800 border-blue-300', icon: ShieldAlert },
+};
 
 export const ScheduleModule: React.FC = () => {
-  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole, isPimprod, isSekretaris, isSutradara, isAsisten, canCreateGeneralSchedule, canCreateInternalSchedule } = useAuth();
+  const { user, activeClass, isTeacher, canCreateGeneralSchedule, canCreateInternalSchedule } = useAuth();
   const { showToast } = useToast();
 
   const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
@@ -39,10 +41,12 @@ export const ScheduleModule: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   
+  // State untuk Modal Form
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleEvent | null>(null);
 
   const [title, setTitle] = useState('');
+  const [category, setCategory] = useState<ScheduleCategory>('UMUM');
   const [type, setType] = useState<ScheduleType>('Latihan');
   const [startAt, setStartAt] = useState('');
   const [endAt, setEndAt] = useState('');
@@ -62,15 +66,6 @@ export const ScheduleModule: React.FC = () => {
 
   const canCreate = canCreateGeneralSchedule || canCreateInternalSchedule;
 
-  // ✅ ATURAN EDIT & HAPUS JADWAL
-  const canEditDelete = (event: ScheduleEvent) => {
-    if (!user) return false;
-    // Guru/Admin/Pengurus Inti bisa edit semua
-    if (isTeacher || isGuruPengampu || isAdminRole || isPimprod || isSekretaris || isSutradara || isAsisten) return true;
-    // Siswa biasa/Koor hanya bisa edit jadwal buatannya sendiri
-    return event.createdBy === user.uid;
-  };
-
   const formatLocalDatetime = (isoString: string) => {
     if (!isoString) return '';
     const d = new Date(isoString);
@@ -82,6 +77,7 @@ export const ScheduleModule: React.FC = () => {
   const openCreate = () => {
     setEditingSchedule(null);
     setTitle('');
+    setCategory('UMUM');
     setType('Latihan');
     setStartAt('');
     setEndAt('');
@@ -92,12 +88,9 @@ export const ScheduleModule: React.FC = () => {
   };
 
   const openEdit = (event: ScheduleEvent) => {
-    if (!canEditDelete(event)) {
-      showToast('Anda tidak berwenang mengedit jadwal ini.', 'warning');
-      return;
-    }
     setEditingSchedule(event);
     setTitle(event.title);
+    setCategory((event as any).category || 'UMUM');
     setType(event.type);
     setStartAt(formatLocalDatetime(event.startAt));
     setEndAt(formatLocalDatetime(event.endAt));
@@ -119,6 +112,7 @@ export const ScheduleModule: React.FC = () => {
         title: title.trim(),
         classId: activeClass.id,
         type,
+        category, // <-- MENYIMPAN KATEGORI BARU
         startAt: new Date(startAt).toISOString(),
         endAt: new Date(endAt).toISOString(),
         location: location.trim(),
@@ -155,14 +149,10 @@ export const ScheduleModule: React.FC = () => {
     }
   };
 
-  const handleDelete = async (event: ScheduleEvent) => {
-    if (!canEditDelete(event)) {
-      showToast('Anda tidak berwenang menghapus jadwal ini.', 'warning');
-      return;
-    }
-    if (!confirm(`Hapus agenda "${event.title}"?`)) return;
+  const handleDelete = async (id: string, title: string) => {
+    if (!confirm(`Hapus agenda "${title}"?`)) return;
     try {
-      await deleteSchedule(event.id);
+      await deleteSchedule(id);
       showToast('Jadwal dihapus.', 'info');
     } catch (err: any) {
       showToast('Gagal: ' + err.message, 'error');
@@ -193,6 +183,7 @@ export const ScheduleModule: React.FC = () => {
     return true;
   });
 
+  // Kalender helpers
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -236,10 +227,30 @@ export const ScheduleModule: React.FC = () => {
     return map[t] || 'border-slate-300 bg-slate-50';
   };
 
+  // KELOMPOKKAN JADWAL BERDASARKAN KATEGORI
+  const groupSchedules = (items: ScheduleEvent[]) => {
+    const groups: Record<ScheduleCategory, ScheduleEvent[]> = {
+      RAPAT: [], PEMAIN: [], DIVISI: [], UMUM: []
+    };
+    
+    items.forEach(s => {
+      let cat: ScheduleCategory = (s as any).category || 'UMUM';
+      // Fallback logic untuk data lama
+      if (!(s as any).category) {
+        if (s.type === 'Rapat') cat = 'RAPAT';
+        else if (s.participants.toLowerCase().includes('pemain') || s.participants.toLowerCase().includes('pemeran')) cat = 'PEMAIN';
+        else if (s.divisionName) cat = 'DIVISI';
+      }
+      groups[cat].push(s);
+    });
+
+    return groups;
+  };
+
+  const groupedSchedules = groupSchedules(filteredSchedules);
+
   return (
     <div className="space-y-6">
-      <PageGuideOverlay moduleId="jadwal" title="Panduan Kalender Agenda" steps={SCHEDULE_GUIDE} />
-      
       {/* Header */}
       <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
@@ -247,9 +258,9 @@ export const ScheduleModule: React.FC = () => {
             <CalendarIcon className="w-6 h-6" />
           </span>
           <div>
-            <h2 className="text-xl font-extrabold text-slate-900">Jadwal & Agenda</h2>
+            <h2 className="text-xl font-extrabold text-slate-900">Master Jadwal & Kalender</h2>
             <p className="text-xs text-slate-500 font-medium">
-              Jadwal produksi, agenda, konfirmasi kehadiran & reminder otomatis
+              Jadwal terpisah per divisi, pemain, atau rapat pengurus
             </p>
           </div>
         </div>
@@ -257,11 +268,11 @@ export const ScheduleModule: React.FC = () => {
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs font-bold">
             <button onClick={() => setViewMode('list')}
               className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>
-              List
+              📋 List Terpisah
             </button>
             <button onClick={() => setViewMode('calendar')}
               className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'calendar' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>
-              Kalender
+              📅 Kalender Umum
             </button>
           </div>
           {canCreate && (
@@ -273,19 +284,19 @@ export const ScheduleModule: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs Global */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         {['ALL', 'Rapat', 'Latihan', 'Gladi', 'Pementasan', 'Fitting', 'Produksi'].map(t => (
           <button key={t} onClick={() => setSelectedType(t)}
             className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${
               selectedType === t ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
             }`}>
-            {t === 'ALL' ? 'Semua' : t}
+            {t === 'ALL' ? 'Semua Jenis' : t}
           </button>
         ))}
       </div>
 
-      {/* Calendar View */}
+      {/* Calendar View (Digabung) */}
       {viewMode === 'calendar' && (
         <div className="p-5 rounded-3xl bg-white border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between mb-4">
@@ -356,9 +367,13 @@ export const ScheduleModule: React.FC = () => {
                 <div className="space-y-2">
                   {filteredSchedules.map(s => {
                     const myConf = myConfirmation(s.id);
-                    const canModify = canEditDelete(s);
+                    const cat = (s as any).category as ScheduleCategory || 'UMUM';
                     return (
                       <div key={s.id} className={`p-3 rounded-xl border-l-4 ${typeColor(s.type)}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                           <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${CATEGORY_CONFIG[cat].color}`}>{CATEGORY_CONFIG[cat].label}</span>
+                           <span className="text-[10px] font-bold text-slate-600">{s.type}</span>
+                        </div>
                         <p className="text-xs font-bold text-slate-900">{s.title}</p>
                         <p className="text-[10px] text-slate-500">
                           {new Date(s.startAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
@@ -372,7 +387,7 @@ export const ScheduleModule: React.FC = () => {
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                                 myConf.status === 'HADIR' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                               }`}>
-                                {myConf.status === 'HADIR' ? 'Konfirmasi: Hadir' : 'Konfirmasi: Tidak Hadir'}
+                                {myConf.status === 'HADIR' ? '✅ Hadir' : '❌ Tidak Hadir'}
                               </span>
                             ) : (
                               <div className="flex gap-1">
@@ -387,13 +402,12 @@ export const ScheduleModule: React.FC = () => {
                               </div>
                             )}
                           </div>
-                          
-                          {canModify && (
+                          {canCreate && (
                             <div className="flex items-center gap-1">
-                              <button onClick={() => openEdit(s)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Edit">
+                              <button onClick={() => openEdit(s)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg">
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
-                              <button onClick={() => handleDelete(s)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg" title="Hapus">
+                              <button onClick={() => handleDelete(s.id, s.title)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -409,81 +423,93 @@ export const ScheduleModule: React.FC = () => {
         </div>
       )}
 
-      {/* List View */}
+      {/* List View (Dikelompokkan) */}
       {viewMode === 'list' && (
-        <div className="space-y-3">
+        <div className="space-y-8">
           {filteredSchedules.length === 0 ? (
             <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 text-slate-400 text-xs">
               Belum ada jadwal.
             </div>
           ) : (
-            filteredSchedules.map(event => {
-              const startObj = new Date(event.startAt);
-              const endObj = new Date(event.endAt);
-              const myConf = myConfirmation(event.id);
-              const canModify = canEditDelete(event);
-
+            (Object.keys(groupedSchedules) as ScheduleCategory[]).map(catKey => {
+              const list = groupedSchedules[catKey];
+              if (list.length === 0) return null;
+              const CatIcon = CATEGORY_CONFIG[catKey].icon;
+              
               return (
-                <div key={event.id} className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 rounded-2xl bg-amber-50 text-amber-900 border border-amber-200 text-center shrink-0 min-w-[70px]">
-                      <span className="text-[10px] font-bold uppercase block text-amber-700">
-                        {startObj.toLocaleDateString('id-ID', { month: 'short' })}
-                      </span>
-                      <span className="text-xl font-black block">{startObj.getDate()}</span>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700">{event.type}</span>
-                        <span className="text-xs text-slate-400 font-mono">
-                          {startObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} -{' '}
-                          {endObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <h3 className="text-sm font-extrabold text-slate-900">{event.title}</h3>
-                      <p className="text-xs text-slate-500 mt-0.5">{event.description}</p>
-
-                      <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 mt-2">
-                        <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {event.location}</span>
-                        <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {event.participants}</span>
-                        <span>PIC: <strong className="text-slate-700">{event.pic}</strong></span>
-                      </div>
-                    </div>
+                <div key={catKey} className="space-y-3">
+                  <div className="flex items-center gap-2 pb-2 border-b-2 border-slate-200">
+                    <span className={`p-1.5 rounded-lg border ${CATEGORY_CONFIG[catKey].color}`}>
+                      <CatIcon className="w-4 h-4" />
+                    </span>
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-wide">
+                      {CATEGORY_CONFIG[catKey].label} ({list.length})
+                    </h3>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end md:self-center shrink-0 flex-wrap">
-                    {myConf ? (
-                      <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
-                        myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'
-                      }`}>
-                        {myConf.status === 'HADIR' ? 'Hadir' : 'Tidak Hadir'}
-                      </span>
-                    ) : (
-                      <>
-                        <button onClick={() => handleConfirm(event, 'HADIR')}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1">
-                          <Check className="w-3.5 h-3.5" /> Hadir
-                        </button>
-                        <button onClick={() => handleConfirm(event, 'TIDAK_HADIR')}
-                          className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1">
-                          <X className="w-3.5 h-3.5" /> Tidak
-                        </button>
-                      </>
-                    )}
-                    
-                    {canModify && (
-                      <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200">
-                        <button onClick={() => openEdit(event)}
-                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition" title="Edit Jadwal">
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(event)}
-                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition" title="Hapus Jadwal">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {list.map(event => {
+                      const startObj = new Date(event.startAt);
+                      const endObj = new Date(event.endAt);
+                      const myConf = myConfirmation(event.id);
+
+                      return (
+                        <div key={event.id} className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-sm flex items-start justify-between gap-4">
+                          <div className="flex items-start gap-3">
+                            <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 text-center shrink-0 min-w-[60px]">
+                              <span className="text-[10px] font-bold uppercase block text-amber-700">
+                                {startObj.toLocaleDateString('id-ID', { month: 'short' })}
+                              </span>
+                              <span className="text-lg font-black block leading-none">{startObj.getDate()}</span>
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">{event.type}</span>
+                                <span className="text-[10px] text-slate-500 font-mono">
+                                  {startObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {endObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <h3 className="text-sm font-extrabold text-slate-900 line-clamp-1">{event.title}</h3>
+                              <div className="flex items-center gap-3 text-[10px] text-slate-500 mt-1">
+                                <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {event.location}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col items-end gap-2 shrink-0">
+                            {myConf ? (
+                              <span className={`text-[10px] font-bold px-2 py-1 rounded-lg border ${
+                                myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'
+                              }`}>
+                                {myConf.status === 'HADIR' ? 'Hadir' : 'Tidak Hadir'}
+                              </span>
+                            ) : (
+                              <div className="flex gap-1">
+                                <button onClick={() => handleConfirm(event, 'HADIR')}
+                                  className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-[10px]">
+                                  Hadir
+                                </button>
+                                <button onClick={() => handleConfirm(event, 'TIDAK_HADIR')}
+                                  className="px-2 py-1 rounded-lg bg-rose-500 hover:bg-rose-600 text-white font-bold text-[10px]">
+                                  Tidak
+                                </button>
+                              </div>
+                            )}
+                            
+                            {canCreate && (
+                              <div className="flex items-center gap-1">
+                                <button onClick={() => openEdit(event)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg">
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                                <button onClick={() => handleDelete(event.id, event.title)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg">
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -508,18 +534,29 @@ export const ScheduleModule: React.FC = () => {
                   className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Jenis</label>
-                <select value={type} onChange={(e) => setType(e.target.value as ScheduleType)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800">
-                  <option value="Latihan">Latihan</option>
-                  <option value="Rapat">Rapat Koordinasi</option>
-                  <option value="Gladi">Gladi Bersih / Kotor</option>
-                  <option value="Pementasan">Pementasan Resmi</option>
-                  <option value="Fitting">Fitting Busana / Rias</option>
-                  <option value="Produksi">Produksi Divisi</option>
-                  <option value="Briefing">Briefing Ringkas</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Kategori Jadwal <span className="text-rose-500">*</span></label>
+                  <select value={category} onChange={(e) => setCategory(e.target.value as ScheduleCategory)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-amber-50">
+                    <option value="UMUM">Jadwal Umum (Semua)</option>
+                    <option value="RAPAT">Rapat Pengurus</option>
+                    <option value="PEMAIN">Latihan Pemain</option>
+                    <option value="DIVISI">Kerja Divisi</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Jenis Kegiatan</label>
+                  <select value={type} onChange={(e) => setType(e.target.value as ScheduleType)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800">
+                    <option value="Latihan">Latihan</option>
+                    <option value="Rapat">Rapat</option>
+                    <option value="Gladi">Gladi Bersih / Kotor</option>
+                    <option value="Pementasan">Pementasan Resmi</option>
+                    <option value="Fitting">Fitting</option>
+                    <option value="Produksi">Produksi Divisi</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -535,18 +572,17 @@ export const ScheduleModule: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Lokasi</label>
-                  <input type="text" required value={location} onChange={(e) => setLocation(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Peserta</label>
-                  <input type="text" required value={participants} onChange={(e) => setParticipants(e.target.value)}
-                    placeholder="Semua / Divisi Tertentu"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Lokasi</label>
+                <input type="text" required value={location} onChange={(e) => setLocation(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Peserta</label>
+                <input type="text" required value={participants} onChange={(e) => setParticipants(e.target.value)}
+                  placeholder="Semua / Pemain / Divisi Tertentu"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800" />
               </div>
 
               <div>
