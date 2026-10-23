@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, CheckCircle, Clock, Lock, MapPin, PlusCircle, UserCheck,
-  Users, XCircle, X, Save, Info, ShieldAlert, BookOpen, Filter, ListFilter,
+  Users, XCircle, X, Save, Info, ShieldAlert, BookOpen, Filter, MessageCircle, Edit3
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
@@ -37,14 +37,13 @@ export const AttendanceModule: React.FC = () => {
   const [location, setLocation] = useState('Panggung Terbuka SMPN 10');
   const [agenda, setAgenda] = useState('');
   
-  // State untuk memilih cakupan peserta (Scope)
+  // State Cakupan & Mode
   const [targetScope, setTargetScope] = useState<'SEMUA' | 'PEMAIN_MUSIK' | 'DIVISI'>('SEMUA');
+  const [attendanceMode, setAttendanceMode] = useState<'MANDIRI' | 'MANUAL'>('MANDIRI');
 
   const [myStatus, setMyStatus] = useState<AttendanceStatus>('Hadir');
   const [myNote, setMyNote] = useState('');
   const [isSubmittingCheckin, setIsSubmittingCheckin] = useState(false);
-
-  // Filter Tab untuk Daftar Sesi
   const [filterTab, setFilterTab] = useState<'ALL' | 'MY_TASKS' | 'PEMAIN' | 'DIVISI' | 'RAPAT'>('ALL');
 
   const isTeacherOrStaff = isTeacher || isGuruPengampu || isAdminRole || isPimprod || isSekretaris || isSutradara || isAsisten || isKoordinator;
@@ -59,7 +58,7 @@ export const AttendanceModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // AUTO-CLOSE OTOMATIS JIKA WAKTU HABIS
+  // AUTO-CLOSE OTOMATIS
   useEffect(() => {
     if (!sessions.length) return;
     const checkExpiredSessions = () => {
@@ -69,9 +68,7 @@ export const AttendanceModule: React.FC = () => {
           const [eh, em] = session.endTime.split(':').map(Number);
           const endDateTime = new Date(session.date);
           endDateTime.setHours(eh || 0, em || 0, 0, 0);
-          if (now > endDateTime) {
-            closeAttendanceSession(session.id).catch(() => {});
-          }
+          if (now > endDateTime) closeAttendanceSession(session.id).catch(() => {});
         }
       });
     };
@@ -91,13 +88,11 @@ export const AttendanceModule: React.FC = () => {
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
   const openCreateForm = () => {
-    if (isSutradara || isAsisten) {
-      setTargetScope('PEMAIN_MUSIK');
-    } else if (isKoordinator && user?.divisionName) {
-      setTargetScope('DIVISI');
-    } else {
-      setTargetScope('SEMUA');
-    }
+    if (isSutradara || isAsisten) setTargetScope('PEMAIN_MUSIK');
+    else if (isKoordinator && user?.divisionName) setTargetScope('DIVISI');
+    else setTargetScope('SEMUA');
+    
+    setAttendanceMode('MANDIRI');
     setIsCreatingSession(true);
   };
 
@@ -105,10 +100,8 @@ export const AttendanceModule: React.FC = () => {
     e.preventDefault();
     if (!user || !activeClass) return;
 
-    if (!title.trim()) { showToast('Harap masukkan judul sesi presensi.', 'warning'); return; }
-    if (!startTime || !endTime) { showToast('Jam Mulai dan Jam Selesai WAJIB diisi!', 'warning'); return; }
-    if (startTime >= endTime) { showToast('Jam Selesai harus lebih lambat dari Jam Mulai.', 'warning'); return; }
-    if (targetScope === 'DIVISI' && !user.divisionId) { showToast('Data divisi Anda tidak ditemukan.', 'warning'); return; }
+    if (!title.trim() || !startTime || !endTime) { showToast('Lengkapi judul dan jam!', 'warning'); return; }
+    if (startTime >= endTime) { showToast('Jam Selesai harus lebih lambat.', 'warning'); return; }
 
     try {
       const newId = await createAttendanceSession({
@@ -127,23 +120,22 @@ export const AttendanceModule: React.FC = () => {
         creatorName: user.displayName,
         agenda: agenda.trim(),
         isOpen: true,
+        // @ts-ignore - Menyimpan mode presensi
+        attendanceMode: attendanceMode
       });
 
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'AttendanceSession', targetId: newId,
-        details: `Membuat sesi absensi: ${title} (${targetScope})`,
+        details: `Membuat sesi absensi: ${title} (${attendanceMode})`,
       });
 
-      // NOTIFIKASI KE PESERTA
+      // NOTIFIKASI
       try {
         const recipients = classStudents.filter(s => {
-          if (s.role === 'Guru Pengampu' || s.role === 'Guru Pembina') return false;
-          if (s.role === 'Admin' || s.role === 'Super Admin') return false;
+          if (s.role === 'Guru Pengampu' || s.role === 'Admin' || s.role === 'Super Admin') return false;
           if (targetScope === 'SEMUA') return true;
-          if (targetScope === 'PEMAIN_MUSIK') {
-            return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara' || s.role === 'Sutradara' || s.role === 'Asisten Sutradara';
-          }
+          if (targetScope === 'PEMAIN_MUSIK') return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara' || s.role === 'Sutradara' || s.role === 'Asisten Sutradara';
           if (targetScope === 'DIVISI') return s.divisionId === user.divisionId;
           return false;
         });
@@ -153,49 +145,53 @@ export const AttendanceModule: React.FC = () => {
         const { db } = await import('../../core/firebase');
         const batch = writeBatch(db);
         
-        let targetLabel = targetScope === 'SEMUA' ? 'Semua Anggota' : targetScope === 'PEMAIN_MUSIK' ? 'Pemain & Musik' : `Divisi ${user.divisionName}`;
-        
         recipients.forEach(r => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
-            id: notifRef.id,
-            userId: r.uid,
-            classId: activeClass.id,
+            id: notifRef.id, userId: r.uid, classId: activeClass.id,
             title: 'Sesi Presensi Dibuka',
-            message: `${user.displayName} membuka presensi: "${title.trim()}" untuk ${targetLabel}. Batas waktu: ${endTime}.`,
-            category: 'Reminder',
-            read: false,
-            link: 'absensi',
-            createdAt: new Date().toISOString(),
+            message: `${user.displayName} membuka presensi: "${title.trim()}". Batas waktu: ${endTime}.`,
+            category: 'Reminder', read: false, link: 'absensi', createdAt: new Date().toISOString(),
           });
         });
         await batch.commit();
-      } catch (err) {
-        console.warn('Notif presensi gagal:', err);
-      }
+      } catch (err) {}
 
-      showToast('Sesi presensi baru berhasil dibuka!', 'success');
+      showToast('Sesi presensi berhasil dibuka!', 'success');
       setIsCreatingSession(false);
-      setTitle('');
-      setAgenda('');
-    } catch (err: any) {
-      showToast('Gagal membuat sesi: ' + err.message, 'error');
+      setTitle(''); setAgenda('');
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+  };
+
+  // EDIT STATUS MANUAL OLEH GURU/PEMBUAT
+  const handleEditStatusManual = async (studentId: string, studentName: string, newStatus: AttendanceStatus) => {
+    if (!user || !activeSession || !activeClass) return;
+    
+    // Cek Hak Akses
+    const isCreator = activeSession.createdBy === user.uid;
+    if (!isTeacherOrStaff && !isCreator) {
+      showToast('Hanya pembuat sesi atau guru yang bisa mengedit manual.', 'warning');
+      return;
     }
+
+    try {
+      await submitAttendanceRecord({
+        sessionId: activeSession.id,
+        classId: activeClass.id,
+        studentId,
+        studentName,
+        role: classStudents.find(s => s.uid === studentId)?.role || 'Pemeran',
+        status: newStatus,
+        note: `Diedit manual oleh ${user.displayName}`,
+        timestamp: new Date().toISOString(),
+      });
+      showToast(`Status ${studentName} diubah ke ${newStatus}`, 'success');
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   const handleCheckin = async () => {
     if (!user || !activeSession || !activeClass) return;
-    
-    const [eh, em] = activeSession.endTime.split(':').map(Number);
-    const endDateTime = new Date(activeSession.date);
-    endDateTime.setHours(eh || 0, em || 0, 0, 0);
-    if (new Date() > endDateTime) {
-      showToast('Waktu presensi sudah habis. Anda tidak bisa absen.', 'error');
-      return;
-    }
-
     setIsSubmittingCheckin(true);
-
     try {
       await submitAttendanceRecord({
         sessionId: activeSession.id,
@@ -208,45 +204,29 @@ export const AttendanceModule: React.FC = () => {
         note: myNote.trim(),
         timestamp: new Date().toISOString(),
       });
+      showToast(`Kehadiran Anda (${myStatus}) dicatat!`, 'success');
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); } 
+    finally { setIsSubmittingCheckin(false); }
+  };
 
-      await recordAuditLog({
-        userId: user.uid, userName: user.displayName, role: user.role,
-        action: 'UPDATE', targetType: 'AttendanceRecord', targetId: activeSession.id,
-        details: `Mengisi presensi "${activeSession.title}": ${myStatus}`,
-      });
-
-      showToast(`Kehadiran Anda (${myStatus}) berhasil dicatat!`, 'success');
-    } catch (err: any) {
-      showToast('Gagal mengirim presensi: ' + err.message, 'error');
-    } finally {
-      setIsSubmittingCheckin(false);
-    }
+  const handleShareWA = () => {
+    if (!activeSession) return;
+    const text = `*PRESENSI: ${activeSession.title}*\n\nHari/Tgl: ${activeSession.date}\nWaktu: ${activeSession.startTime} - ${activeSession.endTime}\nLokasi: ${activeSession.location}\n\nMohon segera isi presensi di web SP-PPT sebelum waktu habis. Terima kasih.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   const canCreateAnySession = canCreateGeneralAttendance || canCreateRehearsalAttendance || canCreateDivisionAttendance;
-
   const targetParticipants = classStudents.filter(s => {
     if (!activeSession) return false;
     if (activeSession.targetScope === 'SEMUA') return true;
-    if (activeSession.targetScope === 'PEMAIN_MUSIK') {
-      return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara' || s.role === 'Sutradara' || s.role === 'Asisten Sutradara';
-    }
+    if (activeSession.targetScope === 'PEMAIN_MUSIK') return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara' || s.role === 'Sutradara' || s.role === 'Asisten Sutradara';
     if (activeSession.targetScope === 'DIVISI') return s.divisionId === activeSession.targetDivisionId;
     return true;
   });
 
   const myRecord = records.find(r => r.studentId === user?.uid);
-
-  // FUNGSI FILTER UNTUK DAFTAR SESI
-  const isForMe = (s: AttendanceSession) => {
-    if (s.targetScope === 'SEMUA') return true;
-    if (s.targetScope === 'PEMAIN_MUSIK') {
-      return user?.role === 'Pemeran' || user?.divisionName === 'Tata Musik & Suara' || user?.role === 'Sutradara' || user?.role === 'Asisten Sutradara';
-    }
-    if (s.targetScope === 'DIVISI') return user?.divisionId === s.targetDivisionId;
-    return false;
-  };
-
+  const isForMe = (s: AttendanceSession) => s.targetScope === 'SEMUA' || (s.targetScope === 'PEMAIN_MUSIK' && (user?.role === 'Pemeran' || user?.divisionName === 'Tata Musik & Suara')) || (s.targetScope === 'DIVISI' && user?.divisionId === s.targetDivisionId);
+  
   const filteredSessions = sessions.filter(s => {
     if (filterTab === 'MY_TASKS') return isForMe(s);
     if (filterTab === 'PEMAIN') return s.targetScope === 'PEMAIN_MUSIK';
@@ -255,280 +235,156 @@ export const AttendanceModule: React.FC = () => {
     return true;
   });
 
-  // FUNGSI HELPER BADGE
   const renderScopeBadge = (s: AttendanceSession) => {
-    if (s.targetScope === 'PEMAIN_MUSIK') {
-      return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1"><Users className="w-3 h-3" /> PEMAIN & MUSIK</span>;
-    }
-    if (s.targetScope === 'DIVISI') {
-      return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-300 flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> DIVISI {s.targetDivisionName?.toUpperCase()}</span>;
-    }
+    if (s.targetScope === 'PEMAIN_MUSIK') return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1"><Users className="w-3 h-3" /> PEMAIN & MUSIK</span>;
+    if (s.targetScope === 'DIVISI') return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-300 flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> DIVISI {s.targetDivisionName?.toUpperCase()}</span>;
     return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> SEMUA SISWA</span>;
   };
 
   return (
     <div className="space-y-6">
-      {/* PANEL PANDUAN LENGKAP */}
-      <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 flex items-start gap-3">
-        <BookOpen className="w-5 h-5 text-indigo-600 dark:text-indigo-400 shrink-0 mt-0.5" />
-        <div className="text-xs text-indigo-900 dark:text-indigo-200 leading-relaxed">
-          <p className="font-bold text-sm mb-1">Panduan Cepat Presensi Digital</p>
-          <ul className="list-disc pl-4 space-y-1">
-            <li><strong>Wajib isi waktu:</strong> Sesi akan <strong>tertutup otomatis</strong> saat jam selesai lewat.</li>
-            <li><strong>Hak Akses Pembuatan:</strong> 
-              <ul className="list-circle pl-4 mt-0.5 text-[11px]">
-                <li><strong>Sutradara/Astrada:</strong> Khusus Pemain & Tata Musik.</li>
-                <li><strong>Koordinator:</strong> Khusus anggota divisinya sendiri.</li>
-                <li><strong>Produser/Sekretaris/Guru:</strong> Semua anggota.</li>
-              </ul>
-            </li>
-            <li>Siswa tidak perlu diabsen manual. Siswa cukup klik tombol Hadir/Izin/Sakit di layar mereka.</li>
-          </ul>
+      <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3">
+        <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+        <div className="text-xs text-rose-900 leading-relaxed">
+          <p className="font-bold text-sm mb-1">Perhatian: Presensi Masuk Akumulasi Nilai!</p>
+          <p>Kehadiran Anda di sesi ini sangat mempengaruhi nilai rapor (Kedisiplinan & Kehadiran). Siswa yang tidak mengisi tanpa keterangan akan dianggap Alpa.</p>
         </div>
       </div>
 
-      <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
-              <UserCheck className="w-6 h-6" />
-            </span>
-            <div>
-              <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
-                Presensi & Absensi Digital
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                {isTeacherOrStaff ? 'Kelola sesi presensi & pantau kehadiran siswa' : 'Pencatatan kehadiran resmi per kegiatan'}
-              </p>
-            </div>
+      <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <span className="p-2 rounded-xl bg-blue-500/10 text-blue-600"><UserCheck className="w-6 h-6" /></span>
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-900">Presensi & Absensi Digital</h2>
+            <p className="text-xs text-slate-500 font-medium">Pencatatan kehadiran resmi per kegiatan</p>
           </div>
         </div>
-
         {canCreateAnySession && (
-          <button
-            onClick={openCreateForm}
-            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-sm transition"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>Buat Sesi Presensi Baru</span>
+          <button onClick={openCreateForm} className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-sm">
+            <PlusCircle className="w-4 h-4" /> Buat Sesi Presensi
           </button>
         )}
       </div>
 
-      {/* FORM BUAT SESI */}
       {isCreatingSession && (
-        <form onSubmit={handleCreateSession} className="p-6 rounded-3xl bg-white dark:bg-slate-900 border-2 border-amber-300 dark:border-amber-500/40 shadow-md space-y-4 animate-in fade-in slide-in-from-top-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-700">
-            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Buka Sesi Presensi Baru</h3>
-            <button type="button" onClick={() => setIsCreatingSession(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-              <X className="w-4 h-4" />
-            </button>
+        <form onSubmit={handleCreateSession} className="p-6 rounded-3xl bg-white border-2 border-amber-300 shadow-md space-y-4">
+          <div className="flex justify-between items-center pb-2 border-b">
+            <h3 className="font-extrabold text-sm">Buka Sesi Presensi Baru</h3>
+            <button type="button" onClick={() => setIsCreatingSession(false)} className="text-slate-400 hover:bg-slate-100 p-1 rounded"><X className="w-4 h-4" /></button>
           </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div><label className="block text-xs font-bold mb-1">Judul Sesi *</label><input type="text" required value={title} onChange={e=>setTitle(e.target.value)} className="w-full px-3 py-2 rounded-xl border text-xs" /></div>
+            <div><label className="block text-xs font-bold mb-1">Jenis</label><select value={activityType} onChange={e=>setActivityType(e.target.value as any)} className="w-full px-3 py-2 rounded-xl border text-xs"><option value="Latihan">Latihan</option><option value="Rapat">Rapat</option><option value="Gladi">Gladi</option></select></div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            <div><label className="block text-xs font-bold mb-1">Tanggal</label><input type="date" required value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 rounded-xl border text-xs" /></div>
+            <div><label className="block text-xs font-bold mb-1">Mulai</label><input type="time" required value={startTime} onChange={e=>setStartTime(e.target.value)} className="w-full px-3 py-2 rounded-xl border text-xs" /></div>
+            <div><label className="block text-xs font-bold mb-1">Selesai</label><input type="time" required value={endTime} onChange={e=>setEndTime(e.target.value)} className="w-full px-3 py-2 rounded-xl border text-xs" /></div>
+            <div><label className="block text-xs font-bold mb-1">Lokasi</label><input type="text" required value={location} onChange={e=>setLocation(e.target.value)} className="w-full px-3 py-2 rounded-xl border text-xs" /></div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl">
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Judul Sesi Kegiatan <span className="text-rose-500">*</span></label>
-              <input type="text" required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Contoh: Latihan Rutin Blocking Babak 2"
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold" />
+              <label className="block text-xs font-bold mb-1">Target Peserta</label>
+              <select value={targetScope} onChange={e=>setTargetScope(e.target.value as any)} className="w-full px-2 py-1.5 rounded-lg border text-xs">
+                <option value="SEMUA">Semua Siswa</option>
+                <option value="PEMAIN_MUSIK">Pemain & Musik</option>
+                <option value="DIVISI">Divisi Saya</option>
+              </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Jenis Kegiatan</label>
-              <select value={activityType} onChange={(e) => setActivityType(e.target.value as ScheduleType)}
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold">
-                <option value="Latihan">Latihan</option>
-                <option value="Rapat">Rapat</option>
-                <option value="Gladi">Gladi Resik / Kotor</option>
-                <option value="Produksi">Produksi Divisi</option>
-                <option value="Fitting">Fitting Busana / Rias</option>
+              <label className="block text-xs font-bold mb-1 text-rose-600">Metode Presensi</label>
+              <select value={attendanceMode} onChange={e=>setAttendanceMode(e.target.value as any)} className="w-full px-2 py-1.5 rounded-lg border text-xs">
+                <option value="MANDIRI">Siswa Mengisi Sendiri</option>
+                <option value="MANUAL">Pengurus Mengabsenkan</option>
               </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Tanggal <span className="text-rose-500">*</span></label>
-              <input type="date" required value={date} onChange={(e) => setDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Mulai <span className="text-rose-500">*</span></label>
-              <input type="time" required value={startTime} onChange={(e) => setStartTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Selesai <span className="text-rose-500">*</span></label>
-              <input type="time" required value={endTime} onChange={(e) => setEndTime(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Lokasi</label>
-              <input type="text" required value={location} onChange={(e) => setLocation(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold" />
-            </div>
-          </div>
-
-          {/* PILIHAN SCOPE */}
-          <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200 mb-2 flex items-center gap-1.5">
-              <Users className="w-4 h-4 text-blue-600" /> Pilih Cakupan Peserta <span className="text-rose-500">*</span>
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <label className={`flex items-start gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition ${targetScope === 'SEMUA' ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} ${(!isGuruPengampu && !isAdminRole && !isPimprod && !isSekretaris && targetScope !== 'SEMUA') ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                <input type="radio" name="scope" value="SEMUA" checked={targetScope === 'SEMUA'} onChange={() => setTargetScope('SEMUA')} disabled={!isTeacherOrStaff && (isSutradara || isAsisten || isKoordinator)} className="mt-0.5" />
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">Semua Anggota</p>
-                  <p className="text-[10px] text-slate-500">Seluruh siswa di kelas</p>
-                </div>
-              </label>
-
-              <label className={`flex items-start gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition ${targetScope === 'PEMAIN_MUSIK' ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} ${(!isGuruPengampu && !isAdminRole && !isSutradara && !isAsisten) ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                <input type="radio" name="scope" value="PEMAIN_MUSIK" checked={targetScope === 'PEMAIN_MUSIK'} onChange={() => setTargetScope('PEMAIN_MUSIK')} disabled={!isTeacherOrStaff && (isPimprod || isSekretaris || isKoordinator)} className="mt-0.5" />
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">Pemain & Musik</p>
-                  <p className="text-[10px] text-slate-500">Khusus akting & musik</p>
-                </div>
-              </label>
-
-              <label className={`flex items-start gap-2 p-2.5 rounded-lg border-2 cursor-pointer transition ${targetScope === 'DIVISI' ? 'border-amber-500 bg-amber-50 dark:bg-amber-500/10' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'} ${(!isGuruPengampu && !isAdminRole && !isKoordinator) ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                <input type="radio" name="scope" value="DIVISI" checked={targetScope === 'DIVISI'} onChange={() => setTargetScope('DIVISI')} disabled={!isTeacherOrStaff && !isKoordinator} className="mt-0.5" />
-                <div>
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">Divisi Saja</p>
-                  <p className="text-[10px] text-slate-500">{user?.divisionName || 'Divisi Anda'}</p>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Agenda / Catatan (Opsional)</label>
-            <textarea rows={2} value={agenda} onChange={(e) => setAgenda(e.target.value)} placeholder="Poin penting yang akan dibahas..."
-              className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium" />
-          </div>
-
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={() => setIsCreatingSession(false)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100">Batal</button>
-            <button type="submit" className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm flex items-center gap-1.5">
-              <Save className="w-3.5 h-3.5" /> Buka Sesi Presensi
-            </button>
+            <button type="button" onClick={() => setIsCreatingSession(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
+            <button type="submit" className="px-5 py-2 rounded-xl bg-amber-500 font-bold text-xs"><Save className="w-3.5 h-3.5 inline" /> Buka Sesi</button>
           </div>
         </form>
       )}
 
-      {/* LIST & DETAIL */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* KOLOM KIRI: DAFTAR SESI DENGAN TAB FILTER */}
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-extrabold text-slate-800 dark:text-white">Daftar Sesi</h3>
-          </div>
-          
-          {/* TAB FILTER */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            <button onClick={() => setFilterTab('ALL')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${filterTab === 'ALL' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>Semua</button>
-            <button onClick={() => setFilterTab('MY_TASKS')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${filterTab === 'MY_TASKS' ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-amber-700 border border-amber-300'}`}>Untuk Saya</button>
-            <button onClick={() => setFilterTab('PEMAIN')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${filterTab === 'PEMAIN' ? 'bg-purple-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>Pemain</button>
-            <button onClick={() => setFilterTab('DIVISI')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${filterTab === 'DIVISI' ? 'bg-orange-500 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>Divisi</button>
-            <button onClick={() => setFilterTab('RAPAT')} className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition ${filterTab === 'RAPAT' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}`}>Rapat</button>
+            <button onClick={()=>setFilterTab('ALL')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filterTab==='ALL'?'bg-slate-900 text-white':'bg-white border'}`}>Semua</button>
+            <button onClick={()=>setFilterTab('MY_TASKS')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filterTab==='MY_TASKS'?'bg-amber-500 text-slate-950':'bg-white border'}`}>Untuk Saya</button>
+            <button onClick={()=>setFilterTab('PEMAIN')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filterTab==='PEMAIN'?'bg-purple-600 text-white':'bg-white border'}`}>Pemain</button>
           </div>
-
-          {filteredSessions.length === 0 ? (
-            <div className="p-6 rounded-2xl bg-white border border-slate-200 text-center text-xs text-slate-400">Tidak ada sesi presensi di tab ini.</div>
-          ) : (
-            filteredSessions.map(s => {
-              const isSelected = s.id === activeSessionId;
-              const [eh, em] = s.endTime.split(':').map(Number);
-              const endDateTime = new Date(s.date); endDateTime.setHours(eh || 0, em || 0, 0, 0);
-              const isExpired = new Date() > endDateTime;
-              const isOpenUI = s.isOpen && !isExpired;
-
-              return (
-                <div key={s.id} onClick={() => setActiveSessionId(s.id)}
-                  className={`p-4 rounded-2xl border cursor-pointer transition ${isSelected ? 'bg-amber-500/10 border-amber-400 shadow-sm' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
-                  
-                  <div className="flex flex-col gap-2 mb-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-blue-600 px-2 py-0.5 rounded-md bg-blue-50 text-[10px] uppercase">{s.activityType}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isOpenUI ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                        {isOpenUI ? 'Dibuka' : 'Ditutup / Habis'}
-                      </span>
-                    </div>
-                    {/* BADGE SCOPE DITAMBAHKAN DI SINI */}
-                    <div className="mt-1">{renderScopeBadge(s)}</div>
-                  </div>
-
-                  <p className="text-xs font-bold text-slate-900 mt-2 line-clamp-2">{s.title}</p>
-                  
-                  <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-2">
-                    <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {s.date}</span>
-                    <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {s.startTime}-{s.endTime}</span>
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-2 border-t border-slate-100 pt-2">Oleh: {s.creatorName} ({s.creatorRole})</p>
-                </div>
-              );
-            })
-          )}
+          {filteredSessions.map(s => (
+            <div key={s.id} onClick={() => setActiveSessionId(s.id)} className={`p-4 rounded-2xl border cursor-pointer ${s.id===activeSessionId?'bg-amber-50 border-amber-400':'bg-white'}`}>
+              <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold bg-blue-100 px-2 py-0.5 rounded uppercase">{s.activityType}</span>{renderScopeBadge(s)}</div>
+              <p className="text-xs font-bold mt-2">{s.title}</p>
+              <p className="text-[10px] text-slate-500">{s.date} • {s.startTime}-{s.endTime}</p>
+              {(s as any).attendanceMode === 'MANUAL' && <span className="text-[9px] font-bold text-rose-600 mt-1 block">* Mode Manual</span>}
+            </div>
+          ))}
         </div>
 
-        {/* KOLOM KANAN: DETAIL & CHECK-IN */}
         <div className="lg:col-span-2 space-y-4">
           {activeSession ? (
-            <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-5">
-              
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-4 border-b border-slate-100">
+            <div className="p-6 rounded-3xl bg-white border shadow-sm space-y-5">
+              <div className="flex flex-col sm:flex-row justify-between pb-4 border-b gap-3">
                 <div>
-                  <div className="flex items-center gap-2 flex-wrap mb-2">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 uppercase">{activeSession.activityType}</span>
-                    {renderScopeBadge(activeSession)}
-                  </div>
-                  <h3 className="text-xl font-black text-slate-900">{activeSession.title}</h3>
-                  <p className="text-xs text-slate-500 flex items-center gap-1 mt-1"><MapPin className="w-3.5 h-3.5" /> {activeSession.location} • {activeSession.date} ({activeSession.startTime}-{activeSession.endTime})</p>
+                  <h3 className="text-xl font-black">{activeSession.title}</h3>
+                  <p className="text-xs text-slate-500">{activeSession.location} • {activeSession.date}</p>
                 </div>
-                {(isTeacher || isGuruPengampu || isAdminRole) && activeSession.isOpen && (
-                  <button onClick={async () => { await closeAttendanceSession(activeSession.id); showToast('Sesi ditutup.', 'info'); }}
-                    className="px-3.5 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 transition">Tutup Sesi Manual</button>
-                )}
+                <div className="flex gap-2">
+                  <button onClick={handleShareWA} className="px-3 py-1.5 rounded-lg bg-green-500 text-white font-bold text-xs flex items-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> Share WA</button>
+                  {(isTeacherOrStaff || activeSession.createdBy === user?.uid) && activeSession.isOpen && (
+                    <button onClick={async () => { await closeAttendanceSession(activeSession.id); showToast('Sesi ditutup.', 'info'); }} className="px-3 py-1.5 rounded-lg border text-xs font-bold">Tutup Sesi</button>
+                  )}
+                </div>
               </div>
 
-              {activeSession.isOpen && !isTeacherOrStaff && (
-                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-extrabold text-xs text-amber-950 flex items-center gap-1.5"><UserCheck className="w-4 h-4" /> Formulir Kehadiran</span>
-                    {myRecord && <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">Status: {myRecord.status}</span>}
-                  </div>
+              {activeSession.isOpen && !isTeacherOrStaff && (activeSession as any).attendanceMode !== 'MANUAL' && (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
+                  <p className="text-xs font-bold mb-2">Formulir Kehadiran Mandiri</p>
                   <div className="grid grid-cols-4 gap-2">
-                    {(['Hadir', 'Izin', 'Sakit', 'Alpa'] as AttendanceStatus[]).map((st) => (
-                      <button key={st} type="button" onClick={() => setMyStatus(st)}
-                        className={`py-2 px-3 rounded-xl text-xs font-bold transition ${myStatus === st ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'}`}>{st}</button>
+                    {(['Hadir', 'Izin', 'Sakit', 'Alpa'] as AttendanceStatus[]).map(st => (
+                      <button key={st} onClick={() => setMyStatus(st)} className={`py-2 rounded-xl text-xs font-bold ${myStatus===st?'bg-amber-500 text-slate-950':'bg-white border'}`}>{st}</button>
                     ))}
                   </div>
-                  {myStatus !== 'Hadir' && <input type="text" placeholder="Keterangan..." value={myNote} onChange={(e) => setMyNote(e.target.value)} className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-medium" />}
-                  <div className="flex justify-end">
-                    <button type="button" disabled={isSubmittingCheckin} onClick={handleCheckin} className="px-5 py-2 rounded-xl bg-slate-900 text-white font-bold text-xs disabled:opacity-50">{isSubmittingCheckin ? 'Menyimpan...' : 'Kirim Kehadiran Saya'}</button>
-                  </div>
+                  {myStatus !== 'Hadir' && <input type="text" placeholder="Alasan..." value={myNote} onChange={e=>setMyNote(e.target.value)} className="w-full mt-2 px-3 py-1.5 rounded-lg border text-xs" />}
+                  <button onClick={handleCheckin} disabled={isSubmittingCheckin} className="mt-3 w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs">Kirim Kehadiran Saya</button>
                 </div>
               )}
 
               <div>
-                <h4 className="text-xs font-extrabold text-slate-700 uppercase tracking-wider mb-2">Daftar Peserta ({records.length} terisi dari {targetParticipants.length})</h4>
-                <div className="border border-slate-200 rounded-2xl overflow-hidden">
+                <h4 className="text-xs font-extrabold uppercase mb-2">Daftar Peserta ({records.length}/{targetParticipants.length})</h4>
+                <div className="border rounded-2xl overflow-hidden">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
-                      <tr><th className="py-2.5 px-3">Nama</th><th className="py-2.5 px-3">Peran</th><th className="py-2.5 px-3 text-center">Status</th><th className="py-2.5 px-3">Waktu</th></tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {targetParticipants.map(student => {
-                        const rec = records.find(r => r.studentId === student.uid);
+                    <thead className="bg-slate-50 border-b"><tr><th className="py-2 px-3">Nama</th><th className="py-2 px-3 text-center">Status</th><th className="py-2 px-3 text-right">Aksi (Manual)</th></tr></thead>
+                    <tbody className="divide-y">
+                      {targetParticipants.map(st => {
+                        const rec = records.find(r => r.studentId === st.uid);
+                        const isManualMode = (activeSession as any).attendanceMode === 'MANUAL';
+                        const canEdit = isTeacherOrStaff || activeSession.createdBy === user?.uid;
                         return (
-                          <tr key={student.uid}>
-                            <td className="py-2.5 px-3 font-semibold text-slate-900">{student.displayName}</td>
-                            <td className="py-2.5 px-3 text-slate-500">{student.role}</td>
-                            <td className="py-2.5 px-3 text-center">
-                              {rec ? (
-                                <span className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-bold ${rec.status === 'Hadir' ? 'bg-emerald-100 text-emerald-800' : rec.status === 'Izin' ? 'bg-blue-100 text-blue-800' : rec.status === 'Sakit' ? 'bg-amber-100 text-amber-800' : 'bg-rose-100 text-rose-800'}`}>{rec.status}</span>
-                              ) : <span className="text-[11px] text-slate-400 italic">Belum</span>}
+                          <tr key={st.uid}>
+                            <td className="py-2 px-3 font-semibold">{st.displayName}</td>
+                            <td className="py-2 px-3 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${rec?.status === 'Hadir' ? 'bg-emerald-100 text-emerald-800' : rec ? 'bg-rose-100 text-rose-800' : 'bg-slate-100'}`}>{rec ? rec.status : 'Belum'}</span>
                             </td>
-                            <td className="py-2.5 px-3 text-[11px] text-slate-400">{rec ? new Date(rec.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
+                            <td className="py-2 px-3 text-right">
+                              {canEdit ? (
+                                <select 
+                                  value={rec?.status || ''} 
+                                  onChange={(e) => handleEditStatusManual(st.uid, st.displayName, e.target.value as AttendanceStatus)}
+                                  className="px-2 py-1 border rounded text-[10px] bg-white font-bold text-blue-600 focus:outline-none"
+                                >
+                                  <option value="" disabled>Edit Status</option>
+                                  <option value="Hadir">Set Hadir</option>
+                                  <option value="Izin">Set Izin</option>
+                                  <option value="Sakit">Set Sakit</option>
+                                  <option value="Alpa">Set Alpa</option>
+                                </select>
+                              ) : <span className="text-[10px] text-slate-400">-</span>}
+                            </td>
                           </tr>
                         );
                       })}
@@ -537,9 +393,7 @@ export const AttendanceModule: React.FC = () => {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 text-slate-400 text-xs">Pilih sesi presensi di sebelah kiri untuk melihat detail.</div>
-          )}
+          ) : <div className="p-12 text-center text-xs text-slate-400 bg-white rounded-3xl border">Pilih sesi presensi.</div>}
         </div>
       </div>
     </div>
