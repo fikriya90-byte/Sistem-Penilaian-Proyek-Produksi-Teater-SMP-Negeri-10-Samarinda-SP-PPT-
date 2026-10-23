@@ -1,11 +1,9 @@
-// ===================================================
-// REMINDER OTOMATIS
-// Cek deadline/jadwal/booking yang mendekat → kirim notifikasi
-// ===================================================
-
-import { collection, doc, getDocs, query, setDoc, where, writeBatch, onSnapshot } from 'firebase/firestore';
+// src/utils/reminder.ts
+import { collection, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../core/firebase';
 import { fetchUsersByClass } from '../services/firestoreService';
+
+const RETURN_TOLERANCE_MINUTES = 10;
 
 // ==========================================
 // 1. REMINDER DEADLINE (Tugas Siswa)
@@ -24,9 +22,6 @@ export async function checkDeadlineReminders(classId: string) {
       const dueTime = new Date(deadline.dueDate).getTime();
       const diff = dueTime - now;
 
-      // H-3 (72 jam): antara 66-72 jam
-      // H-1 (24 jam): antara 20-24 jam
-      // H-1jam: antara 30-90 menit
       let reminderKey = '';
       if (diff > 66 * 3600000 && diff <= 72 * 3600000) reminderKey = 'H3';
       else if (diff > 20 * 3600000 && diff <= 24 * 3600000) reminderKey = 'H1';
@@ -35,7 +30,6 @@ export async function checkDeadlineReminders(classId: string) {
 
       if (!reminderKey) continue;
 
-      // Cek apakah reminder sudah pernah dikirim
       const sentQ = query(
         collection(db, 'reminderLog'),
         where('itemId', '==', d.id),
@@ -44,7 +38,6 @@ export async function checkDeadlineReminders(classId: string) {
       const sentSnap = await getDocs(sentQ);
       if (!sentSnap.empty) continue;
 
-      // Kirim reminder ke penerima
       const users = await fetchUsersByClass(classId);
       const recipients = users.filter(u => {
         if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return false;
@@ -66,7 +59,7 @@ export async function checkDeadlineReminders(classId: string) {
           id: notifRef.id,
           userId: r.uid,
           classId,
-          title: reminderKey === 'OVERDUE' ? '⚠️ Deadline Terlewat!' : '⏰ Reminder Deadline',
+          title: reminderKey === 'OVERDUE' ? 'Deadline Terlewat' : 'Reminder Deadline',
           message: `"${deadline.title}" — ${label}`,
           category: 'Reminder',
           read: false,
@@ -76,7 +69,6 @@ export async function checkDeadlineReminders(classId: string) {
         hasNotif = true;
       });
 
-      // Tandai reminder sudah terkirim
       const logRef = doc(collection(db, 'reminderLog'));
       batch.set(logRef, {
         id: logRef.id,
@@ -95,7 +87,7 @@ export async function checkDeadlineReminders(classId: string) {
 }
 
 // ==========================================
-// 2. REMINDER JADWAL (Agenda & Latihan)
+// 2. REMINDER JADWAL
 // ==========================================
 export async function checkScheduleReminders(classId: string) {
   try {
@@ -139,7 +131,7 @@ export async function checkScheduleReminders(classId: string) {
           id: notifRef.id,
           userId: r.uid,
           classId,
-          title: '📅 Reminder Jadwal',
+          title: 'Reminder Jadwal',
           message: `"${schedule.title}" — ${label} (${schedule.location})`,
           category: 'Reminder',
           read: false,
@@ -167,7 +159,7 @@ export async function checkScheduleReminders(classId: string) {
 }
 
 // ==========================================
-// 3. REMINDER KAS (Iuran & Tagihan)
+// 3. REMINDER KAS
 // ==========================================
 export async function checkKasReminders(classId: string) {
   try {
@@ -194,7 +186,6 @@ export async function checkKasReminders(classId: string) {
       else if (diff < 0 && diff > -72 * 3600000) reminderKey = 'OVERDUE';
       if (!reminderKey) continue;
 
-      // Ambil siswa yang belum bayar
       const payQ = query(collection(db, 'kasPayments'), where('kasId', '==', k.id));
       const paySnap = await getDocs(payQ);
       const paidIds = new Set(paySnap.docs.filter(p => p.data().paid).map(p => p.data().studentId));
@@ -216,7 +207,7 @@ export async function checkKasReminders(classId: string) {
           id: notifRef.id,
           userId: r.uid,
           classId,
-          title: reminderKey === 'OVERDUE' ? '⚠️ Kas Terlambat' : '💰 Reminder Kas',
+          title: reminderKey === 'OVERDUE' ? 'Kas Terlambat' : 'Reminder Kas',
           message: `Pembayaran kas "${setting.title}" (Rp ${Number(setting.amount).toLocaleString('id-ID')}) — ${label}`,
           category: 'Reminder',
           read: false,
@@ -226,7 +217,6 @@ export async function checkKasReminders(classId: string) {
         hasNotif = true;
       });
 
-      // Notif ke Bendahara & Guru
       const teachers = users.filter(u =>
         u.role === 'Bendahara' || u.role === 'Guru Pengampu' || u.role === 'Guru Pembina'
       );
@@ -236,7 +226,7 @@ export async function checkKasReminders(classId: string) {
           id: notifRef.id,
           userId: t.uid,
           classId,
-          title: '📊 Laporan Kas',
+          title: 'Laporan Kas',
           message: `${unpaid.length} siswa belum bayar kas "${setting.title}" — ${label}`,
           category: 'Keuangan',
           read: false,
@@ -264,15 +254,14 @@ export async function checkKasReminders(classId: string) {
 }
 
 // ==========================================
-// 4. REMINDER BOOKING ALAT (BARU!)
+// 4. REMINDER BOOKING PENDING (>12 jam)
 // ==========================================
 export async function checkBookingReminders(classId: string) {
   try {
     const now = Date.now();
-    
-    // Ambil semua booking berstatus PENDING di kelas ini
+
     const qBook = query(
-      collection(db, 'bookings'), 
+      collection(db, 'bookings'),
       where('classId', '==', classId),
       where('status', '==', 'PENDING')
     );
@@ -280,7 +269,6 @@ export async function checkBookingReminders(classId: string) {
     if (bookSnap.empty) return;
 
     const users = await fetchUsersByClass(classId);
-    // Cari Guru dan Admin untuk dikirimi notifikasi
     const teachers = users.filter(u =>
       u.role === 'Guru Pengampu' || u.role === 'Guru Pembina' || u.role === 'Admin' || u.role === 'Super Admin'
     );
@@ -292,13 +280,11 @@ export async function checkBookingReminders(classId: string) {
     for (const b of bookSnap.docs) {
       const booking = b.data();
       const createdTime = new Date(booking.createdAt).getTime();
-      const hoursPending = (now - createdTime) / 3600000; // dalam jam
+      const hoursPending = (now - createdTime) / 3600000;
 
-      // Jika booking sudah menggantung lebih dari 12 jam, ingatkan Guru
       if (hoursPending >= 12) {
         const reminderKey = 'PENDING_TEACHER_12H';
 
-        // Cek apakah reminder untuk booking ini sudah pernah dikirim
         const sentQ = query(
           collection(db, 'reminderLog'),
           where('itemId', '==', b.id),
@@ -307,24 +293,22 @@ export async function checkBookingReminders(classId: string) {
         const sentSnap = await getDocs(sentQ);
         if (!sentSnap.empty) continue;
 
-        // Kirim notifikasi in-app ke Guru
         teachers.forEach(t => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
             id: notifRef.id,
             userId: t.uid,
             classId,
-            title: '⏳ Booking Menunggu Verifikasi',
+            title: 'Booking Menunggu Verifikasi',
             message: `Booking "${booking.equipmentName}" oleh ${booking.bookerName} sudah menunggu lebih dari 12 jam. Mohon segera diverifikasi.`,
             category: 'Tugas',
             read: false,
-            link: 'booking',
+            link: 'welcome-booking',
             createdAt: new Date().toISOString(),
           });
           hasNotif = true;
         });
 
-        // Tandai reminder sudah terkirim
         const logRef = doc(collection(db, 'reminderLog'));
         batch.set(logRef, {
           id: logRef.id,
@@ -344,6 +328,101 @@ export async function checkBookingReminders(classId: string) {
 }
 
 // ==========================================
+// 5. REMINDER BOOKING OVERDUE (BARU)
+// Auto-mark CHECKED_OUT yang lewat toleransi 10 menit jadi OVERDUE
+// ==========================================
+export async function checkOverdueBookings(classId: string) {
+  try {
+    const now = Date.now();
+    const q = query(collection(db, 'bookings'), where('classId', '==', classId));
+    const snap = await getDocs(q);
+    if (snap.empty) return;
+
+    // Deteksi item overdue
+    const overdueItems: any[] = [];
+    snap.docs.forEach(d => {
+      const b = d.data();
+      if (b.status !== 'CHECKED_OUT' && b.status !== 'OVERDUE') return;
+
+      const [eh, em] = (b.endTime || '00:00').split(':').map(Number);
+      const endDt = new Date(b.date);
+      endDt.setHours(eh || 0, em || 0, 0, 0);
+      const deadline = endDt.getTime() + RETURN_TOLERANCE_MINUTES * 60000;
+
+      if (now > deadline) {
+        overdueItems.push({ id: d.id, ...b, overdueMs: now - deadline });
+      }
+    });
+
+    if (overdueItems.length === 0) return;
+
+    // Ambil guru untuk notifikasi
+    const users = await fetchUsersByClass(classId);
+    const teachers = users.filter(u =>
+      u.role === 'Guru Pengampu' ||
+      u.role === 'Guru Pembina' ||
+      u.role === 'Admin' ||
+      u.role === 'Super Admin'
+    );
+
+    const batch = writeBatch(db);
+    let hasUpdate = false;
+
+    for (const item of overdueItems) {
+      const reminderKey = 'OVERDUE_BOOKING';
+
+      // Cek log agar tidak spam
+      const sentQ = query(
+        collection(db, 'reminderLog'),
+        where('itemId', '==', item.id),
+        where('reminderKey', '==', reminderKey)
+      );
+      const sentSnap = await getDocs(sentQ);
+      if (!sentSnap.empty) continue;
+
+      // Tandai status OVERDUE jika masih CHECKED_OUT
+      if (item.status === 'CHECKED_OUT') {
+        batch.update(doc(db, 'bookings', item.id), {
+          status: 'OVERDUE',
+          markedOverdueAt: new Date().toISOString(),
+        });
+      }
+
+      // Notif ke guru
+      teachers.forEach(t => {
+        const notifRef = doc(collection(db, 'notifications'));
+        batch.set(notifRef, {
+          id: notifRef.id,
+          userId: t.uid,
+          classId,
+          title: `Alat Terlambat: ${item.equipmentName}`,
+          message: `${item.bookerName} (${item.className}) belum mengembalikan ${item.equipmentName}. Batas waktu ${item.endTime}, sudah terlewat. Segera hubungi siswa untuk pengembalian.`,
+          category: 'Urgent',
+          read: false,
+          link: 'welcome-booking',
+          createdAt: new Date().toISOString(),
+        });
+      });
+
+      // Log
+      const logRef = doc(collection(db, 'reminderLog'));
+      batch.set(logRef, {
+        id: logRef.id,
+        itemId: item.id,
+        itemType: 'booking_overdue',
+        reminderKey,
+        sentAt: new Date().toISOString(),
+      });
+      hasUpdate = true;
+    }
+
+    if (hasUpdate) await batch.commit();
+  } catch (err) {
+    console.warn('Non-fatal overdue booking error:', err);
+  }
+}
+
+// ==========================================
 // TRIGGER SEMUA REMINDER
 // ==========================================
 export async function runAllReminders(classId: string) {
@@ -351,6 +430,7 @@ export async function runAllReminders(classId: string) {
     checkDeadlineReminders(classId),
     checkScheduleReminders(classId),
     checkKasReminders(classId),
-    checkBookingReminders(classId), // ✅ Tambahan fungsi booking
+    checkBookingReminders(classId),
+    checkOverdueBookings(classId),
   ]);
 }
