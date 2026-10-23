@@ -3,15 +3,24 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Search,
   CheckCircle, XCircle, Clock, Users, Layers, X, Info, Music,
+  RotateCcw, AlertCircle, Ban, Package, Camera,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
 
+// ═══════════════════════════════════════════════════════
+// TIPE DATA
+// ═══════════════════════════════════════════════════════
+type BookingStatus =
+  | 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+  | 'CHECKED_OUT' | 'RETURNED' | 'OVERDUE';
+
 interface BookingEvent {
   id: string;
+  sessionId?: string;
   classId: string;
   className: string;
   equipmentId?: string;
@@ -22,7 +31,7 @@ interface BookingEvent {
   startTime: string;
   endTime: string;
   purpose: string;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  status: BookingStatus;
   approvedBy?: string;
   rejectionReason?: string;
   verifierNote?: string;
@@ -30,7 +39,15 @@ interface BookingEvent {
   originalStartTime?: string;
   originalEndTime?: string;
   createdAt: string;
+  checkedOutAt?: string;
+  returnedAt?: string;
+  isLateReturn?: boolean;
 }
+
+// ═══════════════════════════════════════════════════════
+// KONSTANTA
+// ═══════════════════════════════════════════════════════
+const RETURN_TOLERANCE_MINUTES = 10;
 
 const CLASS_COLORS = [
   { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-800 dark:text-blue-200', border: 'border-blue-400 dark:border-blue-500/50', dot: 'bg-blue-500' },
@@ -43,12 +60,31 @@ const CLASS_COLORS = [
   { bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-800 dark:text-rose-200', border: 'border-rose-400 dark:border-rose-500/50', dot: 'bg-rose-500' },
 ];
 
-const STATUS_CONFIG = {
+const STATUS_CONFIG: Record<BookingStatus, {
+  label: string; bg: string; text: string; border: string;
+}> = {
   PENDING: { label: 'Menunggu', bg: 'bg-amber-100 dark:bg-amber-500/20', text: 'text-amber-800 dark:text-amber-200', border: 'border-amber-300 dark:border-amber-500/40' },
   APPROVED: { label: 'Disetujui', bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-800 dark:text-emerald-200', border: 'border-emerald-300 dark:border-emerald-500/40' },
   REJECTED: { label: 'Ditolak', bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-800 dark:text-rose-200', border: 'border-rose-300 dark:border-rose-500/40' },
+  CANCELLED: { label: 'Dibatalkan', bg: 'bg-slate-100 dark:bg-slate-700', text: 'text-slate-600 dark:text-slate-300', border: 'border-slate-300 dark:border-slate-600' },
+  CHECKED_OUT: { label: 'Diambil', bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-800 dark:text-blue-200', border: 'border-blue-300 dark:border-blue-500/40' },
+  RETURNED: { label: 'Dikembalikan', bg: 'bg-purple-100 dark:bg-purple-500/20', text: 'text-purple-800 dark:text-purple-200', border: 'border-purple-300 dark:border-purple-500/40' },
+  OVERDUE: { label: 'Terlambat', bg: 'bg-rose-600', text: 'text-white', border: 'border-rose-700' },
 };
 
+const STATUS_ICONS: Record<BookingStatus, any> = {
+  PENDING: Clock,
+  APPROVED: CheckCircle,
+  REJECTED: XCircle,
+  CANCELLED: Ban,
+  CHECKED_OUT: Camera,
+  RETURNED: RotateCcw,
+  OVERDUE: AlertCircle,
+};
+
+// ═══════════════════════════════════════════════════════
+// HELPERS KALENDER
+// ═══════════════════════════════════════════════════════
 const getMonthDays = (date: Date): (Date | null)[] => {
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -72,11 +108,32 @@ const toDateStr = (d: Date): string => {
 const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const DAY_NAMES = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
 
+// Deteksi keterlambatan
+const isBookingLate = (b: BookingEvent, now: Date): boolean => {
+  if (b.status !== 'CHECKED_OUT') return false;
+  const [eh, em] = b.endTime.split(':').map(Number);
+  const endDt = new Date(b.date);
+  endDt.setHours(eh || 0, em || 0, 0, 0);
+  const deadline = endDt.getTime() + RETURN_TOLERANCE_MINUTES * 60000;
+  return now.getTime() > deadline;
+};
+
+const getDisplayStatus = (b: BookingEvent, now: Date): BookingStatus => {
+  if (isBookingLate(b, now)) return 'OVERDUE';
+  return b.status;
+};
+
+// ═══════════════════════════════════════════════════════
+// PROPS
+// ═══════════════════════════════════════════════════════
 interface Props {
   embedded?: boolean;
   onClose?: () => void;
 }
 
+// ═══════════════════════════════════════════════════════
+// KOMPONEN
+// ═══════════════════════════════════════════════════════
 export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClose }) => {
   const { user, classes, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -85,10 +142,11 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [filterClass, setFilterClass] = useState<string>('ALL');
-  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
+  const [filterStatus, setFilterStatus] = useState<'ALL' | BookingStatus>('ALL');
   const [filterEquipment, setFilterEquipment] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(new Date());
 
   const canVerify =
     isGuruPengampu ||
@@ -98,18 +156,15 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     user?.role === 'Guru Pembina' ||
     user?.role === 'Super Admin';
 
+  // Timer per menit untuk deteksi overdue
   useEffect(() => {
-    const classIds = classes.map(c => c.id);
-    if (classIds.length === 0) { setLoading(false); return; }
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
-    let q;
-    if (classIds.length <= 30) {
-      q = query(collection(db, 'bookings'), where('classId', 'in', classIds));
-    } else {
-      q = query(collection(db, 'bookings'));
-    }
-
-    const unsub = onSnapshot(q, snap => {
+  // Subscribe semua bookings — semua role bisa lihat semua kelas
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'bookings'), snap => {
       const list = snap.docs.map(d => {
         const data = d.data();
         const cls = classes.find(c => c.id === data.classId);
@@ -128,22 +183,26 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     return () => unsub();
   }, [classes]);
 
+  // Class color mapping
   const classColorMap = useMemo(() => {
     const map: Record<string, typeof CLASS_COLORS[0]> = {};
     classes.forEach((c, i) => { map[c.id] = CLASS_COLORS[i % CLASS_COLORS.length]; });
     return map;
   }, [classes]);
 
+  // Unique equipment
   const uniqueEquipments = useMemo(() => {
     const set = new Set<string>();
     bookings.forEach(b => set.add(b.equipmentName));
     return Array.from(set).sort();
   }, [bookings]);
 
+  // Filter
   const filteredBookings = useMemo(() => {
     return bookings.filter(b => {
+      const displayStatus = getDisplayStatus(b, now);
       if (filterClass !== 'ALL' && b.classId !== filterClass) return false;
-      if (filterStatus !== 'ALL' && b.status !== filterStatus) return false;
+      if (filterStatus !== 'ALL' && displayStatus !== filterStatus) return false;
       if (filterEquipment !== 'ALL' && b.equipmentName !== filterEquipment) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -156,18 +215,24 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
       }
       return true;
     });
-  }, [bookings, filterClass, filterStatus, filterEquipment, searchQuery]);
+  }, [bookings, filterClass, filterStatus, filterEquipment, searchQuery, now]);
 
+  // Group by date
   const bookingsByDate = useMemo(() => {
     const map: Record<string, BookingEvent[]> = {};
     filteredBookings.forEach(b => {
       if (!map[b.date]) map[b.date] = [];
       map[b.date].push(b);
     });
-    Object.values(map).forEach(arr => arr.sort((a, b) => a.startTime.localeCompare(b.startTime)));
+    Object.values(map).forEach(arr => arr.sort((a, b) => {
+      const t = a.startTime.localeCompare(b.startTime);
+      if (t !== 0) return t;
+      return (a.sessionId || '').localeCompare(b.sessionId || '');
+    }));
     return map;
   }, [filteredBookings]);
 
+  // Month stats
   const monthStats = useMemo(() => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -175,16 +240,19 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     const monthBookings = filteredBookings.filter(b => b.date.startsWith(prefix));
     return {
       total: monthBookings.length,
-      approved: monthBookings.filter(b => b.status === 'APPROVED').length,
+      approved: monthBookings.filter(b => getDisplayStatus(b, now) === 'APPROVED').length,
       pending: monthBookings.filter(b => b.status === 'PENDING').length,
-      rejected: monthBookings.filter(b => b.status === 'REJECTED').length,
+      checkedOut: monthBookings.filter(b => b.status === 'CHECKED_OUT').length,
+      overdue: monthBookings.filter(b => getDisplayStatus(b, now) === 'OVERDUE').length,
+      returned: monthBookings.filter(b => b.status === 'RETURNED').length,
       byClass: classes.map(c => ({
         class: c,
         count: monthBookings.filter(b => b.classId === c.id).length,
       })).filter(x => x.count > 0),
     };
-  }, [filteredBookings, currentMonth, classes]);
+  }, [filteredBookings, currentMonth, classes, now]);
 
+  // Navigation
   const goPrevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
   const goNextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
   const goToday = () => { setCurrentMonth(new Date()); setSelectedDate(toDateStr(new Date())); };
@@ -192,12 +260,15 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
   const calendarDays = useMemo(() => getMonthDays(currentMonth), [currentMonth]);
   const todayStr = toDateStr(new Date());
 
+  // Approve inline
   const handleApproveInline = async (booking: BookingEvent) => {
     if (!user || !canVerify) return;
     if (!confirm(`Setujui booking "${booking.equipmentName}" dari ${booking.className}?\n\n${booking.date} ${booking.startTime}-${booking.endTime}`)) return;
     try {
       await updateDoc(doc(db, 'bookings', booking.id), {
-        status: 'APPROVED', approvedBy: user.displayName, approvedAt: new Date().toISOString(),
+        status: 'APPROVED',
+        approvedBy: user.displayName,
+        approvedAt: new Date().toISOString(),
       });
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
@@ -208,14 +279,18 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
+  // Reject inline
   const handleRejectInline = async (booking: BookingEvent) => {
     if (!user || !canVerify) return;
     const reason = prompt(`Alasan tolak "${booking.equipmentName}" (${booking.className})?`);
     if (!reason || !reason.trim()) return;
     try {
       await updateDoc(doc(db, 'bookings', booking.id), {
-        status: 'REJECTED', approvedBy: user.displayName, approvedAt: new Date().toISOString(),
-        rejectionReason: reason.trim(), rejectionGuidance: 'Silakan ajukan ulang sesuai kesepakatan.',
+        status: 'REJECTED',
+        approvedBy: user.displayName,
+        approvedAt: new Date().toISOString(),
+        rejectionReason: reason.trim(),
+        rejectionGuidance: 'Silakan ajukan ulang sesuai kesepakatan.',
       });
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
@@ -226,9 +301,17 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
+  // Group by session in detail
   const selectedBookings = selectedDate ? (bookingsByDate[selectedDate] || []) : [];
-
-  const getPriorityCfg = (p: string) => STATUS_CONFIG[p as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.PENDING;
+  const groupedBySession = useMemo(() => {
+    const groups: Record<string, BookingEvent[]> = {};
+    selectedBookings.forEach(b => {
+      const sid = b.sessionId || b.id;
+      if (!groups[sid]) groups[sid] = [];
+      groups[sid].push(b);
+    });
+    return Object.entries(groups).map(([sid, list]) => ({ sid, list }));
+  }, [selectedBookings]);
 
   if (loading) {
     return <div className="p-12 text-center text-slate-400 text-xs">Memuat kalender...</div>;
@@ -236,6 +319,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
 
   return (
     <div className="space-y-4">
+      {/* Header (jika tidak embedded) */}
       {!embedded && (
         <div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 text-white shadow-xl border border-indigo-500/20">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -247,7 +331,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
                 <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-full border border-indigo-500/30">
                   Kalender Lintas Kelas
                 </span>
-                <h2 className="text-lg font-black text-white mt-0.5">Kalender Booking Alat Musik</h2>
+                <h2 className="text-lg font-black text-white mt-0.5">Kalender Booking Alat</h2>
                 <p className="text-[11px] text-slate-300">
                   Semua peminjaman dari {classes.length} kelas dalam satu kalender
                 </p>
@@ -263,30 +347,42 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-          <p className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase">Total Bulan Ini</p>
-          <p className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">{monthStats.total}</p>
-        </div>
-        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 shadow-sm">
-          <p className="text-[9px] sm:text-[10px] text-emerald-700 dark:text-emerald-300 font-semibold uppercase">Disetujui</p>
-          <p className="text-lg sm:text-xl font-black text-emerald-800 dark:text-emerald-200">{monthStats.approved}</p>
+          <p className="text-[9px] text-slate-500 dark:text-slate-400 font-semibold uppercase">Total</p>
+          <p className="text-lg font-black text-slate-900 dark:text-white">{monthStats.total}</p>
         </div>
         <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 shadow-sm">
-          <p className="text-[9px] sm:text-[10px] text-amber-700 dark:text-amber-300 font-semibold uppercase">Menunggu</p>
-          <p className="text-lg sm:text-xl font-black text-amber-800 dark:text-amber-200">{monthStats.pending}</p>
+          <p className="text-[9px] text-amber-700 dark:text-amber-300 font-semibold uppercase">Pending</p>
+          <p className="text-lg font-black text-amber-800 dark:text-amber-200">{monthStats.pending}</p>
         </div>
-        <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 shadow-sm">
-          <p className="text-[9px] sm:text-[10px] text-rose-700 dark:text-rose-300 font-semibold uppercase">Ditolak</p>
-          <p className="text-lg sm:text-xl font-black text-rose-800 dark:text-rose-200">{monthStats.rejected}</p>
+        <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 shadow-sm">
+          <p className="text-[9px] text-emerald-700 dark:text-emerald-300 font-semibold uppercase">Disetujui</p>
+          <p className="text-lg font-black text-emerald-800 dark:text-emerald-200">{monthStats.approved}</p>
         </div>
+        <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 shadow-sm">
+          <p className="text-[9px] text-blue-700 dark:text-blue-300 font-semibold uppercase">Diambil</p>
+          <p className="text-lg font-black text-blue-800 dark:text-blue-200">{monthStats.checkedOut}</p>
+        </div>
+        <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/30 shadow-sm">
+          <p className="text-[9px] text-purple-700 dark:text-purple-300 font-semibold uppercase">Kembali</p>
+          <p className="text-lg font-black text-purple-800 dark:text-purple-200">{monthStats.returned}</p>
+        </div>
+        {monthStats.overdue > 0 && (
+          <div className="p-3 rounded-2xl bg-rose-600 text-white shadow-sm animate-pulse">
+            <p className="text-[9px] opacity-90 font-semibold uppercase flex items-center gap-1">
+              <AlertCircle className="w-2.5 h-2.5" /> Terlambat
+            </p>
+            <p className="text-lg font-black">{monthStats.overdue}</p>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
       <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-          <input type="text" placeholder="Cari peminjam, alat, atau keperluan..."
+          <input type="text" placeholder="Cari peminjam, alat, keperluan..."
             value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-semibold text-slate-800 dark:text-white" />
         </div>
@@ -300,7 +396,11 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
           <option value="ALL">Semua Status</option>
           <option value="PENDING">Menunggu</option>
           <option value="APPROVED">Disetujui</option>
+          <option value="CHECKED_OUT">Diambil</option>
+          <option value="RETURNED">Dikembalikan</option>
+          <option value="OVERDUE">Terlambat</option>
           <option value="REJECTED">Ditolak</option>
+          <option value="CANCELLED">Dibatalkan</option>
         </select>
         <select value={filterEquipment} onChange={(e) => setFilterEquipment(e.target.value)}
           className="px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-[11px] font-semibold text-slate-800 dark:text-white">
@@ -309,7 +409,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </select>
       </div>
 
-      {/* Calendar */}
+      {/* Calendar Grid */}
       <div className="p-3 sm:p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
         <div className="flex items-center justify-between gap-2 mb-3">
           <button onClick={goPrevMonth} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
@@ -346,16 +446,21 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
             const isToday = dateStr === todayStr;
             const isSelected = dateStr === selectedDate;
             const uniqueClassIds = Array.from(new Set(dayBookings.map(b => b.classId)));
+            const hasOverdue = dayBookings.some(b => getDisplayStatus(b, now) === 'OVERDUE');
 
             return (
               <button key={i} onClick={() => setSelectedDate(dateStr === selectedDate ? null : dateStr)}
                 className={`aspect-square p-0.5 sm:p-1 rounded-lg border-2 flex flex-col items-center justify-start transition relative ${
-                  isSelected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 ring-2 ring-indigo-300'
+                  hasOverdue ? 'border-rose-500 bg-rose-50 dark:bg-rose-500/20 ring-2 ring-rose-300'
+                    : isSelected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 ring-2 ring-indigo-300'
                     : isToday ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
                     : dayBookings.length > 0 ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500/50'
                     : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
                 }`}>
-                <span className={`text-[10px] sm:text-[11px] font-bold ${isToday ? 'text-amber-700 dark:text-amber-300' : 'text-slate-800 dark:text-slate-200'}`}>
+                <span className={`text-[10px] sm:text-[11px] font-bold ${
+                  hasOverdue ? 'text-rose-700 dark:text-rose-300' :
+                  isToday ? 'text-amber-700 dark:text-amber-300' : 'text-slate-800 dark:text-slate-200'
+                }`}>
                   {day.getDate()}
                 </span>
                 {dayBookings.length > 0 && (
@@ -370,7 +475,9 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
                   </div>
                 )}
                 {dayBookings.length > 0 && (
-                  <span className="absolute top-0 right-0.5 text-[8px] font-black text-slate-400 dark:text-slate-500">
+                  <span className={`absolute top-0 right-0.5 text-[8px] font-black ${
+                    hasOverdue ? 'text-rose-600' : 'text-slate-400 dark:text-slate-500'
+                  }`}>
                     {dayBookings.length}
                   </span>
                 )}
@@ -380,7 +487,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       </div>
 
-      {/* Legend */}
+      {/* Legend kelas */}
       {monthStats.byClass.length > 0 && (
         <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
           <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-2 flex items-center gap-1">
@@ -408,72 +515,112 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       )}
 
-      {/* Detail */}
+      {/* Detail hari terpilih — grouped by session */}
       {selectedDate && (
         <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-500/40 shadow-md">
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div>
-              <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase">Detail Booking</p>
+              <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase">
+                Detail Booking
+              </p>
               <h3 className="text-sm font-black text-slate-900 dark:text-white">
                 {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', {
                   weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
                 })}
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">{selectedBookings.length} booking</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                {groupedBySession.length} sesi • {selectedBookings.length} alat
+              </p>
             </div>
             <button onClick={() => setSelectedDate(null)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          {selectedBookings.length === 0 ? (
+          {groupedBySession.length === 0 ? (
             <div className="p-6 text-center bg-slate-50 dark:bg-slate-800 rounded-xl">
               <CalendarIcon className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-1.5" />
               <p className="text-xs text-slate-500 dark:text-slate-400">Tidak ada booking di tanggal ini</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {selectedBookings.map(b => {
-                const color = classColorMap[b.classId] || CLASS_COLORS[0];
-                const statusCfg = STATUS_CONFIG[b.status];
+              {groupedBySession.map(({ sid, list }) => {
+                const first = list[0];
+                const color = classColorMap[first.classId] || CLASS_COLORS[0];
+                const isSession = list.length > 1;
+                const sessionHasOverdue = list.some(b => getDisplayStatus(b, now) === 'OVERDUE');
+
                 return (
-                  <div key={b.id} className={`p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 border-l-4 ${color.border}`}>
-                    <div className="flex items-start justify-between gap-2 flex-wrap">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${color.bg} ${color.text} ${color.border}`}>
-                            {b.className}
+                  <div key={sid} className={`p-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 border-l-4 ${
+                    sessionHasOverdue ? 'border-l-rose-500' : color.border
+                  }`}>
+                    {/* Session header */}
+                    <div className="flex items-start justify-between gap-2 flex-wrap mb-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${color.bg} ${color.text} ${color.border}`}>
+                          {first.className}
+                        </span>
+                        {isSession && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-indigo-100 dark:bg-indigo-500/20 text-indigo-800 dark:text-indigo-200 border-indigo-300 dark:border-indigo-500/40 flex items-center gap-0.5">
+                            <Package className="w-2.5 h-2.5" /> {list.length} alat
                           </span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
-                            {statusCfg.label}
-                          </span>
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
-                            <Clock className="w-2.5 h-2.5" /> {b.startTime}-{b.endTime}
-                          </span>
-                        </div>
-                        <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1">
-                          <Music className="w-3 h-3 text-slate-400" /> {b.equipmentName}
-                        </p>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                          Peminjam: <strong>{b.bookerName}</strong> ({b.bookerRole})
-                        </p>
-                        {b.purpose && (
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 italic mt-1">"{b.purpose}"</p>
                         )}
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
+                          <Clock className="w-2.5 h-2.5" /> {first.startTime}-{first.endTime}
+                        </span>
                       </div>
-                      {canVerify && b.status === 'PENDING' && (
-                        <div className="flex gap-1 shrink-0">
-                          <button onClick={() => handleApproveInline(b)}
-                            className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white" title="Setujui">
-                            <CheckCircle className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => handleRejectInline(b)}
-                            className="p-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white" title="Tolak">
-                            <XCircle className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400">
+                        Peminjam: <strong>{first.bookerName}</strong> ({first.bookerRole})
+                      </p>
                     </div>
+
+                    {/* Equipment list dengan status per-alat */}
+                    <div className="space-y-1.5 pl-2 border-l-2 border-slate-100 dark:border-slate-700">
+                      {list.map(b => {
+                        const displayStatus = getDisplayStatus(b, now);
+                        const statusCfg = STATUS_CONFIG[displayStatus];
+                        const StatusIcon = STATUS_ICONS[displayStatus];
+                        return (
+                          <div key={b.id} className="flex items-start justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                              <Music className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="text-xs font-bold text-slate-900 dark:text-white truncate">{b.equipmentName}</span>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-0.5 shrink-0 ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}>
+                                <StatusIcon className="w-2.5 h-2.5" />
+                                {statusCfg.label}
+                              </span>
+                            </div>
+                            {canVerify && b.status === 'PENDING' && (
+                              <div className="flex gap-1 shrink-0">
+                                <button onClick={() => handleApproveInline(b)}
+                                  className="p-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white" title="Setujui">
+                                  <CheckCircle className="w-3 h-3" />
+                                </button>
+                                <button onClick={() => handleRejectInline(b)}
+                                  className="p-1.5 rounded-lg bg-rose-500 hover:bg-rose-600 text-white" title="Tolak">
+                                  <XCircle className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Purpose */}
+                    {first.purpose && (
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 italic mt-2">"{first.purpose}"</p>
+                    )}
+
+                    {/* Overdue warning */}
+                    {sessionHasOverdue && (
+                      <div className="mt-2 p-2 rounded-lg bg-rose-100 dark:bg-rose-500/20 border border-rose-300 dark:border-rose-500/40 flex items-center gap-1.5">
+                        <AlertCircle className="w-3 h-3 text-rose-600 shrink-0 animate-pulse" />
+                        <p className="text-[10px] font-bold text-rose-900 dark:text-rose-200">
+                          Terlambat dikembalikan. Hubungi peminjam segera.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -482,7 +629,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       )}
 
-      {/* Info */}
+      {/* Info tips */}
       <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
         <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
@@ -492,14 +639,16 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
           <ul className="list-disc pl-4 space-y-0.5">
             <li>Klik tanggal untuk melihat detail booking hari itu.</li>
             <li>Klik badge kelas di legend untuk filter cepat.</li>
-            <li>Titik berwarna = kelas berbeda. Angka kecil di pojok = jumlah booking.</li>
+            <li>Titik berwarna = kelas berbeda. Angka pojok = jumlah booking.</li>
+            <li>Border merah berkedip = ada alat terlambat dikembalikan.</li>
+            <li>Badge <Package className="w-2.5 h-2.5 inline" /> = sesi multi-alat (1 peminjaman banyak alat).</li>
             {canVerify && (
               <li className="flex items-center gap-1 flex-wrap">
                 Tombol
                 <CheckCircle className="w-3 h-3 text-emerald-500 inline" />
                 /
                 <XCircle className="w-3 h-3 text-rose-500 inline" />
-                di detail untuk verifikasi cepat.
+                untuk verifikasi cepat per alat.
               </li>
             )}
           </ul>
