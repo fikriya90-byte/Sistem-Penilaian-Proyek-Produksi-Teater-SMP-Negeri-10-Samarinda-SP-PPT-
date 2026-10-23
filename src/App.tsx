@@ -156,10 +156,22 @@ const MainLayout: React.FC = () => {
 
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
-  // ✅ FIX: AUTO-ENTER CLASS (TIDAK MELEMPAR GURU KE WELCOME SAAT REFRESH)
+  // ✅ FIX: Timeout jika kelas tidak kunjung termuat
   useEffect(() => {
-    if (!user) return;
-    if (loading) return;
+    if (!loading && user) {
+      if (view === 'in-class' && !activeClass) {
+        const timer = setTimeout(() => {
+          // Jika 4 detik activeClass tetap kosong, lemparkan ke welcome agar tidak stuck
+          setView('welcome');
+        }, 4000); 
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [view, activeClass, loading, user]);
+
+  // AUTO-ENTER CLASS
+  useEffect(() => {
+    if (!user || loading) return;
     if (viewInitRef.current) return;
     
     const isGuruOrAdmin = isGuruPengampu || isAdminRole;
@@ -169,27 +181,17 @@ const MainLayout: React.FC = () => {
       if (s === 'in-class' || s === 'welcome') savedView = s;
     } catch { /* ignore */ }
 
-    if (isGuruOrAdmin) {
-      if (activeClass && savedView === 'in-class') {
+    if (savedView === 'in-class') {
+      if (activeClass) {
         setView('in-class');
         viewInitRef.current = true;
-      } else if (activeClass && savedView === 'welcome') {
-        setView('welcome');
-        viewInitRef.current = true;
-      } else if (!activeClass && savedView !== 'in-class') {
-        // Jika belum ada activeClass dan tidak berniat masuk kelas, tampilkan welcome
-        setView('welcome');
-        viewInitRef.current = true;
       }
-      // Jika !activeClass tapi savedView === 'in-class', kita BIARKAN (tunggu loading di bawah)
+      // Biarkan timeout yang menangani jika activeClass belum siap
     } else {
-      // Siswa logic (sama seperti sebelumnya)
-      if (!user.classId || activeClass) {
-        setView(activeClass ? 'in-class' : 'welcome');
-        viewInitRef.current = true;
-      }
+      setView('welcome');
+      viewInitRef.current = true;
     }
-  }, [user?.uid, isGuruPengampu, isAdminRole, activeClass, loading, user?.classId]);
+  }, [user?.uid, isGuruPengampu, isAdminRole, activeClass, loading]);
 
   useEffect(() => {
     if (!user || !activeClass) return;
@@ -227,9 +229,9 @@ const MainLayout: React.FC = () => {
   if (loading) return <LoadingScreen text="Memuat SP-PPT..." />;
   if (!user) return <LoginModal />;
 
-  // ✅ FIX: Tahan tampilan (Loading) jika seharusnya masuk kelas tapi activeClass belum siap
-  const isClassLoading = view === 'in-class' && !activeClass;
-  if (isClassLoading) return <LoadingScreen text="Menyiapkan Kelas Anda..." />;
+  if (view === 'in-class' && !activeClass) {
+    return <LoadingScreen text="Menyiapkan Kelas Anda..." />;
+  }
 
   const handleLoginConfirmYes = () => { try { sessionStorage.removeItem('spppt-just-logged-in'); } catch {} setShowLoginConfirm(false); };
   const handleLoginConfirmNo = async () => { try { sessionStorage.removeItem('spppt-just-logged-in'); } catch {} setShowLoginConfirm(false); await logout(); };
