@@ -4,14 +4,14 @@ import {
   Users, ChevronLeft, ChevronRight, Check, X, Pencil,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
-import { DIVISIONS } from '../../core/constants';
 import { DivisionType, ScheduleEvent, ScheduleType } from '../../core/types';
 import {
   createSchedule, deleteSchedule, recordAuditLog, subscribeSchedules,
 } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
-import { doc, setDoc, collection, getDocs, query, where, onSnapshot, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, collection, query, where, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+import { PageGuideOverlay } from '../common/PageGuideOverlay';
 
 interface AttendanceConfirm {
   id: string;
@@ -22,8 +22,14 @@ interface AttendanceConfirm {
   confirmedAt: string;
 }
 
+const SCHEDULE_GUIDE = [
+  { title: 'Kalender Agenda Umum', description: 'Halaman ini menampilkan jadwal rapat, latihan, dan agenda umum dari pengurus inti maupun koordinator divisi.' },
+  { title: 'Konfirmasi Kehadiran', description: 'Klik tombol "Hadir" atau "Tidak Hadir" pada agenda untuk memberi tahu pengurus bahwa Anda sudah membaca jadwal.' },
+  { title: 'Hak Akses Edit', description: 'Anda hanya bisa mengedit atau menghapus jadwal yang Anda buat sendiri. Jadwal buatan Pimpro, Sekretaris, atau Sutradara terkunci dan hanya bisa diubah oleh mereka.' }
+];
+
 export const ScheduleModule: React.FC = () => {
-  const { user, activeClass, isTeacher, canCreateGeneralSchedule, canCreateInternalSchedule } = useAuth();
+  const { user, activeClass, isTeacher, isGuruPengampu, isAdminRole, isPimprod, isSekretaris, isSutradara, isAsisten, canCreateGeneralSchedule, canCreateInternalSchedule } = useAuth();
   const { showToast } = useToast();
 
   const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
@@ -33,7 +39,6 @@ export const ScheduleModule: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   
-  // State untuk Modal Form
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<ScheduleEvent | null>(null);
 
@@ -57,7 +62,15 @@ export const ScheduleModule: React.FC = () => {
 
   const canCreate = canCreateGeneralSchedule || canCreateInternalSchedule;
 
-  // Helper untuk format ISO ke format datetime-local (YYYY-MM-DDThh:mm)
+  // ✅ ATURAN EDIT & HAPUS JADWAL
+  const canEditDelete = (event: ScheduleEvent) => {
+    if (!user) return false;
+    // Guru/Admin/Pengurus Inti bisa edit semua
+    if (isTeacher || isGuruPengampu || isAdminRole || isPimprod || isSekretaris || isSutradara || isAsisten) return true;
+    // Siswa biasa/Koor hanya bisa edit jadwal buatannya sendiri
+    return event.createdBy === user.uid;
+  };
+
   const formatLocalDatetime = (isoString: string) => {
     if (!isoString) return '';
     const d = new Date(isoString);
@@ -79,6 +92,10 @@ export const ScheduleModule: React.FC = () => {
   };
 
   const openEdit = (event: ScheduleEvent) => {
+    if (!canEditDelete(event)) {
+      showToast('Anda tidak berwenang mengedit jadwal ini.', 'warning');
+      return;
+    }
     setEditingSchedule(event);
     setTitle(event.title);
     setType(event.type);
@@ -112,32 +129,22 @@ export const ScheduleModule: React.FC = () => {
       };
 
       if (editingSchedule) {
-        // MODE EDIT
         await updateDoc(doc(db, 'schedules', editingSchedule.id), payload);
         await recordAuditLog({
-          userId: user.uid,
-          userName: user.displayName,
-          role: user.role,
-          action: 'UPDATE',
-          targetType: 'Schedule',
-          targetId: editingSchedule.id,
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'UPDATE', targetType: 'Schedule', targetId: editingSchedule.id,
           details: `Mengubah jadwal ${type}: ${title}`,
         });
         showToast('Jadwal berhasil diperbarui!', 'success');
       } else {
-        // MODE CREATE
         const newId = await createSchedule({
           ...payload,
           createdBy: user.uid,
           creatorName: user.displayName,
         });
         await recordAuditLog({
-          userId: user.uid,
-          userName: user.displayName,
-          role: user.role,
-          action: 'CREATE',
-          targetType: 'Schedule',
-          targetId: newId,
+          userId: user.uid, userName: user.displayName, role: user.role,
+          action: 'CREATE', targetType: 'Schedule', targetId: newId,
           details: `Membuat jadwal ${type}: ${title}`,
         });
         showToast('Jadwal berhasil disimpan!', 'success');
@@ -148,10 +155,14 @@ export const ScheduleModule: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string, title: string) => {
-    if (!confirm(`Hapus agenda "${title}"?`)) return;
+  const handleDelete = async (event: ScheduleEvent) => {
+    if (!canEditDelete(event)) {
+      showToast('Anda tidak berwenang menghapus jadwal ini.', 'warning');
+      return;
+    }
+    if (!confirm(`Hapus agenda "${event.title}"?`)) return;
     try {
-      await deleteSchedule(id);
+      await deleteSchedule(event.id);
       showToast('Jadwal dihapus.', 'info');
     } catch (err: any) {
       showToast('Gagal: ' + err.message, 'error');
@@ -163,13 +174,9 @@ export const ScheduleModule: React.FC = () => {
     try {
       const id = `${schedule.id}_${user.uid}`;
       await setDoc(doc(db, 'scheduleConfirmations', id), {
-        id,
-        scheduleId: schedule.id,
-        classId: schedule.classId,
-        userId: user.uid,
-        userName: user.displayName,
-        status,
-        confirmedAt: new Date().toISOString(),
+        id, scheduleId: schedule.id, classId: schedule.classId,
+        userId: user.uid, userName: user.displayName,
+        status, confirmedAt: new Date().toISOString(),
       });
       showToast(`Konfirmasi kehadiran: ${status === 'HADIR' ? 'Hadir' : 'Tidak Hadir'}`, 'success');
     } catch (err: any) {
@@ -186,7 +193,6 @@ export const ScheduleModule: React.FC = () => {
     return true;
   });
 
-  // Kalender helpers
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -232,6 +238,8 @@ export const ScheduleModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <PageGuideOverlay moduleId="jadwal" title="Panduan Kalender Agenda" steps={SCHEDULE_GUIDE} />
+      
       {/* Header */}
       <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
@@ -239,7 +247,7 @@ export const ScheduleModule: React.FC = () => {
             <CalendarIcon className="w-6 h-6" />
           </span>
           <div>
-            <h2 className="text-xl font-extrabold text-slate-900">Master Jadwal & Kalender</h2>
+            <h2 className="text-xl font-extrabold text-slate-900">Jadwal & Agenda</h2>
             <p className="text-xs text-slate-500 font-medium">
               Jadwal produksi, agenda, konfirmasi kehadiran & reminder otomatis
             </p>
@@ -249,11 +257,11 @@ export const ScheduleModule: React.FC = () => {
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl text-xs font-bold">
             <button onClick={() => setViewMode('list')}
               className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'list' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>
-              📋 List
+              List
             </button>
             <button onClick={() => setViewMode('calendar')}
               className={`px-3 py-1.5 rounded-lg transition ${viewMode === 'calendar' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>
-              📅 Kalender
+              Kalender
             </button>
           </div>
           {canCreate && (
@@ -348,6 +356,7 @@ export const ScheduleModule: React.FC = () => {
                 <div className="space-y-2">
                   {filteredSchedules.map(s => {
                     const myConf = myConfirmation(s.id);
+                    const canModify = canEditDelete(s);
                     return (
                       <div key={s.id} className={`p-3 rounded-xl border-l-4 ${typeColor(s.type)}`}>
                         <p className="text-xs font-bold text-slate-900">{s.title}</p>
@@ -363,7 +372,7 @@ export const ScheduleModule: React.FC = () => {
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
                                 myConf.status === 'HADIR' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                               }`}>
-                                {myConf.status === 'HADIR' ? '✅ Konfirmasi: Hadir' : '❌ Konfirmasi: Tidak Hadir'}
+                                {myConf.status === 'HADIR' ? 'Konfirmasi: Hadir' : 'Konfirmasi: Tidak Hadir'}
                               </span>
                             ) : (
                               <div className="flex gap-1">
@@ -379,13 +388,12 @@ export const ScheduleModule: React.FC = () => {
                             )}
                           </div>
                           
-                          {/* Tombol Edit & Hapus untuk Kalender */}
-                          {canCreate && (
+                          {canModify && (
                             <div className="flex items-center gap-1">
-                              <button onClick={() => openEdit(s)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg">
+                              <button onClick={() => openEdit(s)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Edit">
                                 <Pencil className="w-3.5 h-3.5" />
                               </button>
-                              <button onClick={() => handleDelete(s.id, s.title)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg">
+                              <button onClick={() => handleDelete(s)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg" title="Hapus">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
@@ -413,6 +421,7 @@ export const ScheduleModule: React.FC = () => {
               const startObj = new Date(event.startAt);
               const endObj = new Date(event.endAt);
               const myConf = myConfirmation(event.id);
+              const canModify = canEditDelete(event);
 
               return (
                 <div key={event.id} className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -448,7 +457,7 @@ export const ScheduleModule: React.FC = () => {
                       <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${
                         myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'
                       }`}>
-                        {myConf.status === 'HADIR' ? '✅ Hadir' : '❌ Tidak Hadir'}
+                        {myConf.status === 'HADIR' ? 'Hadir' : 'Tidak Hadir'}
                       </span>
                     ) : (
                       <>
@@ -463,14 +472,13 @@ export const ScheduleModule: React.FC = () => {
                       </>
                     )}
                     
-                    {/* Tombol Edit & Hapus untuk List View */}
-                    {canCreate && (
+                    {canModify && (
                       <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200">
                         <button onClick={() => openEdit(event)}
                           className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition" title="Edit Jadwal">
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button onClick={() => handleDelete(event.id, event.title)}
+                        <button onClick={() => handleDelete(event)}
                           className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition" title="Hapus Jadwal">
                           <Trash2 className="w-4 h-4" />
                         </button>
