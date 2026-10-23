@@ -63,6 +63,7 @@ const VIEW_STORAGE_KEY = 'spppt-view';
 const WELCOME_MODULES = [
   'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
   'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
+  'welcome-booking', // ✅ TAMBAHAN: Booking lintas kelas
 ];
 
 const IN_CLASS_MODULES = [
@@ -101,10 +102,11 @@ const WelcomeLayout: React.FC<{
       case 'inter-class': return <InterClassCoordModule />;
       case 'debug-users': return <DebugUsersModule />;
       case 'welcome-broadcast': return <WelcomeBroadcastModule />;
+      case 'welcome-booking': return <BookingModule />; // ✅ TAMBAHAN
       case 'dashboard':
       default:
         return isGuruPengampu || isAdminRole ? (
-          <ManageClassModule embedded onEnterClass={onEnterClass} />
+          <ManageClassModule embedded onEnterClass={onEnterClass} onNavigate={onNavigate} />
         ) : (
           <StudentWelcomePage onEnterClass={onEnterClass} onNavigate={onNavigate} />
         );
@@ -161,7 +163,6 @@ const MainLayout: React.FC = () => {
     if (!loading && user) {
       if (view === 'in-class' && !activeClass) {
         const timer = setTimeout(() => {
-          // Jika 4 detik activeClass tetap kosong, lemparkan ke welcome agar tidak stuck
           setView('welcome');
         }, 4000); 
         return () => clearTimeout(timer);
@@ -186,7 +187,6 @@ const MainLayout: React.FC = () => {
         setView('in-class');
         viewInitRef.current = true;
       }
-      // Biarkan timeout yang menangani jika activeClass belum siap
     } else {
       setView('welcome');
       viewInitRef.current = true;
