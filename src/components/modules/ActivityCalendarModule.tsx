@@ -462,4 +462,43 @@ export const ActivityCalendarModule: React.FC = () => {
                             </span>
                           )}
                           {a.startTime && (
-                            <span className="text-[10px] font-bold text
+                            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-0.5">
+                              <Clock className="w-2.5 h-2.5" /> {a.startTime}{a.endTime ? `-${a.endTime}` : ''}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs font-bold text-slate-900 dark:text-white">{a.title}</p>
+                        {a.location && (
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
+                            <Layers className="w-2.5 h-2.5" /> {a.location}
+                          </p>
+                        )}
+                        {a.extra && (
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 italic">{a.extra}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Info */}
+          <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
+            <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
+              <p className="font-bold mb-0.5">Informasi:</p>
+              <ul className="list-disc pl-4 space-y-0.5">
+                <li>Kalender ini mengumpulkan agenda dari <strong>semua kelas</strong>.</li>
+                <li>Titik warna = jenis agenda berbeda di tanggal itu.</li>
+                <li>Klik tanggal untuk melihat detail semua agenda.</li>
+                <li>Klik kartu statistik di atas untuk filter cepat per jenis.</li>
+              </ul>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
