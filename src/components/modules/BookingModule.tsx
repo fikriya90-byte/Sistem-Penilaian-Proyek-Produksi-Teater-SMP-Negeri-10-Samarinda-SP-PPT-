@@ -58,10 +58,8 @@ interface BookingSettings {
   minLeadDays: number;
 }
 
-// ✅ Aturan peminjaman
 const MAX_BOOKING_MINUTES = 60;
 
-// ✅ Helper waktu
 const timeToMinutes = (timeStr: string): number => {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
@@ -88,7 +86,6 @@ const MUSIC_CATEGORIES = [
   'Lainnya',
 ];
 
-// ✅ ALAT DEFAULT (Sesuai instruksi)
 const DEFAULT_INSTRUMENTS: Omit<Equipment, 'id' | 'classId'>[] = [
   { name: 'Gambus', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Alat musik petik khas Kalimantan' },
   { name: 'Babun', category: 'Alat Musik Tradisional', quantity: 1, condition: 'BAIK', notes: 'Gendang tradisional Kalimantan' },
@@ -139,6 +136,7 @@ export const BookingModule: React.FC = () => {
 
   // Modals & Forms
   const [isEquipmentModalOpen, setIsEquipmentModalOpen] = useState(false);
+  const [editingEquipment, setEditingEquipment] = useState<Equipment | null>(null);
   const [eqName, setEqName] = useState('');
   const [eqCategory, setEqCategory] = useState<string>('Alat Musik Tradisional');
   const [eqQuantity, setEqQuantity] = useState(1);
@@ -287,7 +285,14 @@ export const BookingModule: React.FC = () => {
   };
 
   const openAddEquipment = () => {
+    setEditingEquipment(null);
     setEqName(''); setEqCategory('Alat Musik Tradisional'); setEqQuantity(1); setEqCondition('BAIK'); setEqNotes(''); setIsEquipmentModalOpen(true);
+  };
+
+  const openEditEquipment = (eq: Equipment) => {
+    setEditingEquipment(eq);
+    setEqName(eq.name); setEqCategory(eq.category); setEqQuantity(eq.quantity); setEqCondition(eq.condition); setEqNotes(eq.notes || '');
+    setIsEquipmentModalOpen(true);
   };
 
   const handleSaveEquipment = async (e: React.FormEvent) => {
@@ -295,17 +300,26 @@ export const BookingModule: React.FC = () => {
     if (!user || !activeClass) return;
     if (!eqName.trim()) { showToast('Nama alat musik wajib.', 'warning'); return; }
     
-    const exists = equipment.some(e => e.name.toLowerCase() === eqName.trim().toLowerCase());
+    // Cek duplikat (abaikan dirinya sendiri jika sedang edit)
+    const exists = equipment.some(e => e.name.toLowerCase() === eqName.trim().toLowerCase() && e.id !== editingEquipment?.id);
     if (exists) { showToast(`Alat "${eqName}" sudah ada di katalog.`, 'warning'); return; }
 
     setSubmitting(true);
     try {
-      const newRef = doc(collection(db, 'equipment'));
-      await setDoc(newRef, {
-        id: newRef.id, classId: activeClass.id, name: eqName.trim(), category: eqCategory, quantity: eqQuantity,
-        condition: eqCondition, notes: eqNotes.trim(), isCustom: true, addedByName: user.displayName,
-      });
-      showToast(`Alat musik "${eqName}" ditambahkan.`, 'success');
+      if (editingEquipment) {
+        await updateDoc(doc(db, 'equipment', editingEquipment.id), {
+          name: eqName.trim(), category: eqCategory, quantity: eqQuantity,
+          condition: eqCondition, notes: eqNotes.trim(), updatedAt: new Date().toISOString(),
+        });
+        showToast(`Alat "${eqName}" berhasil diperbarui.`, 'success');
+      } else {
+        const newRef = doc(collection(db, 'equipment'));
+        await setDoc(newRef, {
+          id: newRef.id, classId: activeClass.id, name: eqName.trim(), category: eqCategory, quantity: eqQuantity,
+          condition: eqCondition, notes: eqNotes.trim(), isCustom: true, addedByName: user.displayName,
+        });
+        showToast(`Alat musik "${eqName}" ditambahkan.`, 'success');
+      }
       setIsEquipmentModalOpen(false);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
     finally { setSubmitting(false); }
@@ -510,19 +524,31 @@ export const BookingModule: React.FC = () => {
         {activeTab === 'kalender' && <BookingCalendarModule embedded />}
 
         {activeTab === 'katalog' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredEquipment.map(eq => (
-              <div key={eq.id} className="p-4 rounded-2xl bg-white border shadow-sm space-y-3">
-                <div className="flex justify-between items-start">
-                  <div><h4 className="font-bold">{eq.name}</h4><p className="text-[10px] text-slate-500">{eq.category} (Qty: {eq.quantity})</p></div>
-                  <button onClick={() => handleDeleteEquipment(eq)} className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="font-bold text-slate-800">Katalog Alat ({filteredEquipment.length})</h3>
+              <button onClick={openAddEquipment} className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm">
+                <Plus className="w-4 h-4" /> Tambah Alat Baru
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {filteredEquipment.map(eq => (
+                <div key={eq.id} className="p-4 rounded-2xl bg-white border shadow-sm space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div><h4 className="font-bold">{eq.name}</h4><p className="text-[10px] text-slate-500">{eq.category} (Qty: {eq.quantity})</p></div>
+                    <div className="flex gap-1">
+                      <button onClick={() => openEditEquipment(eq)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg"><Edit3 className="w-4 h-4" /></button>
+                      <button onClick={() => handleDeleteEquipment(eq)} className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                  </div>
+                  <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 bg-indigo-500 text-white rounded font-bold text-xs">Booking Alat Ini</button>
                 </div>
-                <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 bg-indigo-500 text-white rounded font-bold text-xs">Booking Alat Ini</button>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
 
+        {/* MODALS VERIFIKATOR */}
         {isApproveModalOpen && approvingBooking && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
             <form onSubmit={handleConfirmApprove} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
@@ -556,6 +582,31 @@ export const BookingModule: React.FC = () => {
               <p className="text-xs text-amber-600 font-bold">🔒 Minimal H-2 (Tidak dapat diturunkan).</p>
               <div className="flex justify-end gap-2"><button type="button" onClick={() => setIsSettingsModalOpen(false)} className="px-4 py-2 text-xs font-bold">Batal</button><button type="submit" className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl">Simpan</button></div>
             </form>
+          </div>
+        )}
+
+        {/* MODAL TAMBAH / EDIT ALAT (GURU) */}
+        {isEquipmentModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
+            <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-3">
+              <h3 className="text-base font-extrabold text-slate-900">{editingEquipment ? 'Edit Alat' : 'Tambah Alat'}</h3>
+              <form onSubmit={handleSaveEquipment} className="space-y-3">
+                <input type="text" required value={eqName} onChange={(e) => setEqName(e.target.value)} placeholder="Nama Alat" className="w-full px-3 py-2 border rounded-xl text-xs" />
+                <select value={eqCategory} onChange={(e) => setEqCategory(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
+                  {MUSIC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <div className="grid grid-cols-2 gap-3">
+                  <input type="number" required value={eqQuantity} onChange={(e) => setEqQuantity(parseInt(e.target.value)||1)} placeholder="Qty" className="w-full px-3 py-2 border rounded-xl text-xs" />
+                  <select value={eqCondition} onChange={(e) => setEqCondition(e.target.value as any)} className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
+                    <option value="BAIK">Baik</option>
+                    <option value="RUSAK_RINGAN">Rusak Ringan</option>
+                    <option value="RUSAK_BERAT">Rusak Berat</option>
+                  </select>
+                </div>
+                <textarea rows={2} value={eqNotes} onChange={(e) => setEqNotes(e.target.value)} placeholder="Catatan (opsional)" className="w-full px-3 py-2 border rounded-xl text-xs" />
+                <div className="flex justify-end gap-2"><button type="button" onClick={() => setIsEquipmentModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button><button type="submit" disabled={submitting} className="px-5 py-2 bg-amber-500 rounded-xl font-bold text-xs">{submitting ? 'Menyimpan...' : 'Simpan'}</button></div>
+              </form>
+            </div>
           </div>
         )}
       </div>
@@ -607,7 +658,14 @@ export const BookingModule: React.FC = () => {
               <div key={eq.id} className="p-4 rounded-2xl bg-white border shadow-sm space-y-3">
                 <div className="flex justify-between items-start">
                   <div><h4 className="font-bold">{eq.name}</h4><p className="text-[10px] text-slate-500">{eq.category}</p></div>
-                  {(isVerifier || eq.addedByName === user?.displayName) && (<button onClick={() => handleDeleteEquipment(eq)} className="text-rose-500 p-1"><Trash2 className="w-4 h-4" /></button>)}
+                  <div className="flex gap-1">
+                    {(isVerifier || eq.addedByName === user?.displayName) && (
+                      <>
+                        <button onClick={() => openEditEquipment(eq)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg"><Edit3 className="w-4 h-4" /></button>
+                        <button onClick={() => handleDeleteEquipment(eq)} className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                      </>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
                   <span className={`px-2 py-0.5 rounded border font-bold ${getConditionColor(eq.condition)}`}>{eq.condition}</span>
@@ -663,14 +721,26 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
+      {/* MODAL TAMBAH / EDIT ALAT (SISWA) */}
       {isEquipmentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-3">
-            <h3 className="text-base font-extrabold text-slate-900">Tambah Alat</h3>
+            <h3 className="text-base font-extrabold text-slate-900">{editingEquipment ? 'Edit Alat' : 'Tambah Alat'}</h3>
             <form onSubmit={handleSaveEquipment} className="space-y-3">
               <input type="text" required value={eqName} onChange={(e) => setEqName(e.target.value)} placeholder="Nama Alat" className="w-full px-3 py-2 border rounded-xl text-xs" />
-              <input type="number" required value={eqQuantity} onChange={(e) => setEqQuantity(parseInt(e.target.value)||1)} placeholder="Qty" className="w-full px-3 py-2 border rounded-xl text-xs" />
-              <div className="flex justify-end gap-2"><button type="button" onClick={() => setIsEquipmentModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button><button type="submit" className="px-5 py-2 bg-amber-500 rounded-xl font-bold text-xs">Simpan</button></div>
+              <select value={eqCategory} onChange={(e) => setEqCategory(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
+                {MUSIC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <div className="grid grid-cols-2 gap-3">
+                <input type="number" required value={eqQuantity} onChange={(e) => setEqQuantity(parseInt(e.target.value)||1)} placeholder="Qty" className="w-full px-3 py-2 border rounded-xl text-xs" />
+                <select value={eqCondition} onChange={(e) => setEqCondition(e.target.value as any)} className="w-full px-3 py-2 border rounded-xl text-xs bg-white">
+                  <option value="BAIK">Baik</option>
+                  <option value="RUSAK_RINGAN">Rusak Ringan</option>
+                  <option value="RUSAK_BERAT">Rusak Berat</option>
+                </select>
+              </div>
+              <textarea rows={2} value={eqNotes} onChange={(e) => setEqNotes(e.target.value)} placeholder="Catatan (opsional)" className="w-full px-3 py-2 border rounded-xl text-xs" />
+              <div className="flex justify-end gap-2"><button type="button" onClick={() => setIsEquipmentModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button><button type="submit" disabled={submitting} className="px-5 py-2 bg-amber-500 rounded-xl font-bold text-xs">{submitting ? 'Menyimpan...' : 'Simpan'}</button></div>
             </form>
           </div>
         </div>
