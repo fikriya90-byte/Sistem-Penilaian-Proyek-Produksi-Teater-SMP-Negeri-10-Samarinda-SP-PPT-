@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Home, MessageSquare, Users, Wallet, Megaphone, Bell, Calculator,
-  Plus, X,
+  Plus, X, CheckSquare
 } from 'lucide-react';
 
 import { AuthProvider, useAuth } from './core/authContext';
@@ -122,9 +122,7 @@ const WelcomeLayout: React.FC<{
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
         <Sidebar currentModule={currentModule} onNavigate={onNavigate} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} mode="welcome" />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
-          {/* ✅ TAMBAHKAN PANDUAN DI SINI */}
           <PageGuide currentModule={currentModule} isTeacher={isTeacher || isGuruPengampu || isAdminRole} />
-          
           {renderWelcomeModule()}
         </main>
       </div>
@@ -334,10 +332,7 @@ const MainLayout: React.FC = () => {
         <div className="flex-1 flex max-w-7xl w-full mx-auto">
           <Sidebar currentModule={currentModule} onNavigate={handleNavigate} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} mode="in-class" />
           <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
-            
-            {/* ✅ TAMBAHKAN PANDUAN DI SINI UNTUK SISWA & GURU DI DALAM KELAS */}
             <PageGuide currentModule={currentModule} isTeacher={isTeacher || isGuruPengampu || isAdminRole} />
-
             {renderCurrentModule()}
           </main>
         </div>
@@ -357,12 +352,23 @@ const MainLayout: React.FC = () => {
           </button>
         </div>
 
+        {/* ✅ NAVIGASI BAWAH UNTUK MOBILE (Menu RAB diganti menjadi Tugas) */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
-          <button onClick={() => handleNavigate('dashboard')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span></button>
-          <button onClick={() => handleNavigate('informasi')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Megaphone className="w-5 h-5" /><span className="text-[10px] mt-0.5">Info</span></button>
-          <button onClick={() => handleNavigate('notifikasi')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Bell className="w-5 h-5" /><span className="text-[10px] mt-0.5">Notif</span></button>
-          <button onClick={() => handleNavigate('kas')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span></button>
-          <button onClick={() => handleNavigate('rab')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'rab' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Calculator className="w-5 h-5" /><span className="text-[10px] mt-0.5">RAB</span></button>
+          <button onClick={() => handleNavigate('dashboard')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+            <Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span>
+          </button>
+          <button onClick={() => handleNavigate('informasi')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+            <Megaphone className="w-5 h-5" /><span className="text-[10px] mt-0.5">Info</span>
+          </button>
+          <button onClick={() => handleNavigate('notifikasi')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+            <Bell className="w-5 h-5" /><span className="text-[10px] mt-0.5">Notif</span>
+          </button>
+          <button onClick={() => handleNavigate('kas')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+            <Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span>
+          </button>
+          <button onClick={() => handleNavigate('tugas')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'tugas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+            <CheckSquare className="w-5 h-5" /><span className="text-[10px] mt-0.5">Tugas</span>
+          </button>
         </div>
       </div>
       {showLoginConfirm && user && <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />}
