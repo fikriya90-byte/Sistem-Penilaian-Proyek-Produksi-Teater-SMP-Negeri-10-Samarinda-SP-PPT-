@@ -410,4 +410,4 @@ export const SettingsModule: React.FC = () => {
       {isPhotoModalOpen && <PhotoUploadModal currentPhotoUrl={photoURL} userName={user?.displayName || 'Pengguna'} onSave={handleSavePhoto} onClose={() => setIsPhotoModalOpen(false)} />}
     </div>
   );
-};
+}; 
