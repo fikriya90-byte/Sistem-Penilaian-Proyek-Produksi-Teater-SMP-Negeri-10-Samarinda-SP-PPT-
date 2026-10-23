@@ -60,13 +60,11 @@ import { TemplateHubModule } from './components/modules/TemplateHubModule';
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
 
-// Modul yang bisa diakses dari welcome (belum masuk kelas)
 const WELCOME_MODULES = [
   'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
   'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
 ];
 
-// Modul yang WAJIB sudah masuk kelas
 const IN_CLASS_MODULES = [
   'nilai', 'nilai-saya', 'absensi', 'statistik-absensi', 'kas', 'rab', 'tugas',
   'progress-tugas', 'jadwal', 'master-timeline', 'content-schedule', 'division-schedule',
@@ -74,6 +72,14 @@ const IN_CLASS_MODULES = [
   'dokumen', 'struktur', 'studio', 'kelola-siswa', 'kelola-tahapan', 'jadwal-penilaian',
   'moderasi', 'booking', 'admin-dashboard', 'rekap-nilai', 'template-hub',
 ];
+
+const LoadingScreen = ({ text }: { text: string }) => (
+  <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
+    <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
+    <h2 className="text-lg font-black tracking-tight text-amber-400">{text}</h2>
+    <p className="text-xs text-slate-400 mt-1">Sistem Penilaian Produksi Teater SMPN 10 Samarinda</p>
+  </div>
+);
 
 const WelcomeLayout: React.FC<{
   onEnterClass: (c: any) => void;
@@ -107,19 +113,9 @@ const WelcomeLayout: React.FC<{
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
-      <Navbar
-        onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        onNavigate={onNavigate}
-        view="welcome"
-      />
+      <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={onNavigate} view="welcome" />
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
-        <Sidebar
-          currentModule={currentModule}
-          onNavigate={onNavigate}
-          isOpen={isSidebarOpen}
-          onClose={() => setIsSidebarOpen(false)}
-          mode="welcome"
-        />
+        <Sidebar currentModule={currentModule} onNavigate={onNavigate} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} mode="welcome" />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
           {renderWelcomeModule()}
         </main>
@@ -132,8 +128,7 @@ const MainLayout: React.FC = () => {
   const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
 
   const [currentModule, setCurrentModule] = useState<string>(() => {
-    try { return localStorage.getItem(NAV_STORAGE_KEY) || 'dashboard'; }
-    catch { return 'dashboard'; }
+    try { return localStorage.getItem(NAV_STORAGE_KEY) || 'dashboard'; } catch { return 'dashboard'; }
   });
   const [view, setView] = useState<'welcome' | 'in-class'>(() => {
     try {
@@ -152,26 +147,19 @@ const MainLayout: React.FC = () => {
     stateRef.current = { activeClass, isGuruPengampu, isAdminRole, view };
   }, [activeClass, isGuruPengampu, isAdminRole, view]);
 
-  useEffect(() => {
-    try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ }
-  }, [currentModule]);
+  useEffect(() => { try { localStorage.setItem(NAV_STORAGE_KEY, currentModule); } catch { /* ignore */ } }, [currentModule]);
+  useEffect(() => { try { localStorage.setItem(VIEW_STORAGE_KEY, view); } catch { /* ignore */ } }, [view]);
 
   useEffect(() => {
-    try { localStorage.setItem(VIEW_STORAGE_KEY, view); } catch { /* ignore */ }
-  }, [view]);
-
-  useEffect(() => {
-    if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') {
-      setShowLoginConfirm(true);
-    }
+    if (user && sessionStorage.getItem('spppt-just-logged-in') === '1') setShowLoginConfirm(true);
   }, [user]);
 
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
-  // ✅ FIX: AUTO-ENTER CLASS UNTUK SISWA
+  // ✅ FIX: AUTO-ENTER CLASS (TIDAK MELEMPAR GURU KE WELCOME SAAT REFRESH)
   useEffect(() => {
     if (!user) return;
-    if (loading) return; // Tunggu auth selesai
+    if (loading) return;
     if (viewInitRef.current) return;
     
     const isGuruOrAdmin = isGuruPengampu || isAdminRole;
@@ -181,67 +169,49 @@ const MainLayout: React.FC = () => {
       if (s === 'in-class' || s === 'welcome') savedView = s;
     } catch { /* ignore */ }
 
-    // JIKA SISWA PUNYA CLASS ID TAPI ACTIVE CLASS MASIH NULL (sedang loading dari firebase), JANGAN KUNCI VIEW!
-    if (!isGuruOrAdmin && user.classId && !activeClass) {
-      return; 
-    }
-
     if (isGuruOrAdmin) {
-      if (activeClass && savedView === 'in-class') { setView('in-class'); viewInitRef.current = true; }
-      else if (activeClass && savedView === 'welcome') { setView('welcome'); viewInitRef.current = true; }
-      else if (!activeClass) { setView('welcome'); viewInitRef.current = true; }
-    } else {
-      if (activeClass) {
+      if (activeClass && savedView === 'in-class') {
         setView('in-class');
-      } else {
+        viewInitRef.current = true;
+      } else if (activeClass && savedView === 'welcome') {
         setView('welcome');
+        viewInitRef.current = true;
+      } else if (!activeClass && savedView !== 'in-class') {
+        // Jika belum ada activeClass dan tidak berniat masuk kelas, tampilkan welcome
+        setView('welcome');
+        viewInitRef.current = true;
       }
-      viewInitRef.current = true;
+      // Jika !activeClass tapi savedView === 'in-class', kita BIARKAN (tunggu loading di bawah)
+    } else {
+      // Siswa logic (sama seperti sebelumnya)
+      if (!user.classId || activeClass) {
+        setView(activeClass ? 'in-class' : 'welcome');
+        viewInitRef.current = true;
+      }
     }
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass, loading, user?.classId]);
 
-  // AUTO-RUN REMINDER CHECKER
   useEffect(() => {
     if (!user || !activeClass) return;
     const timer = setTimeout(() => {
       import('./utils/reminder').then(({ runAllReminders }) => {
-        runAllReminders(activeClass.id).catch(err =>
-          console.warn('Reminder check error (non-fatal):', err)
-        );
-      }).catch(err => {
-        console.warn('Reminder import error (non-fatal):', err);
-      });
+        runAllReminders(activeClass.id).catch(err => console.warn('Reminder error:', err));
+      }).catch(err => console.warn('Reminder import error:', err));
     }, 3000);
     return () => clearTimeout(timer);
   }, [user?.uid, activeClass?.id]);
 
-  // HANDLER NAVIGASI TERPUSAT
   const handleNavigate = useCallback((target: string) => {
     const st = stateRef.current;
     const needsClass = IN_CLASS_MODULES.includes(target);
     const isWelcomeOnly = WELCOME_MODULES.includes(target);
 
-    if (needsClass && !st.activeClass) {
-      setView('welcome');
-      setCurrentModule(target);
-      return;
-    }
-
-    if (needsClass && st.activeClass) {
-      setView('in-class');
-      setCurrentModule(target);
-      return;
-    }
-
-    if (isWelcomeOnly) {
-      setCurrentModule(target);
-      return;
-    }
-
+    if (needsClass && !st.activeClass) { setView('welcome'); setCurrentModule(target); return; }
+    if (needsClass && st.activeClass) { setView('in-class'); setCurrentModule(target); return; }
+    if (isWelcomeOnly) { setCurrentModule(target); return; }
     setCurrentModule(target);
   }, []);
 
-  // Listener global untuk 'spppt-navigate'
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -251,61 +221,26 @@ const MainLayout: React.FC = () => {
     return () => window.removeEventListener('spppt-navigate', handler);
   }, [handleNavigate]);
 
-  const handleEnterClass = (c: any) => {
-    setActiveClass(c);
-    setView('in-class');
-    setCurrentModule('dashboard');
-  };
+  const handleEnterClass = (c: any) => { setActiveClass(c); setView('in-class'); setCurrentModule('dashboard'); };
+  const handleExitClass = () => { setView('welcome'); setCurrentModule('dashboard'); };
 
-  const handleExitClass = () => {
-    setView('welcome');
-    setCurrentModule('dashboard');
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
-        <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <h2 className="text-lg font-black tracking-tight text-amber-400">Memuat SP-PPT...</h2>
-        <p className="text-xs text-slate-400 mt-1">Sistem Penilaian Produksi Teater SMPN 10 Samarinda</p>
-      </div>
-    );
-  }
-
+  if (loading) return <LoadingScreen text="Memuat SP-PPT..." />;
   if (!user) return <LoginModal />;
 
-  // ✅ FIX: Tampilkan loading jika siswa punya classId tapi activeClass belum siap
-  if (!isGuruPengampu && !isAdminRole && user.classId && !activeClass) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white p-4">
-        <div className="w-14 h-14 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-4" />
-        <h2 className="text-lg font-black tracking-tight text-amber-400">Menyiapkan Kelas Anda...</h2>
-      </div>
-    );
-  }
+  // ✅ FIX: Tahan tampilan (Loading) jika seharusnya masuk kelas tapi activeClass belum siap
+  const isClassLoading = view === 'in-class' && !activeClass;
+  if (isClassLoading) return <LoadingScreen text="Menyiapkan Kelas Anda..." />;
 
-  const handleLoginConfirmYes = () => {
-    try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
-    setShowLoginConfirm(false);
-  };
+  const handleLoginConfirmYes = () => { try { sessionStorage.removeItem('spppt-just-logged-in'); } catch {} setShowLoginConfirm(false); };
+  const handleLoginConfirmNo = async () => { try { sessionStorage.removeItem('spppt-just-logged-in'); } catch {} setShowLoginConfirm(false); await logout(); };
 
-  const handleLoginConfirmNo = async () => {
-    try { sessionStorage.removeItem('spppt-just-logged-in'); } catch { /* ignore */ }
-    setShowLoginConfirm(false);
-    await logout();
-  };
-
-  // =====================================================
-  // ADMIN LAYOUT
-  // =====================================================
   if (isAdminRole) {
     return (
       <>
         <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
           <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={handleNavigate} />
           <div className="flex-1 flex max-w-7xl w-full mx-auto">
-            <Sidebar currentModule={currentModule} onNavigate={handleNavigate}
-              isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+            <Sidebar currentModule={currentModule} onNavigate={handleNavigate} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
             <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
               {currentModule === 'pengaturan' ? <SettingsModule /> :
                currentModule === 'backup' ? <BackupModule /> :
@@ -328,29 +263,15 @@ const MainLayout: React.FC = () => {
             </main>
           </div>
         </div>
-        {showLoginConfirm && user && (
-          <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
-        )}
+        {showLoginConfirm && user && <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />}
       </>
     );
   }
 
-  // =====================================================
-  // WELCOME VIEW
-  // =====================================================
   if (view === 'welcome') {
-    return (
-      <WelcomeLayout
-        onEnterClass={handleEnterClass}
-        onNavigate={handleNavigate}
-        currentModule={currentModule}
-      />
-    );
+    return <WelcomeLayout onEnterClass={handleEnterClass} onNavigate={handleNavigate} currentModule={currentModule} />;
   }
 
-  // =====================================================
-  // IN-CLASS MODULE ROUTER
-  // =====================================================
   const renderCurrentModule = () => {
     switch (currentModule) {
       case 'dashboard': return <DashboardModule onNavigate={handleNavigate} />;
@@ -399,20 +320,9 @@ const MainLayout: React.FC = () => {
   return (
     <>
       <div className="min-h-screen bg-slate-50 dark:bg-transparent flex flex-col antialiased pb-16 lg:pb-0">
-        <Navbar
-          onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          onNavigate={handleNavigate}
-          view="in-class"
-          onExitClass={handleExitClass}
-        />
+        <Navbar onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} onNavigate={handleNavigate} view="in-class" onExitClass={handleExitClass} />
         <div className="flex-1 flex max-w-7xl w-full mx-auto">
-          <Sidebar
-            currentModule={currentModule}
-            onNavigate={handleNavigate}
-            isOpen={isSidebarOpen}
-            onClose={() => setIsSidebarOpen(false)}
-            mode="in-class"
-          />
+          <Sidebar currentModule={currentModule} onNavigate={handleNavigate} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} mode="in-class" />
           <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
             {renderCurrentModule()}
           </main>
@@ -420,78 +330,28 @@ const MainLayout: React.FC = () => {
 
         <DashboardReminder onNavigate={handleNavigate} />
 
-        {/* FLOATING TOOLS — Bisa dibuka/tutup */}
         <div className="fixed bottom-20 lg:bottom-6 right-4 sm:right-6 z-30 print:hidden flex flex-col items-end gap-2.5">
-          {/* Expanded Tools */}
           {showFloatingTools && (
             <>
-              <button onClick={() => { handleNavigate('informasi'); setShowFloatingTools(false); }}
-                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xl border-2 border-amber-400 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
-                title="Papan Pengumuman">
-                <Megaphone className="w-4 h-4" />
-                <span className="text-[11px] font-bold whitespace-nowrap">Papan Info</span>
-              </button>
-              <button onClick={() => { handleNavigate('struktur'); setShowFloatingTools(false); }}
-                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-slate-900 hover:bg-slate-800 text-amber-400 shadow-xl border-2 border-amber-500/40 transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
-                title="Kerabat Kerja">
-                <Users className="w-4 h-4" />
-                <span className="text-[11px] font-bold whitespace-nowrap">Kerabat Kerja</span>
-              </button>
-              <button onClick={() => { handleNavigate('aduan'); setShowFloatingTools(false); }}
-                className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white shadow-xl transition-all duration-200 animate-in fade-in slide-in-from-bottom-2"
-                title="Aduan Cepat">
-                <MessageSquare className="w-4 h-4" />
-                <span className="text-[11px] font-bold whitespace-nowrap">Aduan Cepat</span>
-              </button>
+              <button onClick={() => { handleNavigate('informasi'); setShowFloatingTools(false); }} className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-amber-500 text-slate-950 shadow-xl border-2 border-amber-400"><Megaphone className="w-4 h-4" /><span className="text-[11px] font-bold">Papan Info</span></button>
+              <button onClick={() => { handleNavigate('struktur'); setShowFloatingTools(false); }} className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-slate-900 text-amber-400 shadow-xl border-2 border-amber-500/40"><Users className="w-4 h-4" /><span className="text-[11px] font-bold">Kerabat Kerja</span></button>
+              <button onClick={() => { handleNavigate('aduan'); setShowFloatingTools(false); }} className="flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-full bg-rose-600 text-white shadow-xl"><MessageSquare className="w-4 h-4" /><span className="text-[11px] font-bold">Aduan Cepat</span></button>
             </>
           )}
-
-          {/* Main Toggle FAB */}
-          <button
-            onClick={() => setShowFloatingTools(!showFloatingTools)}
-            className={`p-3.5 rounded-full shadow-2xl border-2 flex items-center justify-center transition-all duration-300 hover:scale-105 ${
-              showFloatingTools
-                ? 'bg-slate-900 text-white border-amber-400'
-                : 'bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 border-amber-400'
-            }`}
-            title={showFloatingTools ? 'Tutup menu cepat' : 'Buka menu cepat'}
-          >
+          <button onClick={() => setShowFloatingTools(!showFloatingTools)} className={`p-3.5 rounded-full shadow-2xl border-2 flex items-center justify-center transition-all ${showFloatingTools ? 'bg-slate-900 text-white border-amber-400' : 'bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950 border-amber-400'}`}>
             {showFloatingTools ? <X className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
           </button>
         </div>
 
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 dark:border-slate-700/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
-          <button onClick={() => handleNavigate('dashboard')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Home className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Beranda</span>
-          </button>
-          <button onClick={() => handleNavigate('informasi')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Megaphone className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Info</span>
-          </button>
-          <button onClick={() => handleNavigate('notifikasi')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Bell className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Notif</span>
-          </button>
-          <button onClick={() => handleNavigate('kas')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Wallet className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">Kas</span>
-          </button>
-          <button onClick={() => handleNavigate('rab')}
-            className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'rab' ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
-            <Calculator className="w-5 h-5" />
-            <span className="text-[10px] mt-0.5">RAB</span>
-          </button>
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
+          <button onClick={() => handleNavigate('dashboard')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span></button>
+          <button onClick={() => handleNavigate('informasi')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'informasi' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Megaphone className="w-5 h-5" /><span className="text-[10px] mt-0.5">Info</span></button>
+          <button onClick={() => handleNavigate('notifikasi')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'notifikasi' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Bell className="w-5 h-5" /><span className="text-[10px] mt-0.5">Notif</span></button>
+          <button onClick={() => handleNavigate('kas')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'kas' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Wallet className="w-5 h-5" /><span className="text-[10px] mt-0.5">Kas</span></button>
+          <button onClick={() => handleNavigate('rab')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'rab' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}><Calculator className="w-5 h-5" /><span className="text-[10px] mt-0.5">RAB</span></button>
         </div>
       </div>
-
-      {showLoginConfirm && user && (
-        <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />
-      )}
+      {showLoginConfirm && user && <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />}
     </>
   );
 };
