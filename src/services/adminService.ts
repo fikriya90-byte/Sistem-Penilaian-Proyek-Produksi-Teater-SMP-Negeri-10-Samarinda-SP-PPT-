@@ -1,12 +1,4 @@
-// =====================================================
-// ADMIN SERVICE
-// Fungsi untuk mengelola akun Guru & Siswa:
-// - Buat akun Guru baru (dari dalam aplikasi)
-// - Reset password via email
-// - Hapus profil user dari Firestore
-// - Perbaiki profil user yang "setengah jadi"
-// =====================================================
-
+// src/services/adminService.ts
 import { initializeApp, getApps, deleteApp } from 'firebase/app';
 import {
   getAuth,
@@ -16,24 +8,33 @@ import {
   sendPasswordResetEmail,
 } from 'firebase/auth';
 import {
-  doc, setDoc, deleteDoc, getDoc,
+  doc, setDoc, deleteDoc, getDoc, collection, getDocs, updateDoc,
 } from 'firebase/firestore';
 import { auth, db } from '../core/firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { UserProfile } from '../core/types';
 
 // =====================================================
-// 1. BUAT AKUN GURU BARU
-// Menggunakan secondary Firebase app agar tidak mengganggu session admin yang sedang login.
+// 1. BUAT AKUN GURU PENGAMPU BARU
+// WAJIB: phone + minimal 1 classId
+// Mendukung multi-kelas (classIds array)
 // =====================================================
 export async function createTeacherAccount(data: {
   email: string;
   password: string;
   displayName: string;
-  phone?: string;
-  classId?: string;
-  className?: string;
+  phone: string;              // ← WAJIB
+  classIds: string[];         // ← WAJIB min 1
+  classNames?: string[];      // opsional, untuk cache display
 }): Promise<{ success: boolean; uid?: string; message: string }> {
+  // Validasi
+  if (!data.phone || data.phone.replace(/\D/g, '').length < 9) {
+    return { success: false, message: 'Nomor WhatsApp wajib diisi (min 9 digit).' };
+  }
+  if (!Array.isArray(data.classIds) || data.classIds.length === 0) {
+    return { success: false, message: 'Guru Pengampu wajib diampu minimal 1 kelas.' };
+  }
+
   const SECONDARY_APP_NAME = 'SecondaryAdminApp';
   let secondaryApp;
 
@@ -56,20 +57,25 @@ export async function createTeacherAccount(data: {
       await updateProfile(res.user, { displayName: data.displayName.trim() });
     } catch (_) { /* non-fatal */ }
 
+    const classNames = data.classNames && data.classNames.length === data.classIds.length
+      ? data.classNames
+      : data.classIds;
+
     const teacherProfile: UserProfile = {
       uid: res.user.uid,
       email: data.email.trim().toLowerCase(),
       displayName: data.displayName.trim(),
       role: 'Guru Pengampu',
-      classId: data.classId || '',
-      className: data.className || '',
-      phone: data.phone?.trim() || '',
+      classId: data.classIds[0],               // primary
+      classIds: data.classIds,                  // all classes
+      className: classNames[0] || '',
+      phone: data.phone.trim(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     await setDoc(doc(db, 'users', res.user.uid), teacherProfile);
 
-    // Simpan credentials guru juga (agar bisa di-reset bila perlu)
+    // Simpan credentials (untuk fitur "Lihat Pass" — diketahui admin)
     try {
       await setDoc(doc(db, 'userCredentials', res.user.uid), {
         uid: res.user.uid,
@@ -77,8 +83,20 @@ export async function createTeacherAccount(data: {
         password: data.password,
         displayName: data.displayName.trim(),
         role: 'Guru Pengampu',
+        classIds: data.classIds,
         createdAt: new Date().toISOString(),
       });
+    } catch (_) { /* non-fatal */ }
+
+    // Update teacherId di setiap kelas yang diampu
+    try {
+      for (const classId of data.classIds) {
+        await updateDoc(doc(db, 'classes', classId), {
+          teacherId: res.user.uid,
+          teacherName: data.displayName.trim(),
+          updatedAt: new Date().toISOString(),
+        }).catch(() => { /* skip if class not exists */ });
+      }
     } catch (_) { /* non-fatal */ }
 
     await signOut(secondaryAuth);
@@ -86,7 +104,7 @@ export async function createTeacherAccount(data: {
     return {
       success: true,
       uid: res.user.uid,
-      message: `Akun guru ${data.email} berhasil dibuat.`,
+      message: `Akun guru ${data.email} berhasil dibuat untuk ${data.classIds.length} kelas.`,
     };
   } catch (err: any) {
     const code = err?.code || '';
@@ -104,7 +122,7 @@ export async function createTeacherAccount(data: {
 }
 
 // =====================================================
-// 2. KIRIM EMAIL RESET PASSWORD (untuk login sendiri)
+// 2. RESET PASSWORD VIA EMAIL
 // =====================================================
 export async function sendPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
   try {
@@ -123,9 +141,7 @@ export async function sendPasswordReset(email: string): Promise<{ success: boole
 }
 
 // =====================================================
-// 3. RESET PASSWORD SISWA DARI GURU
-// Kirim link reset password ke email siswa.
-// Siswa klik link → buat password baru → login ulang.
+// 3. RESET PASSWORD SISWA (dari Guru)
 // =====================================================
 export async function resetStudentPassword(email: string): Promise<{ success: boolean; message: string }> {
   try {
@@ -147,20 +163,12 @@ export async function resetStudentPassword(email: string): Promise<{ success: bo
 }
 
 // =====================================================
-// 4. HAPUS PROFIL USER DARI FIRESTORE
-// Catatan: Firebase Auth user TIDAK ikut terhapus —
-// harus dihapus manual di Firebase Console (Authentication → Users).
+// 4. HAPUS PROFIL USER
 // =====================================================
 export async function deleteUserProfile(uid: string): Promise<{ success: boolean; message: string }> {
   try {
-    // Hapus profil utama
     await deleteDoc(doc(db, 'users', uid));
-
-    // Hapus credentials (jika ada)
-    try {
-      await deleteDoc(doc(db, 'userCredentials', uid));
-    } catch (_) { /* non-fatal */ }
-
+    try { await deleteDoc(doc(db, 'userCredentials', uid)); } catch (_) { /* non-fatal */ }
     return { success: true, message: 'Profil user berhasil dihapus dari Firestore.' };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Gagal menghapus profil.' };
@@ -168,9 +176,7 @@ export async function deleteUserProfile(uid: string): Promise<{ success: boolean
 }
 
 // =====================================================
-// 5. PERBAIKI PROFIL USER YANG "SETENGAH JADI"
-// Kasus: Firebase Auth ada user tapi Firestore tidak punya profil.
-// Fungsi ini membuat profil minimal dari data userCredentials.
+// 5. PERBAIKI PROFIL SETENGAH JADI
 // =====================================================
 export async function repairUserProfile(
   uid: string,
@@ -188,6 +194,7 @@ export async function repairUserProfile(
       displayName: credentials.displayName.trim(),
       role: credentials.role || 'Pemeran',
       classId: credentials.classId || '',
+      classIds: credentials.classId ? [credentials.classId] : [],
       className: credentials.className || '',
       phone: '',
       createdAt: new Date().toISOString(),
@@ -196,10 +203,7 @@ export async function repairUserProfile(
       note: 'Profil dipulihkan otomatis dari userCredentials',
     });
 
-    return {
-      success: true,
-      message: `Profil ${credentials.displayName} berhasil dipulihkan.`,
-    };
+    return { success: true, message: `Profil ${credentials.displayName} berhasil dipulihkan.` };
   } catch (err: any) {
     return { success: false, message: err?.message || 'Gagal memulihkan profil.' };
   }
@@ -207,11 +211,7 @@ export async function repairUserProfile(
 
 // =====================================================
 // 6. PERBAIKI SEMUA PROFIL YANG HILANG (BULK)
-// Ambil semua userCredentials, cek apakah profil ada.
-// Jika tidak ada, buat profil minimal.
 // =====================================================
-import { collection, getDocs } from 'firebase/firestore';
-
 export async function repairAllMissingProfiles(): Promise<{
   success: boolean;
   repaired: number;
@@ -224,7 +224,6 @@ export async function repairAllMissingProfiles(): Promise<{
   let skipped = 0;
 
   try {
-    // Ambil semua credentials
     const credSnap = await getDocs(collection(db, 'userCredentials'));
     if (credSnap.empty) {
       return { success: true, repaired: 0, skipped: 0, errors: [], message: 'Tidak ada credentials tersimpan.' };
@@ -236,18 +235,15 @@ export async function repairAllMissingProfiles(): Promise<{
 
       try {
         const profileSnap = await getDoc(doc(db, 'users', uid));
-        if (profileSnap.exists()) {
-          skipped++;
-          continue;
-        }
+        if (profileSnap.exists()) { skipped++; continue; }
 
-        // Profil hilang → buat ulang
         await setDoc(doc(db, 'users', uid), {
           uid,
           email: cred.email || '',
           displayName: cred.displayName || '(Tanpa Nama)',
           role: cred.role || 'Pemeran',
           classId: cred.classId || '',
+          classIds: Array.isArray(cred.classIds) ? cred.classIds : (cred.classId ? [cred.classId] : []),
           className: cred.className || '',
           phone: '',
           createdAt: cred.createdAt || new Date().toISOString(),
@@ -270,17 +266,14 @@ export async function repairAllMissingProfiles(): Promise<{
     };
   } catch (err: any) {
     return {
-      success: false,
-      repaired,
-      skipped,
-      errors,
+      success: false, repaired, skipped, errors,
       message: 'Gagal: ' + (err?.message || 'Unknown'),
     };
   }
 }
 
 // =====================================================
-// 7. AMBIL CREDENTIALS USER (untuk lihat password)
+// 7. AMBIL CREDENTIALS
 // =====================================================
 export async function getUserCredentials(uid: string): Promise<{
   success: boolean;
