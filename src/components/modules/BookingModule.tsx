@@ -134,7 +134,6 @@ export const BookingModule: React.FC = () => {
   const [filterClass, setFilterClass] = useState<string>('ALL');
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
-  const [isSeeding, setIsSeeding] = useState(false);
   const [stageConfig, setStageConfig] = useState<any>(null);
 
   const isVerifier = !!user && VERIFIER_ROLES.includes(user.role);
@@ -180,6 +179,33 @@ export const BookingModule: React.FC = () => {
   const minBookingDate = calculateMinDate(minLeadDays);
 
   // ═══════════════════════════════════════════════════════
+  // ✅ BUG FIX #1: DEDUPE di UI — meski Firestore masih berisi duplikat,
+  // tampilkan hanya versi unik berdasarkan nama (lowercase).
+  // Pertahankan yang paling awal createdAt (stabil).
+  // ═══════════════════════════════════════════════════════
+  const dedupedEquipment = useMemo(() => {
+    const map: Record<string, Equipment> = {};
+    equipment.forEach(eq => {
+      const key = (eq.name || '').trim().toLowerCase();
+      if (!key) return;
+      const existing = map[key];
+      if (!existing) {
+        map[key] = eq;
+        return;
+      }
+      // Pertahankan yang lebih awal createdAt (kalau ada), else yang pertama
+      const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : Infinity;
+      const eqTime = eq.createdAt ? new Date(eq.createdAt).getTime() : Infinity;
+      if (eqTime < existingTime) {
+        map[key] = eq;
+      }
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+  }, [equipment]);
+
+  const duplicateCount = equipment.length - dedupedEquipment.length;
+
+  // ═══════════════════════════════════════════════════════
   // LOAD SETTINGS (per kelas)
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
@@ -207,15 +233,17 @@ export const BookingModule: React.FC = () => {
   }, [activeClass]);
 
   // ═══════════════════════════════════════════════════════
-  // ✅ KATALOG SHARED — semua kelas lihat semua alat
+  // ✅ BUG FIX #2: KATALOG SHARED — seed sekali via getDocs (bukan onSnapshot)
+  // Mencegah infinite seed loop.
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
-    const qEq = collection(db, 'equipment');
-    const unsubEq = onSnapshot(qEq, async snap => {
-      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Equipment));
-      if (items.length === 0 && !isSeeding) {
-        setIsSeeding(true);
-        try {
+    let isCancelled = false;
+
+    // 1. Seed sekali — cek kosong via getDocs
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'equipment'));
+        if (snap.empty) {
           const batch = writeBatch(db);
           DEFAULT_INSTRUMENTS.forEach(eq => {
             const newRef = doc(collection(db, 'equipment'));
@@ -229,17 +257,27 @@ export const BookingModule: React.FC = () => {
             });
           });
           await batch.commit();
-        } catch (err) { console.warn('Seed error:', err); }
-        finally { setIsSeeding(false); }
-      } else {
-        setEquipment(items);
+        }
+      } catch (err) {
+        console.warn('Seed error:', err);
       }
+    })();
+
+    // 2. Subscribe — tanpa logika seed di dalamnya
+    const unsub = onSnapshot(collection(db, 'equipment'), snap => {
+      if (isCancelled) return;
+      const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Equipment));
+      setEquipment(items);
     });
-    return () => unsubEq();
-  }, [isSeeding]);
+
+    return () => {
+      isCancelled = true;
+      unsub();
+    };
+  }, []);
 
   // ═══════════════════════════════════════════════════════
-  // ✅ BOOKINGS SHARED — semua role lihat semua booking
+  // BOOKINGS SHARED — semua role lihat semua booking
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     const qBk = query(collection(db, 'bookings'));
@@ -266,7 +304,7 @@ export const BookingModule: React.FC = () => {
     }
     if (!confirm(
       'MIGRASI KATALOG KE SELURUH SEKOLAH?\n\n' +
-      '• Semua alat dari semua kelas akan digabung jadi 1 katalog.\n' +
+      `• Ditemukan ${equipment.length} alat, akan di-dedupe jadi ${dedupedEquipment.length} alat unik.\n` +
       '• Alat dengan nama sama akan di-dedupe (ID terlama dipertahankan).\n' +
       '• Booking lama tetap valid karena ID alat pertama dipertahankan.\n\n' +
       'Lanjutkan?'
@@ -283,7 +321,7 @@ export const BookingModule: React.FC = () => {
         const key = (data.name || '').trim().toLowerCase();
         if (!key) return;
         const createdAt = data.createdAt || '';
-        if (!byName[key] || createdAt < byName[key].createdAt) {
+        if (!byName[key] || (createdAt && (!byName[key].createdAt || createdAt < byName[key].createdAt))) {
           if (byName[key]) toDelete.push(byName[key].id);
           byName[key] = { id: d.id, createdAt };
         } else {
@@ -359,7 +397,8 @@ export const BookingModule: React.FC = () => {
     if (!user) return;
     if (!eqName.trim()) { showToast('Nama alat wajib.', 'warning'); return; }
 
-    const exists = equipment.some(e =>
+    // ✅ Cek nama unik (di dedupedEquipment, bukan equipment — agar konsisten dengan apa yang user lihat)
+    const exists = dedupedEquipment.some(e =>
       e.name.toLowerCase() === eqName.trim().toLowerCase() && e.id !== editingEquipment?.id
     );
     if (exists) { showToast(`Alat "${eqName}" sudah ada di katalog.`, 'warning'); return; }
@@ -395,10 +434,12 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
+  // ✅ BUG FIX #4: Hanya verifier yang bisa hapus dari katalog shared
   const handleDeleteEquipment = async (eq: Equipment) => {
     if (!user) return;
-    if (!(isVerifier || eq.addedByName === user.displayName)) {
-      showToast('Tidak berwenang menghapus.', 'warning'); return;
+    if (!isVerifier) {
+      showToast('Hanya Guru/Admin yang dapat menghapus alat dari katalog sekolah.', 'warning');
+      return;
     }
     if (!confirm(`Hapus alat "${eq.name}" dari katalog?`)) return;
     try {
@@ -470,7 +511,7 @@ export const BookingModule: React.FC = () => {
       };
       await setDoc(newRef, bookingData);
 
-      // ✅ NOTIFIKASI REAL-TIME KE GURU KELAS
+      // Notif real-time ke guru kelas
       let guruList: any[] = [];
       try {
         const teachers = await fetchUsersByClass(activeClass.id);
@@ -506,7 +547,7 @@ export const BookingModule: React.FC = () => {
         details: `Booking ${selectedEquipment.name} - ${bookDate} ${bookStart}-${bookEnd}`,
       });
 
-      // ✅ BUILD WA INFO
+      // Build WA info
       const primaryGuru = guruList[0];
       const hasPhone = primaryGuru?.phone;
       let waUrl: string | null = null;
@@ -625,9 +666,9 @@ export const BookingModule: React.FC = () => {
   };
 
   // ═══════════════════════════════════════════════════════
-  // DATA FILTERS
+  // DATA FILTERS — pakai dedupedEquipment
   // ═══════════════════════════════════════════════════════
-  const filteredEquipment = equipment.filter(eq => {
+  const filteredEquipment = dedupedEquipment.filter(eq => {
     if (filterCategory !== 'ALL' && eq.category !== filterCategory) return false;
     if (searchQuery.trim()) return eq.name.toLowerCase().includes(searchQuery.toLowerCase());
     return true;
@@ -658,7 +699,7 @@ export const BookingModule: React.FC = () => {
   };
 
   // ═══════════════════════════════════════════════════════
-  // RENDER: VERIFIKATOR (GURU / ADMIN)
+  // RENDER: VERIFIKATOR
   // ═══════════════════════════════════════════════════════
   if (isVerifier) {
     return (
@@ -675,15 +716,15 @@ export const BookingModule: React.FC = () => {
                 </span>
                 <h2 className="text-xl font-black text-white mt-1">Verifikasi Booking</h2>
                 <p className="text-xs text-slate-300 mt-0.5">
-                  {pendingBookings.length} menunggu • H-{minLeadDays} • Maks 1 jam • Katalog lintas kelas
+                  {pendingBookings.length} menunggu • H-{minLeadDays} • Maks 1 jam • {dedupedEquipment.length} alat tersedia
                 </p>
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              {!isMigrated && equipment.length > 0 && (
+              {!isMigrated && duplicateCount > 0 && (
                 <button onClick={handleMigrateToShared} disabled={submitting}
                   className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-lg disabled:opacity-50">
-                  <Sparkles className="w-3.5 h-3.5" /> Migrasi ke Katalog Sekolah
+                  <Sparkles className="w-3.5 h-3.5" /> Migrasi ({duplicateCount} duplikat)
                 </button>
               )}
               {isMigrated && (
@@ -701,14 +742,15 @@ export const BookingModule: React.FC = () => {
           </div>
         </div>
 
-        {/* Migration notice banner */}
-        {!isMigrated && equipment.length > 0 && (
+        {!isMigrated && duplicateCount > 0 && (
           <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 flex items-start gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <p className="text-sm font-extrabold text-amber-900 dark:text-amber-200">Katalog Belum Terintegrasi</p>
+              <p className="text-sm font-extrabold text-amber-900 dark:text-amber-200">
+                {duplicateCount} Duplikat Terdeteksi di Firestore
+              </p>
               <p className="text-xs text-amber-800 dark:text-amber-300 mt-1 leading-relaxed">
-                Alat-alat masih terpisah per kelas. Klik tombol <strong>Migrasi ke Katalog Sekolah</strong> di atas untuk menggabungkan semuanya jadi satu katalog yang dilihat semua kelas.
+                Katalog sudah menampilkan <strong>{dedupedEquipment.length} alat unik</strong> (duplikat disembunyikan otomatis). Klik <strong>Migrasi</strong> untuk menghapus data duplikat dari database.
               </p>
             </div>
           </div>
@@ -726,11 +768,11 @@ export const BookingModule: React.FC = () => {
             <Calendar className="w-3.5 h-3.5" /> Kalender
           </button>
           <button onClick={() => setActiveTab('katalog')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
-            Katalog Alat ({equipment.length})
+            Katalog Alat ({dedupedEquipment.length})
           </button>
         </div>
 
-        {/* Tab: Pending */}
+        {/* Pending */}
         {activeTab === 'pending' && (
           <div className="space-y-3">
             {pendingBookings.length === 0 ? (
@@ -759,7 +801,7 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Tab: Tabel */}
+        {/* Tabel */}
         {activeTab === 'tabel' && (
           <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
             <table className="w-full text-left text-xs whitespace-nowrap">
@@ -786,14 +828,14 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Tab: Kalender */}
+        {/* Kalender */}
         {activeTab === 'kalender' && <BookingCalendarModule embedded />}
 
-        {/* Tab: Katalog */}
+        {/* Katalog */}
         {activeTab === 'katalog' && (
           <div className="space-y-3">
             <div className="flex justify-between items-center flex-wrap gap-2">
-              <h3 className="font-bold text-slate-800">Katalog Alat ({filteredEquipment.length})</h3>
+              <h3 className="font-bold text-slate-800">Katalog Alat ({filteredEquipment.length} unik)</h3>
               <button onClick={openAddEquipment} className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm">
                 <Plus className="w-4 h-4" /> Tambah Alat Baru
               </button>
@@ -824,7 +866,7 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Modals */}
+        {/* Modals Approve/Reject/Settings/Equipment */}
         {isApproveModalOpen && approvingBooking && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
             <form onSubmit={handleConfirmApprove} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
@@ -906,7 +948,7 @@ export const BookingModule: React.FC = () => {
   }
 
   // ═══════════════════════════════════════════════════════
-  // RENDER: SISWA (PEMINJAM)
+  // RENDER: SISWA
   // ═══════════════════════════════════════════════════════
   return (
     <div className="space-y-6">
@@ -921,7 +963,7 @@ export const BookingModule: React.FC = () => {
             </span>
             <h2 className="text-xl font-black text-white mt-1">Katalog & Jadwal</h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              {equipment.length} alat tersedia • H-{minLeadDays} • Maks 1 Jam
+              {dedupedEquipment.length} alat tersedia • H-{minLeadDays} • Maks 1 Jam
             </p>
           </div>
         </div>
@@ -937,10 +979,9 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         <button onClick={() => setActiveTab('katalog')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
-          Katalog Alat ({equipment.length})
+          Katalog Alat ({dedupedEquipment.length})
         </button>
         <button onClick={() => setActiveTab('jadwal')} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'jadwal' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border'}`}>
           <Table className="w-3.5 h-3.5" /> Jadwal Peminjaman
@@ -973,14 +1014,12 @@ export const BookingModule: React.FC = () => {
                     <h4 className="font-bold">{eq.name}</h4>
                     <p className="text-[10px] text-slate-500">{eq.category}</p>
                   </div>
-                  <div className="flex gap-1">
-                    {(isVerifier || eq.addedByName === user?.displayName) && (
-                      <>
-                        <button onClick={() => openEditEquipment(eq)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg"><Edit3 className="w-4 h-4" /></button>
-                        <button onClick={() => handleDeleteEquipment(eq)} className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg"><Trash2 className="w-4 h-4" /></button>
-                      </>
-                    )}
-                  </div>
+                  {/* Siswa hanya bisa edit/delete alat yang mereka tambahkan sendiri */}
+                  {eq.addedByName === user?.displayName && (
+                    <div className="flex gap-1">
+                      <button onClick={() => openEditEquipment(eq)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg"><Edit3 className="w-4 h-4" /></button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-between items-center text-[11px]">
                   <span className={`px-2 py-0.5 rounded border font-bold ${getConditionColor(eq.condition)}`}>{eq.condition}</span>
@@ -1038,7 +1077,7 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* Modal Booking Form */}
+      {/* Booking Form */}
       {isBookingOpen && selectedEquipment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
           <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 space-y-4">
@@ -1091,7 +1130,7 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      {/* ✅ SUCCESS MODAL + WA */}
+      {/* Success Modal + WA */}
       {isSuccessModalOpen && successBooking && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto overflow-hidden">
