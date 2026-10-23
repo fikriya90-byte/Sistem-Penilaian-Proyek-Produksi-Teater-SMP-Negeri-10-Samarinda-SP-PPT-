@@ -1,7 +1,8 @@
+// src/components/modules/BookingCalendarModule.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Search,
-  CheckCircle, XCircle, Clock, Users, Layers, X, Info,
+  CheckCircle, XCircle, Clock, Users, Layers, X, Info, Music,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -31,7 +32,6 @@ interface BookingEvent {
   createdAt: string;
 }
 
-// ✅ Palette warna per kelas
 const CLASS_COLORS = [
   { bg: 'bg-blue-100 dark:bg-blue-500/20', text: 'text-blue-800 dark:text-blue-200', border: 'border-blue-400 dark:border-blue-500/50', dot: 'bg-blue-500' },
   { bg: 'bg-emerald-100 dark:bg-emerald-500/20', text: 'text-emerald-800 dark:text-emerald-200', border: 'border-emerald-400 dark:border-emerald-500/50', dot: 'bg-emerald-500' },
@@ -49,18 +49,15 @@ const STATUS_CONFIG = {
   REJECTED: { label: 'Ditolak', bg: 'bg-rose-100 dark:bg-rose-500/20', text: 'text-rose-800 dark:text-rose-200', border: 'border-rose-300 dark:border-rose-500/40' },
 };
 
-// ✅ Helper
 const getMonthDays = (date: Date): (Date | null)[] => {
   const year = date.getFullYear();
   const month = date.getMonth();
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const days: (Date | null)[] = [];
-  const startWeekday = (firstDay.getDay() + 6) % 7; // Senin = 0
+  const startWeekday = (firstDay.getDay() + 6) % 7;
   for (let i = 0; i < startWeekday; i++) days.push(null);
-  for (let i = 1; i <= lastDay.getDate(); i++) {
-    days.push(new Date(year, month, i));
-  }
+  for (let i = 1; i <= lastDay.getDate(); i++) days.push(new Date(year, month, i));
   while (days.length % 7 !== 0) days.push(null);
   return days;
 };
@@ -101,7 +98,6 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     user?.role === 'Guru Pembina' ||
     user?.role === 'Super Admin';
 
-  // Subscribe bookings — semua kelas
   useEffect(() => {
     const classIds = classes.map(c => c.id);
     if (classIds.length === 0) { setLoading(false); return; }
@@ -132,23 +128,18 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     return () => unsub();
   }, [classes]);
 
-  // Map classId → color
   const classColorMap = useMemo(() => {
     const map: Record<string, typeof CLASS_COLORS[0]> = {};
-    classes.forEach((c, i) => {
-      map[c.id] = CLASS_COLORS[i % CLASS_COLORS.length];
-    });
+    classes.forEach((c, i) => { map[c.id] = CLASS_COLORS[i % CLASS_COLORS.length]; });
     return map;
   }, [classes]);
 
-  // Unique equipment names
   const uniqueEquipments = useMemo(() => {
     const set = new Set<string>();
     bookings.forEach(b => set.add(b.equipmentName));
     return Array.from(set).sort();
   }, [bookings]);
 
-  // Filter
   const filteredBookings = useMemo(() => {
     return bookings.filter(b => {
       if (filterClass !== 'ALL' && b.classId !== filterClass) return false;
@@ -167,7 +158,6 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     });
   }, [bookings, filterClass, filterStatus, filterEquipment, searchQuery]);
 
-  // Group by date
   const bookingsByDate = useMemo(() => {
     const map: Record<string, BookingEvent[]> = {};
     filteredBookings.forEach(b => {
@@ -178,7 +168,6 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     return map;
   }, [filteredBookings]);
 
-  // Stats bulan ini
   const monthStats = useMemo(() => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -208,9 +197,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     if (!confirm(`Setujui booking "${booking.equipmentName}" dari ${booking.className}?\n\n${booking.date} ${booking.startTime}-${booking.endTime}`)) return;
     try {
       await updateDoc(doc(db, 'bookings', booking.id), {
-        status: 'APPROVED',
-        approvedBy: user.displayName,
-        approvedAt: new Date().toISOString(),
+        status: 'APPROVED', approvedBy: user.displayName, approvedAt: new Date().toISOString(),
       });
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
@@ -218,9 +205,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         details: `Setujui via kalender: ${booking.equipmentName} (${booking.className})`,
       });
       showToast('Booking disetujui.', 'success');
-    } catch (err: any) {
-      showToast('Gagal: ' + err.message, 'error');
-    }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   const handleRejectInline = async (booking: BookingEvent) => {
@@ -229,11 +214,8 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
     if (!reason || !reason.trim()) return;
     try {
       await updateDoc(doc(db, 'bookings', booking.id), {
-        status: 'REJECTED',
-        approvedBy: user.displayName,
-        approvedAt: new Date().toISOString(),
-        rejectionReason: reason.trim(),
-        rejectionGuidance: 'Silakan ajukan ulang sesuai kesepakatan.',
+        status: 'REJECTED', approvedBy: user.displayName, approvedAt: new Date().toISOString(),
+        rejectionReason: reason.trim(), rejectionGuidance: 'Silakan ajukan ulang sesuai kesepakatan.',
       });
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
@@ -241,16 +223,19 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         details: `Tolak via kalender: ${booking.equipmentName} (${booking.className})`,
       });
       showToast('Booking ditolak.', 'info');
-    } catch (err: any) {
-      showToast('Gagal: ' + err.message, 'error');
-    }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
   const selectedBookings = selectedDate ? (bookingsByDate[selectedDate] || []) : [];
 
+  const getPriorityCfg = (p: string) => STATUS_CONFIG[p as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.PENDING;
+
+  if (loading) {
+    return <div className="p-12 text-center text-slate-400 text-xs">Memuat kalender...</div>;
+  }
+
   return (
     <div className="space-y-4">
-      {/* HEADER (kalau tidak embedded) */}
       {!embedded && (
         <div className="p-5 rounded-3xl bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 text-white shadow-xl border border-indigo-500/20">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -269,8 +254,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
               </div>
             </div>
             {onClose && (
-              <button onClick={onClose}
-                className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white">
+              <button onClick={onClose} className="p-2 rounded-lg bg-white/10 hover:bg-white/20 text-white">
                 <X className="w-5 h-5" />
               </button>
             )}
@@ -278,7 +262,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       )}
 
-      {/* STATS */}
+      {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
           <p className="text-[9px] sm:text-[10px] text-slate-500 dark:text-slate-400 font-semibold uppercase">Total Bulan Ini</p>
@@ -298,7 +282,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       </div>
 
-      {/* FILTER */}
+      {/* Filters */}
       <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -325,12 +309,10 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </select>
       </div>
 
-      {/* CALENDAR */}
+      {/* Calendar */}
       <div className="p-3 sm:p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-        {/* Nav */}
         <div className="flex items-center justify-between gap-2 mb-3">
-          <button onClick={goPrevMonth}
-            className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
+          <button onClick={goPrevMonth} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="text-center flex-1">
@@ -339,18 +321,15 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
             </h3>
           </div>
           <div className="flex items-center gap-1">
-            <button onClick={goToday}
-              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-bold">
+            <button onClick={goToday} className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 text-[10px] font-bold">
               Hari Ini
             </button>
-            <button onClick={goNextMonth}
-              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
+            <button onClick={goNextMonth} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Headers */}
         <div className="grid grid-cols-7 gap-1 mb-1">
           {DAY_NAMES.map(d => (
             <div key={d} className="py-1.5 text-center text-[9px] sm:text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">
@@ -359,7 +338,6 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
           ))}
         </div>
 
-        {/* Days */}
         <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
           {calendarDays.map((day, i) => {
             if (!day) return <div key={`empty-${i}`} className="aspect-square" />;
@@ -372,26 +350,19 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
             return (
               <button key={i} onClick={() => setSelectedDate(dateStr === selectedDate ? null : dateStr)}
                 className={`aspect-square p-0.5 sm:p-1 rounded-lg border-2 flex flex-col items-center justify-start transition relative ${
-                  isSelected
-                    ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 ring-2 ring-indigo-300'
-                    : isToday
-                      ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
-                      : dayBookings.length > 0
-                        ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500/50'
-                        : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
+                  isSelected ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-500/20 ring-2 ring-indigo-300'
+                    : isToday ? 'border-amber-400 bg-amber-50 dark:bg-amber-500/10'
+                    : dayBookings.length > 0 ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-indigo-300 dark:hover:border-indigo-500/50'
+                    : 'border-slate-100 dark:border-slate-800 hover:border-slate-200 dark:hover:border-slate-700'
                 }`}>
-                <span className={`text-[10px] sm:text-[11px] font-bold ${
-                  isToday ? 'text-amber-700 dark:text-amber-300' : 'text-slate-800 dark:text-slate-200'
-                }`}>
+                <span className={`text-[10px] sm:text-[11px] font-bold ${isToday ? 'text-amber-700 dark:text-amber-300' : 'text-slate-800 dark:text-slate-200'}`}>
                   {day.getDate()}
                 </span>
                 {dayBookings.length > 0 && (
                   <div className="flex gap-0.5 mt-0.5 flex-wrap justify-center">
                     {uniqueClassIds.slice(0, 3).map(cid => {
                       const color = classColorMap[cid];
-                      return (
-                        <span key={cid} className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${color?.dot || 'bg-slate-400'}`} />
-                      );
+                      return <span key={cid} className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${color?.dot || 'bg-slate-400'}`} />;
                     })}
                     {uniqueClassIds.length > 3 && (
                       <span className="text-[7px] text-slate-400 leading-none">+{uniqueClassIds.length - 3}</span>
@@ -409,7 +380,7 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       </div>
 
-      {/* LEGEND */}
+      {/* Legend */}
       {monthStats.byClass.length > 0 && (
         <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
           <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-2 flex items-center gap-1">
@@ -427,12 +398,8 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
                   }`}>
                   <div className="flex items-center gap-1.5">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${color.dot}`} />
-                    <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {cls.name}
-                    </span>
-                    <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 ml-auto">
-                      {count}
-                    </span>
+                    <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate">{cls.name}</span>
+                    <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 ml-auto">{count}</span>
                   </div>
                 </button>
               );
@@ -441,25 +408,20 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       )}
 
-      {/* DETAIL HARI TERPILIH */}
+      {/* Detail */}
       {selectedDate && (
         <div className="p-4 rounded-3xl bg-white dark:bg-slate-900 border-2 border-indigo-200 dark:border-indigo-500/40 shadow-md">
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div>
-              <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase">
-                Detail Booking
-              </p>
+              <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400 uppercase">Detail Booking</p>
               <h3 className="text-sm font-black text-slate-900 dark:text-white">
                 {new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', {
                   weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
                 })}
               </h3>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                {selectedBookings.length} booking
-              </p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">{selectedBookings.length} booking</p>
             </div>
-            <button onClick={() => setSelectedDate(null)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
+            <button onClick={() => setSelectedDate(null)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -486,19 +448,17 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
                             {statusCfg.label}
                           </span>
                           <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-0.5">
-                            <Clock className="w-2.5 h-2.5" /> {b.startTime}–{b.endTime}
+                            <Clock className="w-2.5 h-2.5" /> {b.startTime}-{b.endTime}
                           </span>
                         </div>
-                        <p className="text-xs font-bold text-slate-900 dark:text-white">
-                          🎵 {b.equipmentName}
+                        <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                          <Music className="w-3 h-3 text-slate-400" /> {b.equipmentName}
                         </p>
                         <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
                           Peminjam: <strong>{b.bookerName}</strong> ({b.bookerRole})
                         </p>
                         {b.purpose && (
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 italic mt-1">
-                            "{b.purpose}"
-                          </p>
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400 italic mt-1">"{b.purpose}"</p>
                         )}
                       </div>
                       {canVerify && b.status === 'PENDING' && (
@@ -522,16 +482,26 @@ export const BookingCalendarModule: React.FC<Props> = ({ embedded = false, onClo
         </div>
       )}
 
-      {/* INFO */}
+      {/* Info */}
       <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
         <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
         <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <p className="font-bold mb-0.5">💡 Tips:</p>
+          <p className="font-bold mb-0.5 flex items-center gap-1">
+            <Info className="w-3 h-3" /> Tips:
+          </p>
           <ul className="list-disc pl-4 space-y-0.5">
             <li>Klik tanggal untuk melihat detail booking hari itu.</li>
             <li>Klik badge kelas di legend untuk filter cepat.</li>
             <li>Titik berwarna = kelas berbeda. Angka kecil di pojok = jumlah booking.</li>
-            {canVerify && <li>Tombol <strong>✓ / ✗</strong> langsung di detail untuk verifikasi cepat.</li>}
+            {canVerify && (
+              <li className="flex items-center gap-1 flex-wrap">
+                Tombol
+                <CheckCircle className="w-3 h-3 text-emerald-500 inline" />
+                /
+                <XCircle className="w-3 h-3 text-rose-500 inline" />
+                di detail untuk verifikasi cepat.
+              </li>
+            )}
           </ul>
         </div>
       </div>
