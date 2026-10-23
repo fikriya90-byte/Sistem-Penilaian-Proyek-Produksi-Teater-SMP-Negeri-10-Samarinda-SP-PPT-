@@ -25,6 +25,7 @@ export interface DriveConfig {
   access: 'EDITOR' | 'VIEWER';
 }
 
+// ✅ PASTIKAN BARIS INI ADA DAN DIEKSPOR
 export const DRIVE_CONFIG: Record<DriveFolderKey, DriveConfig> = {
   utama:       { label: 'Folder Utama Produksi', desc: 'Folder induk', role: 'Pimpinan Produksi / Sekretaris', access: 'EDITOR' },
   publikasi:   { label: 'Publikasi & Dokumentasi', desc: 'Foto/Video', role: 'Koordinator Publikasi', access: 'EDITOR' }, 
