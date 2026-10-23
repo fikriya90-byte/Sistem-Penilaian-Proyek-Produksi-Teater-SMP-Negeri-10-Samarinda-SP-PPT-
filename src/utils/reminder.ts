@@ -1,12 +1,12 @@
 // src/utils/reminder.ts
-import { collection, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
+import { collection, doc, getDocs, query, setDoc, where, writeBatch, onSnapshot } from 'firebase/firestore';
 import { db } from '../core/firebase';
 import { fetchUsersByClass } from '../services/firestoreService';
 
 const RETURN_TOLERANCE_MINUTES = 10;
 
 // ==========================================
-// 1. REMINDER DEADLINE (Tugas Siswa)
+// 1. REMINDER DEADLINE
 // ==========================================
 export async function checkDeadlineReminders(classId: string) {
   try {
@@ -40,7 +40,7 @@ export async function checkDeadlineReminders(classId: string) {
 
       const users = await fetchUsersByClass(classId);
       const recipients = users.filter(u => {
-        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return false;
+        if (u.role === 'Guru Pengampu') return false;
         if (u.role === 'Admin' || u.role === 'Super Admin') return false;
         if (deadline.targetScope === 'SEMUA') return true;
         if (deadline.targetScope === 'DIVISI') return u.divisionName === deadline.targetDivision;
@@ -118,7 +118,7 @@ export async function checkScheduleReminders(classId: string) {
 
       const users = await fetchUsersByClass(classId);
       const recipients = users.filter(u => {
-        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return false;
+        if (u.role === 'Guru Pengampu') return false;
         if (u.role === 'Admin' || u.role === 'Super Admin') return false;
         return true;
       });
@@ -192,7 +192,7 @@ export async function checkKasReminders(classId: string) {
 
       const users = await fetchUsersByClass(classId);
       const unpaid = users.filter(u => {
-        if (u.role === 'Guru Pengampu' || u.role === 'Guru Pembina') return false;
+        if (u.role === 'Guru Pengampu') return false;
         if (u.role === 'Admin' || u.role === 'Super Admin') return false;
         return !paidIds.has(u.uid);
       });
@@ -218,7 +218,7 @@ export async function checkKasReminders(classId: string) {
       });
 
       const teachers = users.filter(u =>
-        u.role === 'Bendahara' || u.role === 'Guru Pengampu' || u.role === 'Guru Pembina'
+        u.role === 'Bendahara' || u.role === 'Guru Pengampu'
       );
       teachers.forEach(t => {
         const notifRef = doc(collection(db, 'notifications'));
@@ -269,8 +269,9 @@ export async function checkBookingReminders(classId: string) {
     if (bookSnap.empty) return;
 
     const users = await fetchUsersByClass(classId);
+    // Hanya Guru Pengampu (hapus Guru Pembina — role ini sudah tidak ada)
     const teachers = users.filter(u =>
-      u.role === 'Guru Pengampu' || u.role === 'Guru Pembina' || u.role === 'Admin' || u.role === 'Super Admin'
+      u.role === 'Guru Pengampu' || u.role === 'Admin' || u.role === 'Super Admin'
     );
     if (teachers.length === 0) return;
 
@@ -328,8 +329,7 @@ export async function checkBookingReminders(classId: string) {
 }
 
 // ==========================================
-// 5. REMINDER BOOKING OVERDUE (BARU)
-// Auto-mark CHECKED_OUT yang lewat toleransi 10 menit jadi OVERDUE
+// 5. REMINDER BOOKING OVERDUE (auto-mark)
 // ==========================================
 export async function checkOverdueBookings(classId: string) {
   try {
@@ -338,7 +338,6 @@ export async function checkOverdueBookings(classId: string) {
     const snap = await getDocs(q);
     if (snap.empty) return;
 
-    // Deteksi item overdue
     const overdueItems: any[] = [];
     snap.docs.forEach(d => {
       const b = d.data();
@@ -356,13 +355,10 @@ export async function checkOverdueBookings(classId: string) {
 
     if (overdueItems.length === 0) return;
 
-    // Ambil guru untuk notifikasi
     const users = await fetchUsersByClass(classId);
+    // Hanya Guru Pengampu kelas ini (hapus Guru Pembina)
     const teachers = users.filter(u =>
-      u.role === 'Guru Pengampu' ||
-      u.role === 'Guru Pembina' ||
-      u.role === 'Admin' ||
-      u.role === 'Super Admin'
+      u.role === 'Guru Pengampu' || u.role === 'Admin' || u.role === 'Super Admin'
     );
 
     const batch = writeBatch(db);
@@ -371,7 +367,6 @@ export async function checkOverdueBookings(classId: string) {
     for (const item of overdueItems) {
       const reminderKey = 'OVERDUE_BOOKING';
 
-      // Cek log agar tidak spam
       const sentQ = query(
         collection(db, 'reminderLog'),
         where('itemId', '==', item.id),
@@ -380,7 +375,6 @@ export async function checkOverdueBookings(classId: string) {
       const sentSnap = await getDocs(sentQ);
       if (!sentSnap.empty) continue;
 
-      // Tandai status OVERDUE jika masih CHECKED_OUT
       if (item.status === 'CHECKED_OUT') {
         batch.update(doc(db, 'bookings', item.id), {
           status: 'OVERDUE',
@@ -388,7 +382,6 @@ export async function checkOverdueBookings(classId: string) {
         });
       }
 
-      // Notif ke guru
       teachers.forEach(t => {
         const notifRef = doc(collection(db, 'notifications'));
         batch.set(notifRef, {
@@ -396,7 +389,7 @@ export async function checkOverdueBookings(classId: string) {
           userId: t.uid,
           classId,
           title: `Alat Terlambat: ${item.equipmentName}`,
-          message: `${item.bookerName} (${item.className}) belum mengembalikan ${item.equipmentName}. Batas waktu ${item.endTime}, sudah terlewat. Segera hubungi siswa untuk pengembalian.`,
+          message: `${item.bookerName} (${item.className}) belum mengembalikan ${item.equipmentName}. Batas ${item.endTime}, sudah terlewat. Segera hubungi siswa.`,
           category: 'Urgent',
           read: false,
           link: 'welcome-booking',
@@ -404,7 +397,6 @@ export async function checkOverdueBookings(classId: string) {
         });
       });
 
-      // Log
       const logRef = doc(collection(db, 'reminderLog'));
       batch.set(logRef, {
         id: logRef.id,
