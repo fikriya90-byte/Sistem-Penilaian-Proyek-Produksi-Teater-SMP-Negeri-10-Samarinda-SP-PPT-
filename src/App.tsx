@@ -13,6 +13,7 @@ import { LoginModal } from './components/auth/LoginModal';
 import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
 import { StudentWelcomePage } from './components/welcome/StudentWelcomePage';
 import { DashboardReminder } from './components/common/DashboardReminder';
+import { PageGuide } from './components/common/PageGuide'; // ✅ IMPORT PANDUAN BARU
 
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
@@ -56,7 +57,7 @@ import { RABModule } from './components/modules/RABModule';
 import { WelcomeBroadcastModule } from './components/modules/WelcomeBroadcastModule';
 import { GradeRecapModule } from './components/modules/GradeRecapModule';
 import { TemplateHubModule } from './components/modules/TemplateHubModule';
-import { ActivityCalendarModule } from './components/modules/ActivityCalendarModule'; // ✅ BARU
+import { ActivityCalendarModule } from './components/modules/ActivityCalendarModule';
 
 const NAV_STORAGE_KEY = 'spppt-current-module';
 const VIEW_STORAGE_KEY = 'spppt-view';
@@ -72,7 +73,7 @@ const IN_CLASS_MODULES = [
   'progress-tugas', 'jadwal', 'master-timeline', 'content-schedule', 'division-schedule',
   'director-timeline', 'properti', 'musik', 'rias', 'busana', 'broadcast', 'aduan',
   'dokumen', 'struktur', 'studio', 'kelola-siswa', 'kelola-tahapan', 'jadwal-penilaian',
-  'moderasi', 'booking', 'admin-dashboard', 'rekap-nilai', 'template-hub', 'activity-calendar', // ✅ BARU
+  'moderasi', 'booking', 'admin-dashboard', 'rekap-nilai', 'template-hub', 'activity-calendar',
 ];
 
 const LoadingScreen = ({ text }: { text: string }) => (
@@ -88,7 +89,7 @@ const WelcomeLayout: React.FC<{
   onNavigate: (m: string) => void;
   currentModule: string;
 }> = ({ onEnterClass, onNavigate, currentModule }) => {
-  const { isGuruPengampu, isAdminRole } = useAuth();
+  const { isGuruPengampu, isAdminRole, isTeacher } = useAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const renderWelcomeModule = () => {
@@ -121,6 +122,9 @@ const WelcomeLayout: React.FC<{
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
         <Sidebar currentModule={currentModule} onNavigate={onNavigate} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} mode="welcome" />
         <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
+          {/* ✅ TAMBAHKAN PANDUAN DI SINI */}
+          <PageGuide currentModule={currentModule} isTeacher={isTeacher || isGuruPengampu || isAdminRole} />
+          
           {renderWelcomeModule()}
         </main>
       </div>
@@ -130,7 +134,7 @@ const WelcomeLayout: React.FC<{
 };
 
 const MainLayout: React.FC = () => {
-  const { user, loading, activeClass, isGuruPengampu, isAdminRole, logout, setActiveClass } = useAuth();
+  const { user, loading, activeClass, isGuruPengampu, isAdminRole, isTeacher, logout, setActiveClass } = useAuth();
 
   const [currentModule, setCurrentModule] = useState<string>(() => {
     try { return localStorage.getItem(NAV_STORAGE_KEY) || 'dashboard'; } catch { return 'dashboard'; }
@@ -261,7 +265,7 @@ const MainLayout: React.FC = () => {
                currentModule === 'rab' ? <RABModule /> :
                currentModule === 'rekap-nilai' ? <GradeRecapModule /> :
                currentModule === 'template-hub' ? <TemplateHubModule /> :
-               currentModule === 'activity-calendar' ? <ActivityCalendarModule /> : // ✅ BARU
+               currentModule === 'activity-calendar' ? <ActivityCalendarModule /> :
                <AdminModule />}
             </main>
           </div>
@@ -294,7 +298,7 @@ const MainLayout: React.FC = () => {
       case 'content-schedule': return <ContentScheduleModule />;
       case 'division-schedule': return <DivisionScheduleModule />;
       case 'director-timeline': return <DirectorTimelineModule />;
-      case 'activity-calendar': return <ActivityCalendarModule />; // ✅ BARU
+      case 'activity-calendar': return <ActivityCalendarModule />;
       case 'properti': return <PropertyModule />;
       case 'musik': return <MusicCueModule />;
       case 'rias': return <FaceChartModule />;
@@ -330,6 +334,10 @@ const MainLayout: React.FC = () => {
         <div className="flex-1 flex max-w-7xl w-full mx-auto">
           <Sidebar currentModule={currentModule} onNavigate={handleNavigate} isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} mode="in-class" />
           <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-32 lg:pb-24 overflow-y-auto max-w-full">
+            
+            {/* ✅ TAMBAHKAN PANDUAN DI SINI UNTUK SISWA & GURU DI DALAM KELAS */}
+            <PageGuide currentModule={currentModule} isTeacher={isTeacher || isGuruPengampu || isAdminRole} />
+
             {renderCurrentModule()}
           </main>
         </div>
