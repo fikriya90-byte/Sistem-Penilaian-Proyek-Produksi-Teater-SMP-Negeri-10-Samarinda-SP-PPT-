@@ -2,22 +2,21 @@ import React, { useState, useEffect } from 'react';
 import {
   Flag, PlusCircle, X, Save, Edit3, Trash2, Search, Info,
   Settings2, AlertTriangle, Circle, Play, CheckCircle,
-  GitBranch, List, Check,
+  GitBranch, List, Check, BookOpen, Palette, Star,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
 import {
-  collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc,
+  collection, query, where, onSnapshot, doc, setDoc, deleteDoc,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
 import { ProductionStage } from '../../core/types';
 import { STAGES } from '../../core/constants';
+import { PageGuideOverlay } from '../common/PageGuideOverlay';
 
-// ═══════════════════════════════════════════════════════
 // TIPE DATA
-// ═══════════════════════════════════════════════════════
 interface TimelineConfig {
   id: string;
   classId: string;
@@ -51,11 +50,11 @@ interface TimelineWeek {
 
 type ViewMode = 'line' | 'table';
 
-const PHASE_CONFIG: Record<ProductionStage, { label: string; color: string; bg: string; icon: string }> = {
-  PERSIAPAN:   { label: 'Persiapan',   color: 'text-amber-700',   bg: 'bg-amber-100 border-amber-300',     icon: '📖' },
-  PELAKSANAAN: { label: 'Pelaksanaan', color: 'text-blue-700',    bg: 'bg-blue-100 border-blue-300',       icon: '🎨' },
-  PERTUNJUKAN: { label: 'Pertunjukan', color: 'text-purple-700',  bg: 'bg-purple-100 border-purple-300',   icon: '⭐' },
-  PASCA:       { label: 'Pasca',       color: 'text-emerald-700', bg: 'bg-emerald-100 border-emerald-300', icon: '🏁' },
+const PHASE_CONFIG: Record<ProductionStage, { label: string; color: string; bg: string; icon: any }> = {
+  PERSIAPAN:   { label: 'Persiapan',   color: 'text-amber-700',   bg: 'bg-amber-100 border-amber-300',     icon: BookOpen },
+  PELAKSANAAN: { label: 'Pelaksanaan', color: 'text-blue-700',    bg: 'bg-blue-100 border-blue-300',       icon: Palette },
+  PERTUNJUKAN: { label: 'Pertunjukan', color: 'text-purple-700',  bg: 'bg-purple-100 border-purple-300',   icon: Star },
+  PASCA:       { label: 'Pasca',       color: 'text-emerald-700', bg: 'bg-emerald-100 border-emerald-300', icon: Flag },
 };
 
 const STATUS_CONFIG = {
@@ -64,11 +63,15 @@ const STATUS_CONFIG = {
   DONE:    { label: 'Selesai',  color: 'bg-emerald-100 text-emerald-700 border-emerald-300',  icon: CheckCircle },
 };
 
-const CAN_MANAGE_CONFIG = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin', 'Pimpinan Produksi'];
+// HANYA role ini yang bisa edit/kelola
+const CAN_MANAGE_CONFIG = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin', 'Pimpinan Produksi', 'Sekretaris'];
 
-// ═══════════════════════════════════════════════════════
-// HELPER
-// ═══════════════════════════════════════════════════════
+const TIMELINE_GUIDE = [
+  { title: 'Master Timeline Produksi', description: 'Halaman ini menampilkan garis besar jadwal produksi dari awal hingga akhir secara mingguan.' },
+  { title: 'Hak Akses', description: 'Hanya Pimpinan Produksi, Sekretaris, dan Guru yang dapat membuat atau mengubah timeline ini.' },
+  { title: 'Kegunaan', description: 'Gunakan timeline ini sebagai acuan target kerja utama. Jadwal latihan atau rapat spesifik bisa dilihat di menu Jadwal & Agenda.' }
+];
+
 function generateWeeksBetween(startDate: string, endDate: string) {
   const result: Array<{ start: string; end: string; num: number }> = [];
   const start = new Date(startDate);
@@ -100,9 +103,6 @@ const fmtShort = (iso: string) =>
 const fmtLong = (iso: string) =>
   new Date(iso).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-// ═══════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═══════════════════════════════════════════════════════
 export const MasterTimelineModule: React.FC = () => {
   const { user, activeClass } = useAuth();
   const { showToast } = useToast();
@@ -130,7 +130,7 @@ export const MasterTimelineModule: React.FC = () => {
   const [submittingWeek, setSubmittingWeek] = useState(false);
 
   const canManageConfig = !!user && CAN_MANAGE_CONFIG.includes(user.role);
-  const canEditWeeks = canManageConfig || (user?.role.startsWith('Koordinator ') ?? false) || user?.role === 'Sekretaris';
+  const canEditWeeks = canManageConfig; // Koor tidak bisa edit
 
   useEffect(() => {
     if (!activeClass) return;
@@ -329,6 +329,8 @@ export const MasterTimelineModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <PageGuideOverlay moduleId="master-timeline" title="Panduan Master Timeline" steps={TIMELINE_GUIDE} />
+      
       {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 text-white shadow-xl border border-blue-500/20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -383,7 +385,7 @@ export const MasterTimelineModule: React.FC = () => {
           <h3 className="text-base font-extrabold text-slate-800 dark:text-white">Timeline Belum Dibuat</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto leading-relaxed">
             {canManageConfig
-              ? 'Tentukan periode produksi (dari tanggal ke tanggal). Sistem akan otomatis membuat slot minggu-minggu yang tinggal Anda isi kegiatannya.'
+              ? 'Tentukan periode produksi. Sistem akan otomatis membuat slot minggu-minggu yang tinggal Anda isi kegiatannya.'
               : 'Timeline belum diatur oleh pengurus. Tunggu info dari Pimpinan Produksi.'}
           </p>
           {canManageConfig && (
@@ -440,10 +442,10 @@ export const MasterTimelineModule: React.FC = () => {
             <select value={filterPhase} onChange={(e) => setFilterPhase(e.target.value as any)}
               className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
               <option value="ALL">Semua Tahap</option>
-              <option value="PERSIAPAN">📖 Persiapan</option>
-              <option value="PELAKSANAAN">🎨 Pelaksanaan</option>
-              <option value="PERTUNJUKAN">⭐ Pertunjukan</option>
-              <option value="PASCA">🏁 Pasca</option>
+              <option value="PERSIAPAN">Persiapan</option>
+              <option value="PELAKSANAAN">Pelaksanaan</option>
+              <option value="PERTUNJUKAN">Pertunjukan</option>
+              <option value="PASCA">Pasca</option>
             </select>
           </div>
 
@@ -471,6 +473,7 @@ export const MasterTimelineModule: React.FC = () => {
                       const phaseCfg = PHASE_CONFIG[w.phase];
                       const statusCfg = STATUS_CONFIG[w.status];
                       const StatusIcon = statusCfg.icon;
+                      const PhaseIcon = phaseCfg.icon;
                       const isFilled = w.title.trim().length > 0;
 
                       return (
@@ -500,8 +503,8 @@ export const MasterTimelineModule: React.FC = () => {
                               <span className="text-[9px] font-black uppercase tracking-wide text-slate-700 dark:text-slate-300">
                                 {w.label}
                               </span>
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${phaseCfg.bg} ${phaseCfg.color} border`}>
-                                {phaseCfg.icon} {phaseCfg.label}
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-1 ${phaseCfg.bg} ${phaseCfg.color}`}>
+                                <PhaseIcon className="w-2.5 h-2.5" /> {phaseCfg.label}
                               </span>
                             </div>
                             {isFilled ? (
@@ -552,6 +555,7 @@ export const MasterTimelineModule: React.FC = () => {
                         const phaseCfg = PHASE_CONFIG[w.phase];
                         const statusCfg = STATUS_CONFIG[w.status];
                         const StatusIcon = statusCfg.icon;
+                        const PhaseIcon = phaseCfg.icon;
                         return (
                           <tr key={w.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                             <td className="py-3 px-3 text-center">
@@ -563,8 +567,8 @@ export const MasterTimelineModule: React.FC = () => {
                               {fmtShort(w.startDate)} — {fmtShort(w.endDate)}
                             </td>
                             <td className="py-3 px-3">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${phaseCfg.bg} ${phaseCfg.color}`}>
-                                {phaseCfg.icon} {phaseCfg.label}
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border flex items-center gap-1 w-fit ${phaseCfg.bg} ${phaseCfg.color}`}>
+                                <PhaseIcon className="w-3 h-3" /> {phaseCfg.label}
                               </span>
                             </td>
                             <td className="py-3 px-3">
@@ -666,7 +670,7 @@ export const MasterTimelineModule: React.FC = () => {
             {configStart && configEnd && new Date(configStart) <= new Date(configEnd) && (
               <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30">
                 <p className="text-[11px] font-bold text-emerald-900 dark:text-emerald-200">
-                  📅 Akan dibuat <strong>{generateWeeksBetween(configStart, configEnd).length} minggu</strong>
+                  Akan dibuat <strong>{generateWeeksBetween(configStart, configEnd).length} minggu</strong>
                 </p>
                 <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-0.5">
                   Dari {fmtLong(configStart)} sampai {fmtLong(configEnd)}.
@@ -720,7 +724,7 @@ export const MasterTimelineModule: React.FC = () => {
                   Isi Kegiatan Minggu Ini
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  📅 {fmtShort(editingWeek.startDate)} — {fmtShort(editingWeek.endDate)}
+                  {fmtShort(editingWeek.startDate)} — {fmtShort(editingWeek.endDate)}
                 </p>
               </div>
               <button type="button" onClick={() => setIsWeekModalOpen(false)}
@@ -751,13 +755,13 @@ export const MasterTimelineModule: React.FC = () => {
                 {STAGES.map(s => {
                   const isSel = weekPhase === s.id;
                   const cfg = PHASE_CONFIG[s.id];
+                  const Icon = cfg.icon;
                   return (
                     <button key={s.id} type="button" onClick={() => setWeekPhase(s.id)}
                       className={`p-2.5 rounded-xl border-2 text-xs font-bold transition flex items-center gap-2 ${
                         isSel ? `${cfg.bg} ${cfg.color}` : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
                       }`}>
-                      <span className="text-base">{cfg.icon}</span>
-                      {cfg.label}
+                      <Icon className="w-4 h-4" /> {cfg.label}
                     </button>
                   );
                 })}
