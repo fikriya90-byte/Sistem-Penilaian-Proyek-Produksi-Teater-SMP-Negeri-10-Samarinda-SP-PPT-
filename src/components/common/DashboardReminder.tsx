@@ -1,9 +1,10 @@
+// src/components/common/DashboardReminder.tsx
 import React, { useState, useEffect } from 'react';
 import {
   Bell, X, CheckSquare, Calendar, Wallet, AlertCircle, Check,
   Clock, Users, ChevronDown, ChevronRight, Sparkles, Info,
   Trash2, Eye, EyeOff, TrendingUp, Award, Flame,
-  Megaphone, Radio, Star, MessageSquare,
+  Megaphone, Radio, Star, MessageSquare, Music, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -16,6 +17,8 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { ScheduleEvent } from '../../core/types';
 
+const RETURN_TOLERANCE_MINUTES = 10;
+
 type ReminderType =
   | 'URGENT'
   | 'NOTIF_PENTING'
@@ -24,7 +27,8 @@ type ReminderType =
   | 'TASK_PENDING'
   | 'TASK_DONE'
   | 'SCHEDULE'
-  | 'KAS';
+  | 'KAS'
+  | 'BOOKING_OVERDUE';
 
 interface ReminderItem {
   id: string;
@@ -39,7 +43,7 @@ interface ReminderItem {
 }
 
 const TYPE_CONFIG: Record<
-  Exclude<ReminderType, 'URGENT' | 'NOTIF_PENTING'>,
+  Exclude<ReminderType, 'URGENT' | 'NOTIF_PENTING' | 'BOOKING_OVERDUE'>,
   { label: string; icon: any; color: string; gradient: string }
 > = {
   PENGUMUMAN: { label: 'Pengumuman Penting', icon: Megaphone, color: 'text-amber-700', gradient: 'from-amber-500 to-amber-700' },
@@ -63,8 +67,18 @@ const getDaysLeft = (dateString: string) => Math.floor((new Date(dateString).get
 const getDaysAgo = (dateString: string) => Math.floor((Date.now() - new Date(dateString).getTime()) / 86400000);
 
 // ============================================================
-// ✅ PASTIKAN BARIS INI ADA (EXPORT FUNCTION UTAMA)
+// DETEKSI OVERDUE BOOKING (client-side)
 // ============================================================
+const isBookingOverdue = (b: any, now: Date): boolean => {
+  if (b.status !== 'CHECKED_OUT' && b.status !== 'OVERDUE') return false;
+  if (b.status === 'OVERDUE') return true;
+  const [eh, em] = (b.endTime || '00:00').split(':').map(Number);
+  const endDt = new Date(b.date);
+  endDt.setHours(eh || 0, em || 0, 0, 0);
+  const deadline = endDt.getTime() + RETURN_TOLERANCE_MINUTES * 60000;
+  return now.getTime() > deadline;
+};
+
 export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void }> = ({ onNavigate }) => {
   const { user, activeClass, classes, isTeacher, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -77,6 +91,8 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
   const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
   const [kas, setKas] = useState<any>(null);
   const [pendingBookings, setPendingBookings] = useState<any[]>([]);
+  const [overdueBookings, setOverdueBookings] = useState<any[]>([]);
+  const [now, setNow] = useState(new Date());
 
   const [informations, setInformations] = useState<any[]>([]);
   const [broadcasts, setBroadcasts] = useState<any[]>([]);
@@ -88,6 +104,12 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
 
   const today = new Date().toISOString().slice(0, 10);
   const storageKey = user ? `spppt-reminder-dismissed-${user.uid}-${today}` : '';
+
+  // Timer per menit untuk deteksi overdue
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (!storageKey) return;
@@ -139,30 +161,42 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
       });
     }
 
-    // ✅ QUERY BOOKING LINTAS KELAS YANG AMAN
+    // BOOKING subscriptions — pending + overdue
     let unsubBookings = () => {};
     if (isTeacher || isAdminRole) {
       const classIds = classes.map(c => c.id);
+      let qBookings;
       if (classIds.length > 0 && classIds.length <= 30) {
-        const qBookings = query(collection(db, 'bookings'), where('classId', 'in', classIds), where('status', '==', 'PENDING'));
-        unsubBookings = onSnapshot(qBookings, snap => {
-          setPendingBookings(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-        });
-      } else if (classIds.length > 30) {
-        const qBookings = query(collection(db, 'bookings'), where('status', '==', 'PENDING'));
-        unsubBookings = onSnapshot(qBookings, snap => {
-          setPendingBookings(snap.docs.map(d => ({ ...d.data(), id: d.id })));
-        });
+        qBookings = query(collection(db, 'bookings'), where('classId', 'in', classIds));
+      } else {
+        qBookings = query(collection(db, 'bookings'));
       }
-    } else if (activeClass) {
-      const qBookings = query(collection(db, 'bookings'), where('classId', '==', activeClass.id), where('status', '==', 'PENDING'));
       unsubBookings = onSnapshot(qBookings, snap => {
-        setPendingBookings(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+        const all = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        const pending = all.filter(b => b.status === 'PENDING');
+        const currentNow = new Date();
+        const overdue = all.filter(b => isBookingOverdue(b, currentNow));
+        setPendingBookings(pending);
+        setOverdueBookings(overdue);
+      });
+    } else if (activeClass) {
+      const qBookings = query(collection(db, 'bookings'), where('classId', '==', activeClass.id));
+      unsubBookings = onSnapshot(qBookings, snap => {
+        const all = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        const currentNow = new Date();
+        const overdue = all.filter(b => isBookingOverdue(b, currentNow));
+        setOverdueBookings(overdue);
       });
     }
 
     return () => { unsubDeadlines(); unsubSchedules(); unsubSubs(); unsubBookings(); };
   }, [user, activeClass, isTeacher, isAdminRole, classes]);
+
+  // Refresh overdue setiap menit (re-filter)
+  useEffect(() => {
+    if (overdueBookings.length === 0) return;
+    // Re-trigger filter via now state — sudah via timer
+  }, [now, overdueBookings.length]);
 
   useEffect(() => {
     if (!user || !activeClass || isTeacher || isAdminRole) return;
@@ -216,14 +250,14 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
     // 1. NOTIFIKASI PENTING
     const importantNotifs = notifications.filter(n =>
       !n.read &&
-      ['Urgent', 'Nilai', 'Feedback', 'Tugas'].includes(n.category) && 
+      ['Urgent', 'Nilai', 'Feedback', 'Tugas'].includes(n.category) &&
       getDaysAgo(n.createdAt) <= 7
     );
 
     importantNotifs.forEach(n => {
       const isUrgent = n.category === 'Urgent';
       let link = n.link || 'notifikasi';
-      
+
       if ((isTeacher || isAdminRole) && link === 'booking' && !activeClass) {
         link = 'welcome-booking';
       }
@@ -241,7 +275,7 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
       const timeStr = ago === 0 ? 'Hari ini' : ago === 1 ? 'Kemarin' : `${ago} hari lalu`;
       items.push({
         id: `info-${info.id}`, type: 'PENGUMUMAN', title: info.title,
-        description: `${info.isPinned ? '📌 DISEMATKAN • ' : ''}${timeStr} • oleh ${info.authorName} (${info.authorRole})`,
+        description: `${info.isPinned ? 'DISEMATKAN • ' : ''}${timeStr} • oleh ${info.authorName} (${info.authorRole})`,
         priority: info.priority, actionLink: 'informasi', icon: info.isPinned ? Star : Megaphone,
         color: info.category === 'URGENT' ? 'text-rose-700' : 'text-amber-700',
       });
@@ -258,9 +292,9 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
     });
 
     // 4. JADWAL
-    const now = Date.now();
-    const next7 = now + 7 * 86400000;
-    schedules.filter(s => { const t = new Date(s.startAt).getTime(); return t >= now && t <= next7; })
+    const nowMs = Date.now();
+    const next7 = nowMs + 7 * 86400000;
+    schedules.filter(s => { const t = new Date(s.startAt).getTime(); return t >= nowMs && t <= next7; })
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()).slice(0, 5).forEach(s => {
         const daysLeft = getDaysLeft(s.startAt);
         items.push({
@@ -270,11 +304,25 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
         });
       });
 
-    // 5. GURU/ADMIN: PENGINGAT BOOKING & REVIEW
+    // 5. GURU/ADMIN: OVERDUE BOOKING + PENDING BOOKING + REVIEW
     if (isTeacher || isAdminRole) {
+      // 5a. Overdue bookings — paling urgent
+      overdueBookings.forEach(b => {
+        items.push({
+          id: `overdue-booking-${b.id}`,
+          type: 'BOOKING_OVERDUE',
+          title: `Alat Terlambat: ${b.equipmentName}`,
+          description: `${b.bookerName} (${b.className || '-'}) — batas ${b.endTime}. Segera hubungi untuk pengembalian.`,
+          actionLink: 'welcome-booking',
+          icon: RotateCcw,
+          color: 'text-rose-700',
+        });
+      });
+
+      // 5b. Pending bookings
       if (pendingBookings.length > 0) {
         items.push({
-          id: `guru-booking-pending-${pendingBookings.length}`, 
+          id: `guru-booking-pending-${pendingBookings.length}`,
           type: 'TASK_PENDING',
           title: 'Verifikasi Booking Alat',
           description: `Ada ${pendingBookings.length} pengajuan peminjaman alat dari berbagai kelas yang menunggu persetujuan Anda.`,
@@ -284,6 +332,7 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
         });
       }
 
+      // 5c. Pending task reviews
       const pendingReviews = rawSubmissions.filter(s => (s.status === 'SELESAI' || s.status === 'TERLAMBAT') && (!s.feedback || s.feedback.trim() === ''));
       if (pendingReviews.length > 0) {
         items.push({
@@ -295,7 +344,20 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
       return items;
     }
 
-    // 6. SISWA: TUGAS & KAS
+    // 6. SISWA: OVERDUE SENDIRI (kalau siswa meminjam alat)
+    overdueBookings.filter(b => b.bookedBy === user.uid).forEach(b => {
+      items.push({
+        id: `overdue-booking-mine-${b.id}`,
+        type: 'BOOKING_OVERDUE',
+        title: `Alat Belum Dikembalikan: ${b.equipmentName}`,
+        description: `Batas waktu ${b.endTime} sudah lewat. Segera lapor pengembalian!`,
+        actionLink: 'booking',
+        icon: RotateCcw,
+        color: 'text-rose-700',
+      });
+    });
+
+    // 7. SISWA: TUGAS & KAS
     const isDeadlineForUser = (d: any, u: any): boolean => {
       if (d.status === 'CANCELLED') return false;
       const scope = d.targetScope;
@@ -321,7 +383,7 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
       const isUrgent = daysLeft <= 3;
       items.push({
         id: `task-pending-${t.id}`, type: isUrgent ? 'URGENT' : 'TASK_PENDING', title: t.title,
-        description: isUrgent ? `${daysLeft < 0 ? '⚠️ Terlambat' : daysLeft === 0 ? '🔥 Deadline HARI INI' : daysLeft === 1 ? '⚡ Deadline BESOK' : `🔥 ${daysLeft} hari lagi`}` : `Deadline: ${new Date(t.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+        description: isUrgent ? `${daysLeft < 0 ? 'Terlambat' : daysLeft === 0 ? 'Deadline HARI INI' : daysLeft === 1 ? 'Deadline BESOK' : `${daysLeft} hari lagi`}` : `Deadline: ${new Date(t.dueDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`,
         priority: t.priority, daysLeft, actionLink: 'tugas', icon: isUrgent ? Flame : Clock, color: isUrgent ? 'text-rose-700' : 'text-slate-600',
       });
     });
@@ -329,7 +391,7 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
     done.slice(0, 5).forEach(t => {
       items.push({
         id: `task-done-${t.id}`, type: 'TASK_DONE', title: t.title,
-        description: `✅ Selesai — ${submissions[`${t.id}_${user.uid}`]?.completedAt ? new Date(submissions[`${t.id}_${user.uid}`].completedAt).toLocaleDateString('id-ID') : ''}`,
+        description: `Selesai — ${submissions[`${t.id}_${user.uid}`]?.completedAt ? new Date(submissions[`${t.id}_${user.uid}`].completedAt).toLocaleDateString('id-ID') : ''}`,
         actionLink: 'tugas', icon: CheckSquare, color: 'text-emerald-700',
       });
     });
@@ -366,17 +428,18 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
 
   const urgentItems = visibleItems.filter(i => i.type === 'URGENT');
   const importantNotifItems = visibleItems.filter(i => i.type === 'NOTIF_PENTING');
+  const overdueBookingItems = visibleItems.filter(i => i.type === 'BOOKING_OVERDUE');
+
+  const totalUrgent = urgentItems.length + importantNotifItems.length + overdueBookingItems.length;
 
   if (!isOpen) {
-    const totalItems = visibleItems.length;
-    const urgentCount = urgentItems.length + importantNotifItems.length;
     return (
       <button onClick={() => setIsOpen(true)}
         className={`fixed bottom-24 lg:bottom-32 right-4 sm:right-6 z-30 flex items-center gap-2 px-4 py-3 rounded-full font-bold text-xs shadow-2xl hover:scale-105 transition print:hidden ${
-          urgentCount > 0 ? 'bg-gradient-to-r from-rose-500 to-rose-700 text-white animate-pulse' : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white'
+          totalUrgent > 0 ? 'bg-gradient-to-r from-rose-500 to-rose-700 text-white animate-pulse' : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white'
         }`}>
-        {urgentCount > 0 ? <Flame className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
-        <span>{urgentCount > 0 ? `${urgentCount} Info Penting!` : totalItems > 0 ? `${totalItems} Pengingat` : 'Progress Tugas'}</span>
+        {totalUrgent > 0 ? <Flame className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+        <span>{totalUrgent > 0 ? `${totalUrgent} Info Penting!` : visibleItems.length > 0 ? `${visibleItems.length} Pengingat` : 'Progress'}</span>
       </button>
     );
   }
@@ -385,28 +448,62 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
       <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[92vh] flex flex-col overflow-hidden">
         <div className={`p-5 text-white flex items-center justify-between shrink-0 ${
-          urgentItems.length + importantNotifItems.length > 0 ? 'bg-gradient-to-r from-rose-500 via-rose-600 to-orange-600' : 'bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600'
+          totalUrgent > 0 ? 'bg-gradient-to-r from-rose-500 via-rose-600 to-orange-600' : 'bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600'
         }`}>
           <div className="flex items-center gap-3">
             <span className="p-2.5 rounded-xl bg-white/20 backdrop-blur-sm">
-              {urgentItems.length + importantNotifItems.length > 0 ? <Flame className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
+              {totalUrgent > 0 ? <Flame className="w-6 h-6" /> : <Bell className="w-6 h-6" />}
             </span>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider opacity-90">Selamat datang kembali</p>
-              <h3 className="text-base font-black">{urgentItems.length + importantNotifItems.length > 0 ? '🔥 Ada Info Penting!' : 'Pengingat Hari Ini'}</h3>
-              <p className="text-[11px] opacity-90">{urgentItems.length + importantNotifItems.length > 0 ? `${urgentItems.length + importantNotifItems.length} item butuh perhatian segera` : `${visibleItems.length} item perlu perhatian Anda`}</p>
+              <h3 className="text-base font-black">{totalUrgent > 0 ? 'Ada Info Penting!' : 'Pengingat Hari Ini'}</h3>
+              <p className="text-[11px] opacity-90">{totalUrgent > 0 ? `${totalUrgent} item butuh perhatian segera` : `${visibleItems.length} item perlu perhatian Anda`}</p>
             </div>
           </div>
           <button onClick={() => setIsOpen(false)} className="p-1.5 rounded-lg hover:bg-white/20 transition"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {/* ✅ OVERDUE BOOKING — paling urgent */}
+          {overdueBookingItems.length > 0 && (
+            <div className="rounded-2xl border-2 border-rose-600 dark:border-rose-500 overflow-hidden bg-white dark:bg-slate-900 animate-pulse">
+              <div className="p-3 bg-gradient-to-r from-rose-600 to-rose-800 text-white flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 animate-pulse" />
+                <span className="text-xs font-extrabold uppercase tracking-wide">Alat Terlambat ({overdueBookingItems.length})</span>
+                <span className="text-[10px] font-bold bg-white/25 px-2 py-0.5 rounded-full ml-auto">SEGERA</span>
+              </div>
+              <div className="divide-y divide-slate-100 dark:divide-slate-700">
+                {overdueBookingItems.map(item => (
+                  <div key={item.id} className="p-3 flex items-start gap-3 bg-rose-50 dark:bg-rose-500/10">
+                    <span className="p-2 rounded-lg bg-rose-600 text-white shrink-0">
+                      <item.icon className="w-4 h-4" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold text-rose-900 dark:text-rose-200">{item.title}</p>
+                      <p className="text-[10px] text-rose-700 dark:text-rose-300 mt-0.5">{item.description}</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <button onClick={() => { onNavigate(item.actionLink); setIsOpen(false); }}
+                          className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white flex items-center gap-1">
+                          <Eye className="w-3 h-3" /> Tangani
+                        </button>
+                        <button onClick={() => handleDismiss(item.id)}
+                          className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                          <EyeOff className="w-3 h-3 inline" /> Sembunyikan
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* NOTIFIKASI PENTING */}
           {importantNotifItems.length > 0 && (
             <div className="rounded-2xl border-2 border-rose-400 dark:border-rose-500/60 overflow-hidden bg-white dark:bg-slate-900">
               <div className="p-3 bg-gradient-to-r from-rose-600 to-rose-700 text-white flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 animate-pulse" />
-                <span className="text-xs font-extrabold uppercase tracking-wide">🔔 Notifikasi Penting ({importantNotifItems.length})</span>
+                <span className="text-xs font-extrabold uppercase tracking-wide">Notifikasi Penting ({importantNotifItems.length})</span>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
                 {importantNotifItems.map(item => (
@@ -426,12 +523,12 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
             </div>
           )}
 
-          {/* URGENT */}
+          {/* URGENT — deadline tugas */}
           {urgentItems.length > 0 && (
             <div className="rounded-2xl border-2 border-rose-400 dark:border-rose-500/60 overflow-hidden bg-white dark:bg-slate-900">
               <div className="p-3 bg-gradient-to-r from-rose-500 to-rose-700 text-white flex items-center gap-2">
                 <Flame className="w-4 h-4 animate-pulse" />
-                <span className="text-xs font-extrabold uppercase tracking-wide">🔥 Deadline Mendesak (≤3 hari)</span>
+                <span className="text-xs font-extrabold uppercase tracking-wide">Deadline Mendesak (≤3 hari)</span>
                 <span className="text-[10px] font-bold bg-white/25 px-2 py-0.5 rounded-full ml-auto">{urgentItems.length}</span>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-700">
@@ -511,7 +608,7 @@ export const DashboardReminder: React.FC<{ onNavigate: (module: string) => void 
         </div>
 
         <div className="p-3 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 shrink-0">
-          <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">💡 Muncul otomatis setiap login/refresh</p>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 italic">Muncul otomatis setiap login/refresh</p>
           <div className="flex items-center gap-2">
             <button onClick={handleDismissAll} className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center gap-1"><Trash2 className="w-3 h-3" /> Sembunyikan Semua</button>
             <button onClick={() => setIsOpen(false)} className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-[11px] font-bold">Tutup</button>
