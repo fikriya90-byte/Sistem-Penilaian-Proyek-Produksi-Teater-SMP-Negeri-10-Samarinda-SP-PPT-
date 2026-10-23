@@ -1,9 +1,9 @@
 // src/components/modules/SettingsModule.tsx
 import React, { useState, useEffect } from 'react';
 import {
-  AlertTriangle, Award, Camera, CheckCircle, Database, Layers, Lock,
-  RefreshCw, Save, Settings, Shield, Sliders, User, Users, Mail, Phone,
-  CreditCard, Info, Bot, Target, Link2, Folder, ExternalLink, HelpCircle, CheckCircle2, XCircle
+  AlertTriangle, Camera, Database, Lock,
+  RefreshCw, Save, Settings, Sliders, User, Users, Phone,
+  Bot, Target, Link2, Folder, ExternalLink, HelpCircle, CheckCircle2, XCircle
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { ASSESSOR_WEIGHTS, AssessorWeightConfig } from '../../core/constants';
@@ -12,8 +12,31 @@ import { useToast } from '../common/Toast';
 import { PhotoUploadModal } from '../common/PhotoUploadModal';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
-// ✅ FIX: Import DRIVE_CONFIG, bukan RESPONSIBLE_ROLES
-import { DRIVE_CONFIG, DriveFolderKey } from '../../core/driveFolders';
+
+// ✅ KITA DEFINISIKAN LANGSUNG DI SINI AGAR TIDAK PERLU IMPORT
+export type DriveFolderKey = 'utama' | 'publikasi' | 'dokumentasi' | 'keuangan' | 'nota' | 'properti' | 'panggung' | 'rias' | 'busana' | 'musik' | 'naskah' | 'lpj';
+
+export interface DriveConfig {
+  label: string;
+  desc: string;
+  role: string;
+  access: 'EDITOR' | 'VIEWER';
+}
+
+const DRIVE_CONFIG: Record<DriveFolderKey, DriveConfig> = {
+  utama:       { label: 'Folder Utama Produksi', desc: 'Folder induk', role: 'Pimpinan Produksi / Sekretaris', access: 'EDITOR' },
+  publikasi:   { label: 'Publikasi & Dokumentasi', desc: 'Foto/Video', role: 'Koordinator Publikasi', access: 'EDITOR' }, 
+  dokumentasi: { label: 'Dokumentasi Latihan', desc: 'Foto latihan', role: 'Koordinator Publikasi', access: 'EDITOR' }, 
+  keuangan:    { label: 'Keuangan & RAB', desc: 'File RAB', role: 'Bendahara', access: 'VIEWER' },
+  nota:        { label: 'Nota & Kwitansi', desc: 'Bukti belanja', role: 'Bendahara', access: 'VIEWER' },
+  properti:    { label: 'Divisi Perlengkapan', desc: 'Desain properti', role: 'Koordinator Perlengkapan', access: 'EDITOR' },
+  panggung:    { label: 'Divisi Tata Panggung', desc: 'Sketsa panggung', role: 'Koordinator Tata Panggung', access: 'EDITOR' },
+  rias:        { label: 'Divisi Tata Rias', desc: 'Face chart', role: 'Koordinator Tata Rias', access: 'EDITOR' },
+  busana:      { label: 'Divisi Tata Busana', desc: 'Desain kostum', role: 'Koordinator Tata Busana', access: 'EDITOR' },
+  musik:       { label: 'Divisi Tata Musik', desc: 'File audio', role: 'Koordinator Tata Musik', access: 'EDITOR' },
+  naskah:      { label: 'Naskah & Skenario', desc: 'File naskah', role: 'Sekretaris', access: 'VIEWER' },
+  lpj:         { label: 'LPJ & Laporan Akhir', desc: 'File LPJ', role: 'Pimpinan Produksi / Sekretaris', access: 'VIEWER' },
+};
 
 const ROLE_KEYS = [
   'Pimpinan Produksi', 'Sutradara', 'Sekretaris', 'Bendahara',
@@ -74,7 +97,6 @@ export const SettingsModule: React.FC = () => {
   const isPhoneMissing = isGuruRole && !phone.trim();
   const isPhoneInvalid = isGuruRole && phone.trim().length > 0 && (phone.replace(/\D/g, '').length < 9 || phone.replace(/\D/g, '').length > 15);
   
-  // Siapa yang bisa melihat dan mengedit Link Drive?
   const canManageDrive = isGuruPengampu || isAdminRole || isPimprod || isSekretaris || isKoordinator || isBendahara;
 
   React.useEffect(() => {
@@ -168,12 +190,21 @@ export const SettingsModule: React.FC = () => {
 
   const handleSaveDriveLinks = async () => {
     if (!user) return;
-    const invalidKeys = Object.entries(driveLinks).filter(([k, v]) => v && !v.startsWith('http'));
-    if (invalidKeys.length > 0) { showToast('Link harus dimulai dengan http:// atau https://', 'warning'); return; }
+    
+    const cleanedLinks: Record<string, string> = {};
+    Object.entries(driveLinks).forEach(([k, v]) => {
+      cleanedLinks[k] = (v || '').trim();
+    });
+
+    const invalidKeys = Object.entries(cleanedLinks).filter(([k, v]) => v !== '' && !v.startsWith('http'));
+    if (invalidKeys.length > 0) { 
+      showToast('Link harus dimulai dengan http:// atau https://', 'warning'); 
+      return; 
+    }
 
     setIsSavingDrive(true);
     try {
-      await setDoc(doc(db, 'systemConfig', 'driveFolders'), { ...driveLinks, updatedAt: new Date().toISOString(), updatedBy: user.displayName }, { merge: true });
+      await setDoc(doc(db, 'systemConfig', 'driveFolders'), { ...cleanedLinks, updatedAt: new Date().toISOString(), updatedBy: user.displayName }, { merge: true });
       await recordAuditLog({ userId: user.uid, userName: user.displayName, role: user.role, action: 'UPDATE', targetType: 'DriveSettings', targetId: 'systemConfig', details: 'Memperbarui link folder Google Drive' });
       showToast('Link Google Drive berhasil disimpan!', 'success');
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); } finally { setIsSavingDrive(false); }
@@ -192,7 +223,6 @@ export const SettingsModule: React.FC = () => {
     setWeights(prev => ({ ...prev, [role]: { ...prev[role], [field]: value } }));
   };
 
-  // Hitung jumlah link yang sudah diisi
   const filledLinksCount = Object.values(driveLinks).filter(url => url && url.startsWith('http')).length;
   const totalLinksRequired = DRIVE_KEYS.length;
 
@@ -376,7 +406,6 @@ export const SettingsModule: React.FC = () => {
                     }`}>
                       Wajib {cfg.access}
                     </span>
-                    {/* ✅ FIX: Menggunakan cfg.role dari DRIVE_CONFIG */}
                     <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
                       <User className="w-2.5 h-2.5" /> {cfg.role}
                     </span>
