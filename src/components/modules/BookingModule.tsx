@@ -40,7 +40,7 @@ type BookingStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED' | 'CHECKE
 
 interface Booking {
   id: string;
-  sessionId: string;  // grouping multi-alat
+  sessionId: string;
   classId: string;
   className: string;
   equipmentId: string;
@@ -56,7 +56,6 @@ interface Booking {
   purpose: string;
   status: BookingStatus;
 
-  // Approval
   approvedBy?: string;
   approvedAt?: string;
   rejectionReason?: string;
@@ -65,24 +64,20 @@ interface Booking {
   recommendedStartTime?: string;
   recommendedEndTime?: string;
 
-  // Checkout
   checkedOutAt?: string;
   checkoutPhotoUrl?: string;
   checkoutNote?: string;
 
-  // Return
   returnedAt?: string;
   returnPhotoUrl?: string;
   returnCondition?: 'BAIK' | 'RUSAK_RINGAN' | 'RUSAK_BERAT';
   returnNote?: string;
   isLateReturn?: boolean;
 
-  // Cancel
   cancelledAt?: string;
   cancelledBy?: string;
   cancelledReason?: string;
 
-  // Verifier note
   verifierNote?: string;
   wasRescheduledByVerifier?: boolean;
   originalStartTime?: string;
@@ -130,7 +125,7 @@ const DEFAULT_INSTRUMENTS: Omit<Equipment, 'id' | 'classId'>[] = [
   { name: 'Stand Gong & Pemukul', category: 'Aksesoris & Perlengkapan Musik', quantity: 1, condition: 'BAIK', notes: 'Stand besi dan pemukul gong' },
 ];
 
-const VERIFIER_ROLES = ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'];
+const VERIFIER_ROLES = ['Guru Pengampu', 'Admin', 'Super Admin'];
 
 const calculateMinDate = (minLeadDays: number): string => {
   const d = new Date();
@@ -167,7 +162,6 @@ export const BookingModule: React.FC = () => {
   const isVerifier = !!user && VERIFIER_ROLES.includes(user.role);
   const [activeTab, setActiveTab] = useState<string>(isVerifier ? 'pending' : 'katalog');
 
-  // Guide
   const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   // Multi-select booking
@@ -190,7 +184,10 @@ export const BookingModule: React.FC = () => {
 
   // Success modal
   const [successSession, setSuccessSession] = useState<{ className: string; equipNames: string[]; date: string; startTime: string; endTime: string } | null>(null);
-  const [successGuru, setSuccessGuru] = useState<{ name: string; phone?: string } | null>(null);
+  const [successGuru, setSuccessGuru] = useState<{
+    name: string; phone?: string; className: string; role: string;
+    hasPhone: boolean; found: boolean;
+  } | null>(null);
   const [successWAUrl, setSuccessWAUrl] = useState<string | null>(null);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
 
@@ -230,17 +227,11 @@ export const BookingModule: React.FC = () => {
   const minLeadDays = settings.minLeadDays;
   const minBookingDate = calculateMinDate(minLeadDays);
 
-  // ═══════════════════════════════════════════════════════
-  // TIMER: deteksi overdue (per menit)
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
 
-  // ═══════════════════════════════════════════════════════
-  // AUTO-SHOW GUIDE (sekali per user)
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!user) return;
     try {
@@ -252,9 +243,7 @@ export const BookingModule: React.FC = () => {
     } catch { /* ignore */ }
   }, [user]);
 
-  // ═══════════════════════════════════════════════════════
   // DEDUPE KATALOG
-  // ═══════════════════════════════════════════════════════
   const dedupedEquipment = useMemo(() => {
     const map: Record<string, Equipment> = {};
     equipment.forEach(eq => {
@@ -271,9 +260,7 @@ export const BookingModule: React.FC = () => {
 
   const duplicateCount = equipment.length - dedupedEquipment.length;
 
-  // ═══════════════════════════════════════════════════════
   // SUBSCRIPTIONS
-  // ═══════════════════════════════════════════════════════
   useEffect(() => {
     if (!activeClass) return;
     (async () => {
@@ -333,13 +320,10 @@ export const BookingModule: React.FC = () => {
     return () => unsubBk();
   }, []);
 
-  // ═══════════════════════════════════════════════════════
   // HELPERS
-  // ═══════════════════════════════════════════════════════
   const isLate = (b: Booking): boolean => {
     if (b.status !== 'CHECKED_OUT' && b.status !== 'OVERDUE') return false;
     if (!b.checkedOutAt) return false;
-    const endMin = timeToMinutes(b.endTime);
     const [eh, em] = b.endTime.split(':').map(Number);
     const endDateTime = new Date(b.date);
     endDateTime.setHours(eh || 0, em || 0, 0, 0);
@@ -377,7 +361,6 @@ export const BookingModule: React.FC = () => {
     return 'bg-rose-100 text-rose-800 border-rose-300';
   };
 
-  // Group bookings by sessionId
   const groupBySession = (list: Booking[]): Record<string, Booking[]> => {
     const groups: Record<string, Booking[]> = {};
     list.forEach(b => {
@@ -388,9 +371,7 @@ export const BookingModule: React.FC = () => {
     return groups;
   };
 
-  // ═══════════════════════════════════════════════════════
   // MIGRATE
-  // ═══════════════════════════════════════════════════════
   const handleMigrateToShared = async () => {
     if (!user) return;
     if (isMigrated) { showToast('Katalog sudah terintegrasi.', 'info'); return; }
@@ -428,9 +409,7 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ═══════════════════════════════════════════════════════
   // SETTINGS
-  // ═══════════════════════════════════════════════════════
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
@@ -445,9 +424,7 @@ export const BookingModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // ═══════════════════════════════════════════════════════
   // EQUIPMENT CRUD
-  // ═══════════════════════════════════════════════════════
   const openAddEquipment = () => {
     setEditingEquipment(null);
     setEqName(''); setEqCategory('Alat Musik Tradisional'); setEqQuantity(1);
@@ -498,9 +475,7 @@ export const BookingModule: React.FC = () => {
     catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // ═══════════════════════════════════════════════════════
-  // BOOKING MODAL (MULTI-ALAT)
-  // ═══════════════════════════════════════════════════════
+  // BOOKING MODAL
   const openMultiBooking = (preselected?: Equipment) => {
     if (!activeClass) { showToast('Masuk ke kelas dulu.', 'warning'); return; }
     setSelectedEquipmentIds(preselected ? [preselected.id] : []);
@@ -528,7 +503,6 @@ export const BookingModule: React.FC = () => {
     const diff = daysDifference(new Date().toISOString().slice(0, 10), bookDate);
     if (diff < minLeadDays) { showToast(`Booking minimal H-${minLeadDays}.`, 'error'); return; }
 
-    // Cek bentrok + slot yang dibatalkan oleh kelas ini
     for (const eqId of selectedEquipmentIds) {
       const sameEq = bookings.filter(b =>
         b.equipmentId === eqId &&
@@ -542,7 +516,6 @@ export const BookingModule: React.FC = () => {
         }
       }
 
-      // Slot yang dibatalkan oleh kelas ini — tidak bisa rebook
       const cancelledByMe = bookings.find(b =>
         b.equipmentId === eqId &&
         b.date === bookDate &&
@@ -592,50 +565,83 @@ export const BookingModule: React.FC = () => {
       }
       await batch.commit();
 
-      // Notif ke guru
-      let guruList: any[] = [];
+      // ✅ CARI GURU PENGAMPU — support multi-kelas (classId ATAU classIds.includes)
+      let primaryGuru: any = null;
       try {
         const teachers = await fetchUsersByClass(activeClass.id);
-        guruList = teachers.filter(t => t.role === 'Guru Pengampu' || t.role === 'Guru Pembina');
-        if (guruList.length > 0) {
+        primaryGuru = teachers.find(t =>
+          t.role === 'Guru Pengampu' && (
+            t.classId === activeClass.id ||
+            (Array.isArray(t.classIds) && t.classIds.includes(activeClass.id))
+          )
+        ) || null;
+
+        if (primaryGuru) {
           const notifBatch = writeBatch(db);
           const nowStr = new Date().toISOString();
-          guruList.forEach(g => {
-            const nRef = doc(collection(db, 'notifications'));
-            notifBatch.set(nRef, {
-              id: nRef.id, userId: g.uid, classId: activeClass.id,
-              title: `Booking Baru (${equipNames.length} alat)`,
-              message: `${user.displayName} (${activeClass.name}) booking ${equipNames.join('; ')} untuk ${bookDate} pukul ${bookStart}-${bookEnd}. Perlu verifikasi per alat.`,
-              category: 'Tugas', read: false, link: 'welcome-booking', createdAt: nowStr,
-            });
+          const nRef = doc(collection(db, 'notifications'));
+          notifBatch.set(nRef, {
+            id: nRef.id,
+            userId: primaryGuru.uid,
+            classId: activeClass.id,
+            title: `Booking Baru: ${equipNames.length} Alat`,
+            message: `${user.displayName} (${activeClass.name}) mengajukan booking ${equipNames.join('; ')} untuk ${bookDate} pukul ${bookStart}-${bookEnd}. Keperluan: ${bookPurpose.trim()}`,
+            category: 'Tugas',
+            read: false,
+            link: 'welcome-booking',
+            createdAt: nowStr,
           });
           await notifBatch.commit();
         }
-      } catch (err) { console.warn('Notif gagal:', err); }
+      } catch (err) {
+        console.warn('Fetch guru error:', err);
+      }
 
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'BookingSession', targetId: sessionId,
-        details: `Session ${equipNames.length} alat: ${equipNames.join('; ')}`,
+        details: `Session ${equipNames.length} alat: ${equipNames.join('; ')}${primaryGuru ? ` → Guru: ${primaryGuru.displayName}` : ' (guru tidak ditemukan)'}`,
       });
 
-      const primaryGuru = guruList[0];
+      // ✅ BUILD WA INFO
       let waUrl: string | null = null;
-      if (primaryGuru?.phone) {
-        let clean = primaryGuru.phone.replace(/\D/g, '');
-        if (clean.startsWith('0')) clean = '62' + clean.slice(1);
-        const kerabatText = activeClass.kerabatKerja ? ` (Kerabat Kerja: ${activeClass.kerabatKerja})` : '';
-        const fmtDate = new Date(bookDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-        const waText =
-          `Halo Pak/Bu ${primaryGuru.displayName},\n\n` +
-          `Saya ${user.displayName} dari kelas ${activeClass.name}${kerabatText},\n` +
-          `sudah mengajukan booking alat:\n\n` +
-          equipNames.map((n, i) => `${i + 1}. ${n}`).join('\n') + '\n\n' +
-          `Tanggal: ${fmtDate}\n` +
-          `Waktu: ${bookStart} - ${bookEnd}\n` +
-          `Keperluan: ${bookPurpose.trim()}\n\n` +
-          `Mohon verifikasi booking saya di SP-PPT. Terima kasih.`;
-        waUrl = `https://wa.me/${clean}?text=${encodeURIComponent(waText)}`;
+      let guruInfoForModal: {
+        name: string; phone?: string; className: string; role: string;
+        hasPhone: boolean; found: boolean;
+      } | null = null;
+
+      if (primaryGuru) {
+        const guruName = primaryGuru.displayName || 'Guru Pengampu';
+        const guruPhone = primaryGuru.phone;
+        const hasPhone = !!guruPhone && guruPhone.trim().length > 0;
+
+        if (hasPhone) {
+          let clean = guruPhone.replace(/\D/g, '');
+          if (clean.startsWith('0')) clean = '62' + clean.slice(1);
+          const kerabatText = activeClass.kerabatKerja ? `\n(Kerabat Kerja: ${activeClass.kerabatKerja})` : '';
+          const fmtDate = new Date(bookDate).toLocaleDateString('id-ID', {
+            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+          });
+          const waText =
+            `Halo Pak/Bu ${guruName},\n\n` +
+            `Saya ${user.displayName} dari kelas ${activeClass.name}${kerabatText}\n` +
+            `sudah mengajukan booking alat:\n\n` +
+            equipNames.map((n, i) => `${i + 1}. ${n}`).join('\n') + '\n\n' +
+            `Tanggal: ${fmtDate}\n` +
+            `Waktu: ${bookStart} - ${bookEnd}\n` +
+            `Keperluan: ${bookPurpose.trim()}\n\n` +
+            `Mohon verifikasi booking saya di SP-PPT. Terima kasih.`;
+          waUrl = `https://wa.me/${clean}?text=${encodeURIComponent(waText)}`;
+        }
+
+        guruInfoForModal = {
+          name: guruName,
+          phone: guruPhone,
+          className: activeClass.name,
+          role: 'Guru Pengampu',
+          hasPhone,
+          found: true,
+        };
       }
 
       setSuccessSession({
@@ -645,7 +651,7 @@ export const BookingModule: React.FC = () => {
         startTime: bookStart,
         endTime: bookEnd,
       });
-      setSuccessGuru(primaryGuru ? { name: primaryGuru.displayName, phone: primaryGuru.phone } : null);
+      setSuccessGuru(guruInfoForModal);
       setSuccessWAUrl(waUrl);
       setIsSuccessModalOpen(true);
       setIsBookingOpen(false);
@@ -654,9 +660,7 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ═══════════════════════════════════════════════════════
   // APPROVE / REJECT
-  // ═══════════════════════════════════════════════════════
   const handleOpenApprove = (b: Booking) => {
     setApprovingBooking(b);
     setApproveStart(b.startTime); setApproveEnd(b.endTime);
@@ -722,9 +726,7 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ═══════════════════════════════════════════════════════
-  // CHECKOUT (Lapor Pengambilan)
-  // ═══════════════════════════════════════════════════════
+  // CHECKOUT
   const openCheckout = (session: Booking[]) => {
     setCheckoutSession(session);
     setCheckoutPhotos([]);
@@ -765,9 +767,7 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ═══════════════════════════════════════════════════════
-  // RETURN (Lapor Pengembalian) + auto serah-terima notif
-  // ═══════════════════════════════════════════════════════
+  // RETURN
   const openReturn = (session: Booking[]) => {
     setReturnSession(session);
     setReturnPhotos([]);
@@ -789,7 +789,6 @@ export const BookingModule: React.FC = () => {
       const photoUrl = returnPhotos[0].dataUrl;
       const note = returnNote.trim() || returnPhotos[0].caption || '';
 
-      // Cek late per item
       const lateIds: string[] = [];
       for (const b of returnSession) {
         const [eh, em] = b.endTime.split(':').map(Number);
@@ -809,7 +808,6 @@ export const BookingModule: React.FC = () => {
         });
       }
 
-      // Deteksi serah terima ke kelas berikutnya
       const nextClassNotifs: { classId: string; equipNames: string[]; time: string }[] = [];
       for (const b of returnSession) {
         const sameDaySameEq = bookings.filter(x =>
@@ -827,7 +825,6 @@ export const BookingModule: React.FC = () => {
       }
       await batch.commit();
 
-      // Kirim notif ke kelas berikutnya
       if (nextClassNotifs.length > 0) {
         const notifBatch = writeBatch(db);
         const nowStr = new Date().toISOString();
@@ -865,9 +862,7 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ═══════════════════════════════════════════════════════
   // CANCEL
-  // ═══════════════════════════════════════════════════════
   const openCancel = (session: Booking[], reason = '') => {
     setCancelTarget({ session, reason });
   };
@@ -898,11 +893,8 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ═══════════════════════════════════════════════════════
   // WA OVERDUE
-  // ═══════════════════════════════════════════════════════
   const handleWAOverdue = (b: Booking) => {
-    // Cari nomor HP peminjam dari users
     (async () => {
       try {
         const users = await fetchUsersByClass(b.classId);
@@ -922,9 +914,7 @@ export const BookingModule: React.FC = () => {
     })();
   };
 
-  // ═══════════════════════════════════════════════════════
   // DATA
-  // ═══════════════════════════════════════════════════════
   const filteredEquipment = dedupedEquipment.filter(eq => {
     if (filterCategory !== 'ALL' && eq.category !== filterCategory) return false;
     if (searchQuery.trim()) return eq.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -1015,7 +1005,6 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Tabs */}
         <div className="relative">
           <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none touch-pan-x snap-x snap-mandatory">
             <button onClick={() => setActiveTab('pending')}
@@ -1043,7 +1032,6 @@ export const BookingModule: React.FC = () => {
           </div>
         </div>
 
-        {/* Pending */}
         {activeTab === 'pending' && (
           <div className="space-y-3">
             {pendingBookings.length === 0 ? (
@@ -1094,7 +1082,6 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Overdue */}
         {activeTab === 'overdue' && (
           <div className="space-y-3">
             {overdueBookings.length === 0 ? (
@@ -1136,7 +1123,6 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Tabel */}
         {activeTab === 'tabel' && (
           <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
@@ -1219,7 +1205,6 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Modals Guru */}
         {isApproveModalOpen && approvingBooking && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
             <form onSubmit={handleConfirmApprove} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
@@ -1458,7 +1443,6 @@ export const BookingModule: React.FC = () => {
             const sessionLate = list.some(b => isLate(b));
             const cls = classes.find(c => c.id === first.classId);
 
-            // Status keseluruhan session
             let sessionStatus: BookingStatus = 'PENDING';
             let sessionLabel = 'Menunggu Persetujuan';
             if (anyCancelled) { sessionStatus = 'CANCELLED'; sessionLabel = 'Dibatalkan'; }
@@ -1470,7 +1454,6 @@ export const BookingModule: React.FC = () => {
 
             return (
               <div key={sid} className="p-4 rounded-2xl bg-white border-2 shadow-sm space-y-3">
-                {/* Header session */}
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getStatusColor(sessionStatus)}`}>
                     {sessionLabel}
@@ -1496,7 +1479,6 @@ export const BookingModule: React.FC = () => {
                   </p>
                 )}
 
-                {/* Daftar alat dengan status per-alat */}
                 <div className="space-y-1.5 p-2 rounded-xl bg-slate-50 border border-slate-200">
                   {list.map(b => (
                     <div key={b.id} className="flex items-center justify-between gap-2 text-xs">
@@ -1511,7 +1493,6 @@ export const BookingModule: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Tampil rekomendasi jika ada yang direject dengan saran */}
                 {list.some(b => b.recommendedDate) && (
                   <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200">
                     <p className="text-[10px] font-bold text-blue-900 mb-1">Rekomendasi Guru:</p>
@@ -1537,7 +1518,6 @@ export const BookingModule: React.FC = () => {
                   </div>
                 )}
 
-                {/* Actions */}
                 <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
                   {allApproved && (
                     <button onClick={() => openCheckout(list)}
@@ -1590,7 +1570,6 @@ export const BookingModule: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmitBooking} className="space-y-3">
-              {/* Pilih alat (checkbox list) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">
                   Pilih Alat <span className="text-rose-500">*</span>
@@ -1845,17 +1824,43 @@ export const BookingModule: React.FC = () => {
                 </div>
               </div>
 
-              {successGuru && successWAUrl ? (
-                <a href={successWAUrl} target="_blank" rel="noopener noreferrer"
-                  className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition">
-                  <MessageCircle className="w-4 h-4" /> Hubungi {successGuru.name} via WA
-                </a>
-              ) : (
+              {/* ✅ 3 KONDISI WA */}
+              {successGuru && successGuru.hasPhone && successWAUrl ? (
+                <div className="space-y-2">
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+                    <p className="text-[10px] font-bold text-emerald-700 uppercase mb-1 flex items-center gap-1">
+                      <UserIcon className="w-3 h-3" /> Guru Pengampu Kelas {successGuru.className}
+                    </p>
+                    <p className="font-bold text-emerald-900 text-sm">{successGuru.name}</p>
+                    <p className="text-[10px] text-emerald-700 mt-0.5">Guru Pengampu Seni Teater</p>
+                  </div>
+                  <a href={successWAUrl} target="_blank" rel="noopener noreferrer"
+                    className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition">
+                    <MessageCircle className="w-4 h-4" />
+                    Hubungi {successGuru.name.split(',')[0]} via WA
+                  </a>
+                </div>
+              ) : successGuru && !successGuru.hasPhone ? (
                 <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-amber-900 leading-relaxed">
-                    <strong>Nomor WA guru belum tersedia.</strong> Hubungi {successGuru?.name || 'guru pengampu'} manual.
-                  </p>
+                  <div className="text-[11px] text-amber-900 leading-relaxed flex-1">
+                    <p className="font-bold mb-1.5">Nomor WA Guru Pengampu belum terdaftar:</p>
+                    <div className="p-2 rounded-lg bg-white/60 border border-amber-200 mb-1.5">
+                      <p className="text-[10px] font-bold text-amber-700 uppercase">Guru Pengampu Kelas {successGuru.className}</p>
+                      <p className="font-bold text-amber-900 text-sm">{successGuru.name}</p>
+                    </div>
+                    <p className="italic text-[10px]">
+                      Silakan hubungi guru secara <strong>langsung</strong> atau minta guru untuk mendaftarkan nomor WA di menu <strong>Pengaturan Akun</strong>.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="text-[11px] text-rose-900 leading-relaxed">
+                    <p className="font-bold mb-1">Guru Pengampu Kelas {successSession?.className} belum terdaftar.</p>
+                    <p className="italic">Hubungi wali kelas atau admin sekolah untuk mendaftarkan guru pengampu.</p>
+                  </div>
                 </div>
               )}
 
