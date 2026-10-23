@@ -1,8 +1,9 @@
+// src/components/modules/AdminModule.tsx
 import React, { useState, useEffect } from 'react';
 import {
   UserPlus, Users, GraduationCap, Shield, Search, Mail, Phone,
   Trash2, KeyRound, RefreshCw, Copy, CheckCircle2, AlertTriangle,
-  ShieldCheck, BookOpen, X, Eye, EyeOff,
+  ShieldCheck, BookOpen, X, Eye, EyeOff, Layers,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { UserProfile } from '../../core/types';
@@ -19,7 +20,7 @@ interface AdminModuleProps {
 }
 
 export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' }) => {
-  const { user } = useAuth();
+  const { user, classes } = useAuth();
   const { showToast } = useToast();
 
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
@@ -34,18 +35,19 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
   const [newEmail, setNewEmail] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [newClassIds, setNewClassIds] = useState<string[]>([]);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Password yang baru dibuat (untuk ditampilkan ke admin agar bisa dikirim ke guru)
+  // Password yang baru dibuat
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [generatedEmail, setGeneratedEmail] = useState('');
+  const [generatedClasses, setGeneratedClasses] = useState<string[]>([]);
 
   useEffect(() => {
     loadUsers();
   }, []);
 
-  // Sinkronisasi tab dengan navigasi sidebar
   useEffect(() => {
     setActiveTab(defaultTab);
   }, [defaultTab]);
@@ -62,15 +64,14 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
     }
   };
 
-  // Filter keluar user tanpa data valid
   const validUsers = allUsers.filter(u => u && u.uid && (u.email || u.displayName));
 
   const teachers = validUsers.filter(u =>
-    u.role === 'Guru Pembina' || u.role === 'Admin' || u.role === 'Super Admin'
+    u.role === 'Guru Pengampu' || u.role === 'Admin' || u.role === 'Super Admin'
   );
 
   const students = validUsers.filter(u =>
-    u.role !== 'Guru Pembina' && u.role !== 'Admin' && u.role !== 'Super Admin'
+    u.role !== 'Guru Pengampu' && u.role !== 'Admin' && u.role !== 'Super Admin'
   );
 
   const activeList = activeTab === 'guru' ? teachers : students;
@@ -87,7 +88,6 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
     );
   });
 
-  // Generate password random
   const generatePassword = () => {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
     let pwd = '';
@@ -102,31 +102,78 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
     setNewEmail('');
     setNewPhone('');
     setNewPassword(generatePassword());
+    setNewClassIds([]);
     setShowPassword(true);
     setGeneratedEmail('');
     setGeneratedPassword('');
+    setGeneratedClasses([]);
     setIsCreateModalOpen(true);
+  };
+
+  const toggleClassSelection = (classId: string) => {
+    setNewClassIds(prev =>
+      prev.includes(classId) ? prev.filter(x => x !== classId) : [...prev, classId]
+    );
+  };
+
+  const getTeacherClassNames = (teacher: UserProfile): string[] => {
+    // Prioritas: classIds array → fallback classId tunggal
+    if (Array.isArray(teacher.classIds) && teacher.classIds.length > 0) {
+      return teacher.classIds
+        .map(id => classes.find(c => c.id === id)?.name || id)
+        .filter(Boolean);
+    }
+    if (teacher.classId) {
+      const match = classes.find(c => c.id === teacher.classId);
+      return [match?.name || teacher.className || teacher.classId];
+    }
+    return [];
   };
 
   const handleCreateTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim() || !newEmail.trim() || newPassword.length < 6) {
-      showToast('Lengkapi nama, email, dan password minimal 6 karakter.', 'warning');
+
+    // Validasi
+    if (!newName.trim() || !newEmail.trim()) {
+      showToast('Lengkapi nama dan email guru.', 'warning');
+      return;
+    }
+
+    const cleanPhone = newPhone.replace(/\D/g, '');
+    if (cleanPhone.length < 9 || cleanPhone.length > 15) {
+      showToast('Nomor WhatsApp WAJIB diisi (9-15 digit). Guru akan menerima notifikasi booking via WA ini.', 'warning');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      showToast('Password minimal 6 karakter.', 'warning');
+      return;
+    }
+
+    if (newClassIds.length === 0) {
+      showToast('Pilih minimal 1 kelas yang akan diampu guru ini.', 'warning');
       return;
     }
 
     setSubmitting(true);
+    const classNames = newClassIds
+      .map(id => classes.find(c => c.id === id)?.name || '')
+      .filter(Boolean);
+
     const result = await createTeacherAccount({
       email: newEmail,
       password: newPassword,
       displayName: newName,
       phone: newPhone,
+      classIds: newClassIds,
+      classNames,
     });
     setSubmitting(false);
 
     if (result.success) {
       setGeneratedEmail(newEmail);
       setGeneratedPassword(newPassword);
+      setGeneratedClasses(classNames);
       showToast(result.message, 'success');
       loadUsers();
     } else {
@@ -138,6 +185,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
     setIsCreateModalOpen(false);
     setGeneratedPassword('');
     setGeneratedEmail('');
+    setGeneratedClasses([]);
   };
 
   const handleResetPassword = async (target: UserProfile) => {
@@ -180,7 +228,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                 Manajemen Akun Guru & Siswa
               </h2>
               <p className="text-xs text-slate-300 mt-0.5">
-                Kelola akun guru pembina dan siswa seluruh kelas SP-PPT SMPN 10 Samarinda
+                Kelola akun guru pengampu (multi-kelas) dan siswa SP-PPT SMPN 10 Samarinda
               </p>
             </div>
           </div>
@@ -202,7 +250,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
             <Users className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[11px] text-slate-500 font-semibold">Total Akun Guru</p>
+            <p className="text-[11px] text-slate-500 font-semibold">Total Guru</p>
             <p className="text-xl font-black text-slate-900">{teachers.length}</p>
           </div>
         </div>
@@ -212,7 +260,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
             <GraduationCap className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-[11px] text-slate-500 font-semibold">Total Akun Siswa</p>
+            <p className="text-[11px] text-slate-500 font-semibold">Total Siswa</p>
             <p className="text-xl font-black text-slate-900">{students.length}</p>
           </div>
         </div>
@@ -239,6 +287,34 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
           </div>
         </div>
       </div>
+
+      {/* Warning: Guru tanpa WA */}
+      {teachers.filter(t => t.role === 'Guru Pengampu' && !t.phone?.trim()).length > 0 && (
+        <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-extrabold text-amber-900">
+                {teachers.filter(t => t.role === 'Guru Pengampu' && !t.phone?.trim()).length} Guru Pengampu belum punya nomor WA
+              </p>
+              <p className="text-xs text-amber-800 mt-1">
+                Siswa tidak bisa kirim WA konfirmasi booking ke guru tersebut. Minta guru untuk mengisi nomor WA di menu <strong>Pengaturan Akun</strong>.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {teachers
+                  .filter(t => t.role === 'Guru Pengampu' && !t.phone?.trim())
+                  .slice(0, 5)
+                  .map(t => (
+                    <span key={t.uid} className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">
+                      {t.displayName}
+                    </span>
+                  ))
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs & Search */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-sm">
@@ -314,64 +390,94 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredList.map(u => (
-                  <tr key={u.uid} className="hover:bg-slate-50/80 transition">
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center shrink-0 border border-slate-200 text-xs">
-                          {(u.displayName || u.email || '?').charAt(0).toUpperCase()}
+                {filteredList.map(u => {
+                  const isTeacher = u.role === 'Guru Pengampu';
+                  const teacherClassNames = isTeacher ? getTeacherClassNames(u) : [];
+                  const hasPhone = !!u.phone?.trim();
+
+                  return (
+                    <tr key={u.uid} className="hover:bg-slate-50/80 transition">
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center shrink-0 border border-slate-200 text-xs">
+                            {(u.displayName || u.email || '?').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900">{u.displayName || '(Tanpa Nama)'}</p>
+                            <p className="text-[10px] text-slate-400 font-mono truncate max-w-[140px]">
+                              UID: {u.uid.slice(0, 12)}...
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-bold text-slate-900">{u.displayName || '(Tanpa Nama)'}</p>
-                          <p className="text-[10px] text-slate-400 font-mono truncate max-w-[140px]">
-                            UID: {u.uid.slice(0, 12)}...
-                          </p>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-700 font-mono text-[11px]">{u.email}</td>
+                      <td className="py-3.5 px-4">
+                        <span
+                          className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                            u.role === 'Guru Pengampu'
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : u.role === 'Admin' || u.role === 'Super Admin'
+                              ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                              : 'bg-slate-100 text-slate-700 border border-slate-300'
+                          }`}
+                        >
+                          {u.role}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-600">
+                        {isTeacher ? (
+                          teacherClassNames.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {teacherClassNames.map((name, i) => (
+                                <span key={i} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-300 flex items-center gap-0.5">
+                                  <Layers className="w-2.5 h-2.5" /> {name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-rose-600 font-bold">Belum ada kelas</span>
+                          )
+                        ) : (
+                          <span>{u.className || '-'}</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {u.phone ? (
+                          <span className="text-slate-600 font-mono text-[11px]">{u.phone}</span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                            WA Kosong
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setSelectedUser(u)}
+                            className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition"
+                            title="Detail"
+                          >
+                            Detail
+                          </button>
+                          <button
+                            onClick={() => handleResetPassword(u)}
+                            className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 transition"
+                            title="Kirim Reset Password"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProfile(u)}
+                            className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 transition"
+                            title="Hapus Profil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-700 font-mono text-[11px]">{u.email}</td>
-                    <td className="py-3.5 px-4">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                          u.role === 'Guru Pembina'
-                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                            : u.role === 'Admin' || u.role === 'Super Admin'
-                            ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                            : 'bg-slate-100 text-slate-700 border border-slate-300'
-                        }`}
-                      >
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-slate-600">{u.className || '-'}</td>
-                    <td className="py-3.5 px-4 text-slate-600 font-mono text-[11px]">{u.phone || '-'}</td>
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => setSelectedUser(u)}
-                          className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition"
-                          title="Detail"
-                        >
-                          Detail
-                        </button>
-                        <button
-                          onClick={() => handleResetPassword(u)}
-                          className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 transition"
-                          title="Kirim Reset Password"
-                        >
-                          <KeyRound className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProfile(u)}
-                          className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50 transition"
-                          title="Hapus Profil"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -381,8 +487,8 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
       {/* Modal: Buat Akun Guru Baru */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 overflow-y-auto bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 my-auto">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-100 my-auto max-h-[95vh] overflow-y-auto">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-amber-500" />
                 <h3 className="text-base font-extrabold text-slate-900">Buat Akun Guru Baru</h3>
@@ -393,7 +499,6 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
             </div>
 
             {generatedPassword ? (
-              /* ==== SUKSES: Tampilkan Kredensial ==== */
               <div className="p-6 space-y-4">
                 <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3">
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
@@ -402,6 +507,19 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                     <p className="text-[11px] mt-0.5">
                       Kirimkan kredensial berikut ke guru melalui WhatsApp pribadi. Guru bisa mengganti password sendiri setelah login.
                     </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                  <p className="text-[10px] font-bold text-indigo-700 uppercase mb-1 flex items-center gap-1">
+                    <Layers className="w-3 h-3" /> Kelas yang Diampu
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {generatedClasses.map((name, i) => (
+                      <span key={i} className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-white text-indigo-800 border border-indigo-300">
+                        {name}
+                      </span>
+                    ))}
                   </div>
                 </div>
 
@@ -434,7 +552,6 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                 </button>
               </div>
             ) : (
-              /* ==== FORM ==== */
               <form onSubmit={handleCreateTeacher} className="p-6 space-y-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
@@ -466,14 +583,68 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">No. WhatsApp</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                    <Phone className="w-3.5 h-3.5" />
+                    No. WhatsApp <span className="text-rose-500">* WAJIB</span>
+                  </label>
                   <input
                     type="tel"
+                    required
                     value={newPhone}
                     onChange={(e) => setNewPhone(e.target.value)}
                     placeholder="0812..."
-                    className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800"
+                    className="w-full px-3.5 py-2 rounded-xl border-2 border-amber-300 bg-amber-50 text-xs font-semibold text-slate-800"
                   />
+                  <p className="text-[10px] text-amber-700 mt-1 flex items-start gap-1">
+                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                    <span>Nomor ini akan dipakai untuk notifikasi WA konfirmasi booking dari siswa.</span>
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1">
+                      <Layers className="w-3.5 h-3.5" />
+                      Kelas yang Diampu <span className="text-rose-500">*</span>
+                    </span>
+                    <span className={`text-[10px] font-black ${newClassIds.length === 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
+                      {newClassIds.length} dipilih
+                    </span>
+                  </label>
+                  <p className="text-[10px] text-slate-500 mb-2">
+                    Guru pengampu bisa mengampu beberapa kelas sekaligus (centang semua yang berlaku).
+                  </p>
+                  <div className="max-h-40 overflow-y-auto space-y-1.5 p-2 rounded-xl bg-slate-50 border border-slate-200">
+                    {classes.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic text-center py-3">Belum ada kelas</p>
+                    ) : classes.map(c => {
+                      const isSel = newClassIds.includes(c.id);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggleClassSelection(c.id)}
+                          className={`w-full p-2.5 rounded-lg text-left transition flex items-center gap-2 ${
+                            isSel
+                              ? 'bg-indigo-100 border-2 border-indigo-400'
+                              : 'bg-white border-2 border-slate-200'
+                          }`}
+                        >
+                          <div className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
+                            isSel ? 'bg-indigo-500 text-white' : 'border-2 border-slate-300'
+                          }`}>
+                            {isSel && <CheckCircle2 className="w-3 h-3" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-900">{c.name}</p>
+                            {c.kerabatKerja && (
+                              <p className="text-[10px] text-slate-500 truncate">{c.kerabatKerja}</p>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div>
@@ -510,14 +681,6 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                   </p>
                 </div>
 
-                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-2 text-[11px] text-amber-900">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                  <p>
-                    Setelah akun dibuat, salin password dan kirim ke guru via WhatsApp pribadi.
-                    Password tidak akan ditampilkan lagi setelah modal ini ditutup.
-                  </p>
-                </div>
-
                 <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
                   <button
                     type="button"
@@ -528,7 +691,7 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                   </button>
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || newClassIds.length === 0}
                     className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50"
                   >
                     {submitting ? 'Membuat...' : 'Buat Akun Guru'}
@@ -569,9 +732,29 @@ export const AdminModule: React.FC<AdminModuleProps> = ({ defaultTab = 'guru' })
                 <p className="text-[10px] font-bold text-slate-500 uppercase">Role</p>
                 <p className="font-bold text-slate-900 mt-0.5">{selectedUser.role}</p>
               </div>
+              {selectedUser.role === 'Guru Pengampu' && (
+                <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200">
+                  <p className="text-[10px] font-bold text-indigo-700 uppercase flex items-center gap-1">
+                    <Layers className="w-3 h-3" /> Kelas yang Diampu
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {getTeacherClassNames(selectedUser).length > 0 ? (
+                      getTeacherClassNames(selectedUser).map((name, i) => (
+                        <span key={i} className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white text-indigo-800 border border-indigo-300">
+                          {name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[10px] text-rose-600 font-bold">Belum ada kelas</span>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <p className="text-[10px] font-bold text-slate-500 uppercase">Kelas</p>
-                <p className="font-bold text-slate-900 mt-0.5">{selectedUser.className || '-'}</p>
+                <p className="text-[10px] font-bold text-slate-500 uppercase">Kontak WA</p>
+                <p className={`font-bold mt-0.5 font-mono ${selectedUser.phone ? 'text-slate-900' : 'text-rose-600'}`}>
+                  {selectedUser.phone || '— Belum diisi —'}
+                </p>
               </div>
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
                 <p className="text-[10px] font-bold text-slate-500 uppercase">UID</p>
