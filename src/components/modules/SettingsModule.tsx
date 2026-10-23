@@ -1,3 +1,4 @@
+// src/components/modules/SettingsModule.tsx
 import React, { useState } from 'react';
 import {
   AlertTriangle, Award, Camera, CheckCircle, Database, Layers, Lock,
@@ -55,6 +56,11 @@ export const SettingsModule: React.FC = () => {
   const currentWeights = weights[selectedRole] || { GURU: 0, ATASAN: 50, REKAN: 50, BAWAHAN: 0 };
   const totalAssessorWeight = currentWeights.GURU + currentWeights.ATASAN + currentWeights.REKAN + currentWeights.BAWAHAN;
 
+  // ✅ WAJIB WA untuk Guru Pengampu
+  const isGuruRole = user?.role === 'Guru Pengampu';
+  const isPhoneMissing = isGuruRole && !phone.trim();
+  const isPhoneInvalid = isGuruRole && phone.trim().length > 0 && (phone.replace(/\D/g, '').length < 9 || phone.replace(/\D/g, '').length > 15);
+
   React.useEffect(() => {
     if (!activeClass) return;
     (async () => {
@@ -74,10 +80,18 @@ export const SettingsModule: React.FC = () => {
     e.preventDefault();
     if (!user) return;
     const cleanPhone = phone.replace(/\D/g, '');
-    if (cleanPhone.length > 0 && (cleanPhone.length < 9 || cleanPhone.length > 15)) {
+
+    // ✅ Validasi WA khusus Guru Pengampu
+    if (user.role === 'Guru Pengampu') {
+      if (!cleanPhone || cleanPhone.length < 9 || cleanPhone.length > 15) {
+        showToast('Guru Pengampu WAJIB isi nomor WhatsApp valid (9-15 digit).', 'error');
+        return;
+      }
+    } else if (cleanPhone.length > 0 && (cleanPhone.length < 9 || cleanPhone.length > 15)) {
       showToast('Nomor WhatsApp tidak valid (9-15 digit).', 'warning');
       return;
     }
+
     setIsSavingProfile(true);
     try {
       await updateUserProfile(user.uid, {
@@ -189,6 +203,22 @@ export const SettingsModule: React.FC = () => {
             <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">Detail Akun Saya</h3>
           </div>
 
+          {/* ✅ WARNING: Guru Pengampu wajib isi WA */}
+          {isGuruRole && isPhoneMissing && (
+            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40 flex items-start gap-2">
+              <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5 animate-pulse" />
+              <div className="flex-1">
+                <p className="text-sm font-extrabold text-rose-900 dark:text-rose-200">
+                  Nomor WA Belum Diisi
+                </p>
+                <p className="text-[11px] text-rose-800 dark:text-rose-300 mt-1 leading-relaxed">
+                  Sebagai Guru Pengampu, Anda <strong>wajib</strong> mengisi nomor WhatsApp.
+                  Siswa akan menerima tombol "Hubungi Guru via WA" saat booking alat, dan nomor ini yang dipakai.
+                </p>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col items-center py-2">
             <div className="relative">
               {photoURL ? (
@@ -238,14 +268,37 @@ export const SettingsModule: React.FC = () => {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1">
-                No. WhatsApp <span className="text-rose-500">*</span>
+                <Phone className="w-3 h-3" />
+                No. WhatsApp
+                {isGuruRole && <span className="text-rose-500 font-black">* WAJIB</span>}
               </label>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required={isGuruRole}
+                placeholder={isGuruRole ? '0812... (wajib untuk notifikasi booking)' : '0812...'}
+                className={`w-full px-3.5 py-2 rounded-xl border text-xs font-semibold text-slate-800 dark:text-white bg-white dark:bg-slate-800 ${
+                  isGuruRole && (isPhoneMissing || isPhoneInvalid)
+                    ? 'border-2 border-rose-400 bg-rose-50 dark:bg-rose-500/10'
+                    : 'border-slate-200 dark:border-slate-700'
+                }`}
+              />
+              {isGuruRole && isPhoneInvalid && (
+                <p className="text-[10px] text-rose-600 dark:text-rose-400 mt-1 font-bold">
+                  Format tidak valid — harus 9-15 digit.
+                </p>
+              )}
+              {isGuruRole && (
+                <p className="text-[10px] text-amber-700 dark:text-amber-400 mt-1 flex items-start gap-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                  <span>Nomor ini dipakai untuk notifikasi WA konfirmasi booking dari siswa.</span>
+                </p>
+              )}
             </div>
 
             <div className="flex justify-end pt-2">
-              <button type="submit" disabled={isSavingProfile}
+              <button type="submit" disabled={isSavingProfile || (isGuruRole && isPhoneMissing)}
                 className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
                 <Save className="w-3.5 h-3.5" /> {isSavingProfile ? 'Menyimpan...' : 'Simpan Perubahan'}
               </button>
@@ -351,7 +404,7 @@ export const SettingsModule: React.FC = () => {
           <Bot className="w-6 h-6 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
           <div className="text-xs">
             <p className="font-black text-blue-900 dark:text-blue-200 mb-1">
-              🤖 Skor Otomatis dari Sistem
+              Skor Otomatis dari Sistem
             </p>
             <ul className="text-blue-800 dark:text-blue-300 space-y-0.5 pl-4 list-disc text-[11px]">
               <li><strong>Tanggung Jawab (25%)</strong>: Dihitung dari % tugas Awal/Tepat (≥90%→4, 75-89%→3, 50-74%→2, &lt;50%→1). Tugas ★ yang terlambat menurunkan skor.</li>
