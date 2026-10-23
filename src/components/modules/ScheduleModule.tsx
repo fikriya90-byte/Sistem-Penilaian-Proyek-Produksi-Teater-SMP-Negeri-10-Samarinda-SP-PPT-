@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar as CalendarIcon, Clock, MapPin, PlusCircle, Trash2, UserCheck,
-  Users, ChevronLeft, ChevronRight, Check, X, Pencil, Filter, BookOpen, ShieldAlert, Star, CheckSquare, Square, Building2, MessageCircle
+  Users, ChevronLeft, ChevronRight, Check, X, Pencil, Filter, BookOpen, ShieldAlert, Star, CheckSquare, Square, Building2, Share2, MessageCircle, CheckCircle
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
-import { ScheduleEvent, ScheduleType, UserProfile, ClassRoom } from '../../core/types';
+import { ScheduleEvent, ScheduleType, UserProfile } from '../../core/types';
 import {
-  createSchedule, deleteSchedule, recordAuditLog, subscribeSchedules, fetchUsersByClass, fetchClasses
+  createSchedule, deleteSchedule, recordAuditLog, subscribeSchedules, fetchUsersByClass
 } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
 import { doc, setDoc, collection, query, where, onSnapshot, updateDoc } from 'firebase/firestore';
@@ -52,7 +52,6 @@ export const ScheduleModule: React.FC = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   
-  // Filter Khusus Guru
   const [filterClass, setFilterClass] = useState<string>('ALL');
   
   // Form State
@@ -72,7 +71,9 @@ export const ScheduleModule: React.FC = () => {
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
 
-  // Hak Akses
+  // State untuk Pop-up Sukses Share WA
+  const [successSchedule, setSuccessSchedule] = useState<ScheduleEvent | null>(null);
+
   const canCreate = isPimprod || isSekretaris || isGuruPengampu || isAdminRole;
   const canSeeAllClasses = isGuruPengampu || isAdminRole;
 
@@ -81,14 +82,12 @@ export const ScheduleModule: React.FC = () => {
 
     let unsubSchedules: () => void;
 
-    // JIKA GURU/ADMIN: Tarik semua jadwal dari semua kelas
     if (canSeeAllClasses) {
       const q = query(collection(db, 'schedules'));
       unsubSchedules = onSnapshot(q, snap => {
         setSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id } as ScheduleEvent)));
       });
     } else {
-      // JIKA SISWA/SISWA LAIN: Hanya tarik jadwal kelasnya sendiri
       unsubSchedules = subscribeSchedules(activeClass.id, setSchedules);
     }
 
@@ -101,11 +100,6 @@ export const ScheduleModule: React.FC = () => {
 
     return () => { unsubSchedules(); unsubConf(); };
   }, [activeClass, user, canSeeAllClasses]);
-
-  // HELPER: Cek apakah jadwal sudah lewat
-  const isPastEvent = (endAtIso: string) => {
-    return new Date(endAtIso).getTime() < Date.now();
-  };
 
   const formatLocalDatetime = (isoString: string) => {
     if (!isoString) return '';
@@ -196,7 +190,6 @@ export const ScheduleModule: React.FC = () => {
         targetUserIds: finalTargetIds, 
         divisionName: '', 
         pic: user.displayName,
-        creatorRole: user.role, // Simpan role pembuat untuk info WA
         description: description.trim(),
       };
 
@@ -208,6 +201,7 @@ export const ScheduleModule: React.FC = () => {
           details: `Mengubah kalender kegiatan: ${title} (${finalTargetIds.length} target)`,
         });
         showToast('Kalender diperbarui!', 'success');
+        setIsModalOpen(false);
       } else {
         const newId = await createSchedule({
           ...payload,
@@ -220,8 +214,11 @@ export const ScheduleModule: React.FC = () => {
           details: `Membuat kalender kegiatan: ${title} (${finalTargetIds.length} target)`,
         });
         showToast(`Kegiatan ditambahkan untuk kelas ${activeClass.name}!`, 'success');
+        setIsModalOpen(false);
+        
+        // ✅ TAMPILKAN POP-UP SUKSES AGAR BISA LANGSUNG SHARE KE WA
+        setSuccessSchedule({ ...payload, id: newId, createdBy: user.uid, creatorName: user.displayName } as ScheduleEvent);
       }
-      setIsModalOpen(false);
     } catch (err: any) {
       showToast('Gagal: ' + err.message, 'error');
     }
@@ -251,50 +248,46 @@ export const ScheduleModule: React.FC = () => {
         userId: user.uid, userName: user.displayName,
         status, confirmedAt: new Date().toISOString(),
       });
-      showToast(`RSVP: ${status === 'HADIR' ? 'Akan Hadir' : 'Tidak Hadir'}`, 'success');
+      showToast(`Konfirmasi: ${status === 'HADIR' ? 'Hadir' : 'Tidak Hadir'}`, 'success');
     } catch (err: any) {
       showToast('Gagal: ' + err.message, 'error');
     }
   };
 
-  // HELPER: Share ke WhatsApp dengan Format Lengkap
-  const handleShareWA = (event: ScheduleEvent) => {
+  // FUNGSI SHARE KE WHATSAPP
+  const handleShareToWA = (event: ScheduleEvent) => {
     const startObj = new Date(event.startAt);
     const endObj = new Date(event.endAt);
     
-    const formatTanggal = startObj.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-    const formatWaktu = `${startObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} - ${endObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA`;
-    
-    // Dapatkan info target peserta (jika 1 orang sebutkan namanya, jika banyak sebut jumlahnya)
     const targets = (event as any).targetUserIds || [];
-    let targetStr = "Semua Siswa";
-    if (targets.length > 0) {
-       if (targets.length === 1) targetStr = classStudents.find(s => s.uid === targets[0])?.displayName || "Siswa Spesifik";
-       else targetStr = `${targets.length} Orang Siswa Spesifik`;
+    let targetDesc = "Seluruh Anggota";
+    if (targets.length > 0 && targets.length < classStudents.length) {
+      targetDesc = "Peserta Terpilih (Cek Jadwal di Web)";
     }
 
+    const kerabat = activeClass?.kerabatKerja ? `(${activeClass.kerabatKerja})` : '';
+    const roleText = user?.role || 'Pengurus';
+
     const text = 
-      `*📅 UNDANGAN / JADWAL KEGIATAN*\n\n` +
-      `*${event.title}*\n\n` +
-      `📌 *Detail Acara:*\n` +
-      `🗓️ Tanggal: ${formatTanggal}\n` +
-      `⏰ Waktu: ${formatWaktu}\n` +
+      `Halo teman-teman,\n\n` +
+      `Saya *${user?.displayName}* sebagai *${roleText}* dari Kerabat Kerja *${activeClass?.name}* ${kerabat}.\n\n` +
+      `Menginformasikan agenda kegiatan:\n` +
+      `📌 *${event.title}*\n` +
+      `🗓️ Tanggal: ${startObj.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n` +
+      `⏰ Waktu: ${startObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} - ${endObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA\n` +
       `📍 Lokasi: ${event.location}\n` +
-      `📝 Catatan: ${event.description || '-'}\n\n` +
-      `----------------------------------\n` +
-      `👤 *Pengirim:*\n` +
-      `${event.creatorName} (${(event as any).creatorRole || 'Panitia'})\n\n` +
-      `🎯 *Ditujukan Untuk:*\n` +
-      `${targetStr}\n` +
-      `----------------------------------\n\n` +
-      `_Mohon konfirmasi kehadiran (RSVP) Anda di aplikasi SP-PPT._`;
+      `👥 Ditujukan kepada: ${targetDesc}\n` +
+      `${event.description ? `\n📝 Keterangan:\n${event.description}\n` : ''}\n` +
+      `Mohon untuk hadir tepat waktu dan konfirmasi kehadiran di web SP-PPT. Terima kasih. 🙏`;
 
     const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(waUrl, '_blank', 'noopener,noreferrer');
-    showToast('Membuka WhatsApp. Silakan pilih grup tujuan.', 'info');
+    showToast('Membuka WhatsApp...', 'info');
+    
+    // Tutup pop-up sukses jika sedang terbuka
+    setSuccessSchedule(null);
   };
 
-  // LOGIKA FILTER TAMPILAN
   const mySchedules = schedules.filter(s => {
     if (canSeeAllClasses) {
        if (filterClass !== 'ALL' && s.classId !== filterClass) return false;
@@ -522,36 +515,35 @@ export const ScheduleModule: React.FC = () => {
              <div className="mt-4 pt-4 border-t border-slate-100">
                <p className="text-xs font-bold mb-2">Agenda: {new Date(selectedDate).toLocaleDateString('id-ID')}</p>
                {filteredSchedules.map(s => {
-                 const isPast = isPastEvent(s.endAt);
                  const myConf = myConfirmation(s.id);
                  const canDelete = s.createdBy === user?.uid || isGuruPengampu || isAdminRole;
-                 
+                 const isPast = new Date(s.endAt).getTime() < Date.now();
+
                  return (
-                   <div key={s.id} className={`p-3 mb-2 rounded-xl border-l-4 ${isPast ? 'opacity-60 border-slate-300 bg-slate-50' : typeColor(s.type)}`}>
+                   <div key={s.id} className={`p-3 mb-2 rounded-xl border-l-4 ${typeColor(s.type)}`}>
                      <div className="flex items-center gap-2 mb-1">
                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-white text-slate-600">{(s as any).className || 'Kelas'}</span>
-                       <p className={`text-xs font-bold ${isPast ? 'text-slate-500 line-through' : 'text-slate-900'}`}>{s.title}</p>
+                       <p className="text-xs font-bold text-slate-900">{s.title}</p>
                      </div>
                      <p className="text-[10px] text-slate-500">{new Date(s.startAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {s.location}</p>
-                     
-                     {/* JIKA BELUM LEWAT, TAMPILKAN TOMBOL */}
-                     {!isPast && (
-                       <div className="flex justify-between mt-2 items-center">
-                         <div className="flex gap-1 items-center">
-                            {myConf ? <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">{myConf.status}</span> : 
-                             <><button onClick={() => handleConfirm(s, 'HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500 text-white rounded">RSVP Hadir</button>
-                               <button onClick={() => handleConfirm(s, 'TIDAK_HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-rose-500 text-white rounded">Tidak</button></>
-                            }
-                            <button onClick={() => handleShareWA(s)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="Share ke WA"><MessageCircle className="w-3.5 h-3.5"/></button>
-                         </div>
-                         {canDelete && (
-                           <div className="flex items-center gap-1">
-                             <button onClick={() => openEdit(s)} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Pencil className="w-3.5 h-3.5"/></button>
-                             <button onClick={() => handleDelete(s)} className="p-1 text-rose-500 hover:bg-rose-50 rounded"><Trash2 className="w-3.5 h-3.5"/></button>
-                           </div>
-                         )}
+                     <div className="flex justify-between mt-2 items-center">
+                       <div className="flex gap-1">
+                          {/* TOMBOL WA SHARE (HANYA MUNCUL JIKA BELUM LEWAT) */}
+                          {!isPast && (
+                            <button onClick={() => handleShareToWA(s)} className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded hover:bg-emerald-200 flex items-center gap-1">
+                              <MessageCircle className="w-3 h-3" /> WA
+                            </button>
+                          )}
+
+                          {!isPast && (
+                            myConf ? <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">{myConf.status}</span> : 
+                            <><button onClick={() => handleConfirm(s, 'HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500 text-white rounded">Hadir</button>
+                              <button onClick={() => handleConfirm(s, 'TIDAK_HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-rose-500 text-white rounded">Tidak</button></>
+                          )}
+                          {isPast && <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 text-slate-500 rounded">Selesai</span>}
                        </div>
-                     )}
+                       {canDelete && !isPast && <button onClick={() => handleDelete(s)} className="p-1 text-rose-500 hover:bg-rose-50 rounded"><Trash2 className="w-3.5 h-3.5"/></button>}
+                     </div>
                    </div>
                  );
                })}
@@ -566,19 +558,20 @@ export const ScheduleModule: React.FC = () => {
             filteredSchedules.map(event => {
               const startObj = new Date(event.startAt);
               const endObj = new Date(event.endAt);
-              const isPast = isPastEvent(event.endAt);
               const myConf = myConfirmation(event.id);
               const canDelete = event.createdBy === user?.uid || isGuruPengampu || isAdminRole;
               const targets = (event as any).targetUserIds || [];
+              const isPast = endObj.getTime() < Date.now();
+
               let targetLabel = 'Anda';
               if (targets.length > 5) targetLabel = 'Banyak Peserta';
               else if (targets.length === 1 && targets[0] === user?.uid) targetLabel = 'Anda Spesifik';
 
               return (
-                <div key={event.id} className={`p-4 rounded-2xl bg-white border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${isPast ? 'opacity-60 bg-slate-50 border-slate-200' : 'border-slate-200'}`}>
+                <div key={event.id} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="flex items-start gap-3">
-                    <div className={`p-2.5 rounded-xl text-center shrink-0 min-w-[60px] border ${isPast ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-amber-50 text-amber-900 border-amber-200'}`}>
-                      <span className="text-[10px] font-bold uppercase block">{startObj.toLocaleDateString('id-ID', { month: 'short' })}</span>
+                    <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 text-center shrink-0 min-w-[60px]">
+                      <span className="text-[10px] font-bold uppercase block text-amber-700">{startObj.toLocaleDateString('id-ID', { month: 'short' })}</span>
                       <span className="text-lg font-black block leading-none">{startObj.getDate()}</span>
                     </div>
                     <div>
@@ -588,41 +581,47 @@ export const ScheduleModule: React.FC = () => {
                             <Building2 className="w-3 h-3" /> {(event as any).className || 'Kelas'}
                           </span>
                         )}
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isPast ? 'bg-slate-200 text-slate-500' : 'bg-blue-100 text-blue-700'}`}>{event.type}</span>
-                        {!isPast && <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">Untuk: {targetLabel}</span>}
-                        
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-700">{event.type}</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">Untuk: {targetLabel}</span>
                         <span className="text-[10px] text-slate-500 font-mono">{startObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {endObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        
-                        {isPast && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200">SELESAI</span>}
                       </div>
-                      <h3 className={`text-sm font-extrabold ${isPast ? 'text-slate-500' : 'text-slate-900'}`}>{event.title}</h3>
+                      <h3 className="text-sm font-extrabold text-slate-900">{event.title}</h3>
                       <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {event.location}</p>
                     </div>
                   </div>
-                  
-                  <div className="flex items-center gap-2 self-end md:self-center shrink-0 flex-wrap">
-                    {/* TOMBOL WA SELALU MUNCUL (Untuk share info ke grup) */}
-                    <button onClick={() => handleShareWA(event)} className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold text-xs flex items-center gap-1" title="Bagikan ke Grup WhatsApp">
-                      <MessageCircle className="w-3.5 h-3.5" /> Share
-                    </button>
-
-                    {/* JIKA BUKAN JADWAL LEWAT, TAMPILKAN TOMBOL KONFIRMASI & EDIT/HAPUS */}
+                  <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                    
+                    {/* TOMBOL WA SHARE (HANYA MUNCUL JIKA BELUM LEWAT) */}
                     {!isPast && (
+                      <button onClick={() => handleShareToWA(event)} className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-bold text-xs flex items-center gap-1.5 shadow-sm">
+                        <Share2 className="w-3.5 h-3.5" /> Share WA
+                      </button>
+                    )}
+
+                    {/* JIKA JADWAL SUDAH LEWAT, SEMBUNYIKAN TOMBOL HADIR/EDIT/HAPUS */}
+                    {isPast ? (
+                      <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-100 text-slate-500 border border-slate-300 flex items-center gap-1.5">
+                        <CheckCircle className="w-4 h-4" /> Selesai
+                      </span>
+                    ) : (
                       <>
+                        {/* KONFIRMASI KEHADIRAN */}
                         {(!canSeeAllClasses || event.classId === activeClass?.id) && (
                           myConf ? (
                             <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'}`}>
-                              {myConf.status === 'HADIR' ? '✅ RSVP Hadir' : '❌ Tidak Hadir'}
+                              {myConf.status === 'HADIR' ? '✅ Hadir' : '❌ Tidak Hadir'}
                             </span>
                           ) : (
                             <>
-                              <button onClick={() => handleConfirm(event, 'HADIR')} className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1"><Check className="w-3.5 h-3.5" /> RSVP</button>
+                              <button onClick={() => handleConfirm(event, 'HADIR')} className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Hadir</button>
                               <button onClick={() => handleConfirm(event, 'TIDAK_HADIR')} className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Tidak</button>
                             </>
                           )
                         )}
+
+                        {/* EDIT & HAPUS */}
                         {canDelete && (
-                          <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200">
+                          <div className="flex items-center gap-1 ml-1 pl-1 border-l border-slate-200">
                             <button onClick={() => openEdit(event)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Edit Agenda"><Pencil className="w-4 h-4" /></button>
                             <button onClick={() => handleDelete(event)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg" title="Hapus Agenda"><Trash2 className="w-4 h-4" /></button>
                           </div>
@@ -704,6 +703,41 @@ export const ScheduleModule: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ MODAL SUKSES: ARAHAN SHARE KE WA SETELAH BUAT JADWAL */}
+      {successSchedule && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl p-6 text-center space-y-4 animate-in zoom-in-95">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-100 mb-2">
+              <CheckCircle className="w-8 h-8 text-emerald-600" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-slate-900">Jadwal Berhasil Disimpan!</h3>
+              <p className="text-xs text-slate-500 mt-1">Apakah Anda ingin membagikan jadwal ini ke grup WhatsApp sekarang?</p>
+            </div>
+            
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-left">
+              <p className="text-xs font-bold text-slate-900">{successSchedule.title}</p>
+              <p className="text-[10px] text-slate-500">{new Date(successSchedule.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <button 
+                onClick={() => handleShareToWA(successSchedule)}
+                className="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-sm shadow-md flex items-center justify-center gap-2"
+              >
+                <MessageCircle className="w-5 h-5" /> Bagikan ke WA Sekarang
+              </button>
+              <button 
+                onClick={() => setSuccessSchedule(null)}
+                className="w-full py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 font-bold text-xs"
+              >
+                Nanti Saja
+              </button>
+            </div>
           </div>
         </div>
       )}
