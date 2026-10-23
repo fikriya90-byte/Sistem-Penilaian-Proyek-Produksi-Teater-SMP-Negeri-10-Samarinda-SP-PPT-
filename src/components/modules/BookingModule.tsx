@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Calendar, Clock, Package, Plus, X, Save, CheckCircle, XCircle,
   AlertTriangle, Search, Music, Trash2, Edit3, Info,
   Settings as SettingsIcon, Send, ShieldAlert, Building2, User as UserIcon,
+  Table, Bell, MapPin
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
@@ -12,6 +13,7 @@ import {
   deleteDoc, writeBatch, getDoc,
 } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+import { BookingCalendarModule } from './BookingCalendarModule';
 
 interface Equipment {
   id: string;
@@ -45,7 +47,6 @@ interface Booking {
   approvedAt?: string;
   rejectionReason?: string;
   rejectionGuidance?: string;
-  // ✅ BARU: untuk audit perubahan jam oleh guru
   originalStartTime?: string;
   originalEndTime?: string;
   verifierNote?: string;
@@ -95,17 +96,16 @@ const DEFAULT_INSTRUMENTS: Omit<Equipment, 'id' | 'classId'>[] = [
   { name: 'Gambus', category: 'Alat Musik Tradisional', quantity: 2, condition: 'BAIK', notes: 'Alat musik petik khas Kalimantan' },
 ];
 
-// ✅ ROLES YANG HANYA VERIFIKASI
+// ✅ HANYA GURU & ADMIN YANG BISA VERIFIKASI
 const VERIFIER_ROLES = [
-  'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin',
-  'Pimpinan Produksi', 'Koordinator Tata Musik',
+  'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'
 ];
 
 const REJECTION_TEMPLATES = (minLeadDays: number) => [
   {
     label: `Booking minimal H-${minLeadDays} (${minLeadDays} hari sebelum peminjaman)`,
     reason: 'Tanggal terlalu dekat dengan hari ini',
-    guidance: `Sesuai aturan, booking alat musik harus diajukan minimal ${minLeadDays} hari sebelum tanggal peminjaman. Silakan ajukan ulang dengan tanggal yang lebih jauh (H-${minLeadDays} ke atas).`,
+    guidance: `Sesuai aturan, booking alat musik harus diajukan minimal ${minLeadDays} hari sebelum tanggal peminjaman. Silakan ajukan ulang dengan tanggal yang lebih jauh.`,
   },
   {
     label: 'Alat musik sedang dipakai latihan',
@@ -115,12 +115,12 @@ const REJECTION_TEMPLATES = (minLeadDays: number) => [
   {
     label: 'Alat musik rusak / perawatan',
     reason: 'Alat musik sedang dalam perawatan atau rusak',
-    guidance: 'Alat tidak dapat dipinjam sampai selesai perbaikan. Silakan hubungi Koordinator Tata Musik untuk informasi ketersediaan alat pengganti.',
+    guidance: 'Alat tidak dapat dipinjam sampai selesai perbaikan. Silakan hubungi Koordinator Tata Musik.',
   },
   {
     label: 'Bentrok dengan Gladi Resik / Pementasan',
     reason: 'Bentrok dengan jadwal Gladi Resik / Pementasan',
-    guidance: 'Alat musik diprioritaskan untuk Gladi Resik & Pementasan utama. Silakan pilih tanggal lain di luar jadwal tersebut.',
+    guidance: 'Alat musik diprioritaskan untuk Gladi Resik & Pementasan utama. Silakan pilih tanggal lain.',
   },
 ];
 
@@ -149,11 +149,12 @@ export const BookingModule: React.FC = () => {
   const [isBookingOpen, setIsBookingOpen] = useState(false);
   const [selectedEquipment, setSelectedEquipment] = useState<Equipment | null>(null);
   const [isSeeding, setIsSeeding] = useState(false);
+  const [stageConfig, setStageConfig] = useState<any>(null);
 
-  // ✅ Tentukan peran
+  // ✅ Tentukan peran (Hanya Guru & Admin yang jadi Verifikator)
   const isVerifier = !!user && VERIFIER_ROLES.includes(user.role);
 
-  // Default tab berdasarkan peran
+  // Default tab: Guru -> verifikasi, Siswa/Pengurus -> katalog
   const [activeTab, setActiveTab] = useState<string>(isVerifier ? 'pending' : 'katalog');
 
   // Modal tambah alat (HANYA untuk siswa)
@@ -170,7 +171,7 @@ export const BookingModule: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [rejectGuidance, setRejectGuidance] = useState('');
 
-  // ✅ Modal approve (guru bisa sesuaikan jam)
+  // Modal approve (guru bisa sesuaikan jam)
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [approvingBooking, setApprovingBooking] = useState<Booking | null>(null);
   const [approveStart, setApproveStart] = useState('');
@@ -185,7 +186,7 @@ export const BookingModule: React.FC = () => {
   // Form booking
   const [bookDate, setBookDate] = useState(new Date().toISOString().slice(0, 10));
   const [bookStart, setBookStart] = useState('14:00');
-  const [bookEnd, setBookEnd] = useState('16:00');
+  const [bookEnd, setBookEnd] = useState('15:00');
   const [bookPurpose, setBookPurpose] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -201,14 +202,25 @@ export const BookingModule: React.FC = () => {
         const snap = await getDoc(ref);
         if (snap.exists()) {
           const data = snap.data();
-          setSettings({ minLeadDays: data.minLeadDays ?? 2 });
-          setSettingsMinLead(data.minLeadDays ?? 2);
+          // ✅ Paksa minimal H-2
+          const loadedMin = Math.max(2, Number(data.minLeadDays ?? 2));
+          setSettings({ minLeadDays: loadedMin });
+          setSettingsMinLead(loadedMin);
         }
       } catch (err) { console.warn('Load settings error:', err); }
     })();
   }, [activeClass]);
 
-  // Subscribe equipment (per active class)
+  // Load stage config (untuk reminder tahap persiapan)
+  useEffect(() => {
+    if (!activeClass) return;
+    const unsub = onSnapshot(doc(db, 'classes', activeClass.id, 'config', 'stageManager'), snap => {
+      if (snap.exists()) setStageConfig(snap.data());
+    });
+    return () => unsub();
+  }, [activeClass]);
+
+  // Subscribe equipment
   useEffect(() => {
     if (!activeClass) return;
     const qEq = query(collection(db, 'equipment'), where('classId', '==', activeClass.id));
@@ -234,13 +246,12 @@ export const BookingModule: React.FC = () => {
     return () => unsubEq();
   }, [activeClass, isSeeding]);
 
-  // ✅ Subscribe bookings — berbeda untuk siswa vs verifikator
+  // Subscribe bookings
   useEffect(() => {
     if (!activeClass) return;
 
     let qBk;
     if (isVerifier) {
-      // Verifikator: lihat SEMUA booking dari semua kelas yang mereka ajar
       const classIds = classes.map(c => c.id);
       if (classIds.length > 0 && classIds.length <= 30) {
         qBk = query(collection(db, 'bookings'), where('classId', 'in', classIds));
@@ -248,7 +259,6 @@ export const BookingModule: React.FC = () => {
         qBk = query(collection(db, 'bookings'));
       }
     } else {
-      // Siswa: hanya booking kelas sendiri
       qBk = query(collection(db, 'bookings'), where('classId', '==', activeClass.id));
     }
 
@@ -264,8 +274,8 @@ export const BookingModule: React.FC = () => {
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
-    if (settingsMinLead < 0 || settingsMinLead > 30) {
-      showToast('Rentang H- harus 0-30 hari.', 'warning');
+    if (settingsMinLead < 2 || settingsMinLead > 30) {
+      showToast('Minimal H-2 dan maksimal H-30 hari.', 'warning');
       return;
     }
     try {
@@ -285,7 +295,7 @@ export const BookingModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // ============== SISWA: TAMBAH ALAT MANUAL ==============
+  // ============== TAMBAH ALAT ==============
   const openAddEquipment = () => {
     setEqName(''); setEqCategory('Alat Musik Tradisional'); setEqQuantity(1);
     setEqCondition('BAIK'); setEqNotes('');
@@ -298,10 +308,9 @@ export const BookingModule: React.FC = () => {
     if (!eqName.trim()) { showToast('Nama alat musik wajib.', 'warning'); return; }
     if (eqQuantity < 1) { showToast('Jumlah minimal 1.', 'warning'); return; }
 
-    // Cek duplikat nama
     const exists = equipment.some(e => e.name.toLowerCase() === eqName.trim().toLowerCase());
     if (exists) {
-      showToast(`Alat "${eqName}" sudah ada di katalog. Pilih dari daftar.`, 'warning');
+      showToast(`Alat "${eqName}" sudah ada di katalog.`, 'warning');
       return;
     }
 
@@ -318,20 +327,20 @@ export const BookingModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'Equipment', targetId: newRef.id,
-        details: `Siswa tambah alat musik manual: ${eqName}`,
+        details: `Tambah alat musik manual: ${eqName}`,
       });
-      showToast(`Alat musik "${eqName}" ditambahkan ke katalog.`, 'success');
+      showToast(`Alat musik "${eqName}" ditambahkan.`, 'success');
       setIsEquipmentModalOpen(false);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
     finally { setSubmitting(false); }
   };
 
-  // ============== SISWA: BOOKING ==============
+  // ============== BOOKING ==============
   const handleOpenBooking = (eq: Equipment) => {
     setSelectedEquipment(eq);
     setBookDate(minBookingDate);
     setBookStart('14:00');
-    setBookEnd('15:00'); // ✅ Default 1 jam, bukan 2 jam
+    setBookEnd('15:00');
     setBookPurpose('');
     setIsBookingOpen(true);
   };
@@ -341,34 +350,25 @@ export const BookingModule: React.FC = () => {
     if (!user || !activeClass || !selectedEquipment) return;
     if (!bookPurpose.trim()) { showToast('Isi keperluan booking.', 'warning'); return; }
 
-    // ✅ VALIDASI DURASI
     const dur = getDurationMinutes(bookStart, bookEnd);
-    if (dur <= 0) {
-      showToast('Jam selesai harus lebih akhir dari jam mulai.', 'warning');
-      return;
-    }
+    if (dur <= 0) { showToast('Jam selesai harus > jam mulai.', 'warning'); return; }
     if (dur > MAX_BOOKING_MINUTES) {
-      showToast(
-        `Maksimal ${formatDuration(MAX_BOOKING_MINUTES)} per booking. ` +
-        `Ingin menambah jam? Buat booking terpisah di jam berbeda (tidak boleh bentrok).`,
-        'error'
-      );
+      showToast(`Maksimal ${formatDuration(MAX_BOOKING_MINUTES)} per booking.`, 'error');
       return;
     }
 
     const diff = daysDifference(new Date().toISOString().slice(0, 10), bookDate);
     if (diff < minLeadDays) {
-      showToast(`Booking minimal H-${minLeadDays}. Tanggal yang Anda pilih hanya ${diff} hari lagi.`, 'error');
+      showToast(`Booking minimal H-${minLeadDays}. Tanggal dipilih hanya ${diff} hari lagi.`, 'error');
       return;
     }
 
-    // Cek bentrok
     const existing = bookings.filter(b =>
       b.equipmentId === selectedEquipment.id && b.date === bookDate && b.status !== 'REJECTED'
     );
     for (const b of existing) {
       if (bookStart < b.endTime && bookEnd > b.startTime) {
-        showToast(`Bentrok dengan booking ${b.bookerName} (${b.startTime}-${b.endTime}). Pilih jam lain.`, 'error');
+        showToast(`Bentrok dengan booking ${b.bookerName} (${b.startTime}-${b.endTime}).`, 'error');
         return;
       }
     }
@@ -396,13 +396,13 @@ export const BookingModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'CREATE', targetType: 'Booking', targetId: newRef.id,
-        details: `Booking ${selectedEquipment.name} (${bookDate} ${bookStart}-${bookEnd}, ${formatDuration(dur)})`,
+        details: `Booking ${selectedEquipment.name} (${bookDate} ${bookStart}-${bookEnd})`,
       });
 
       try {
         await notifyTeachers(activeClass.id, {
           title: '🎵 Booking Alat Musik Baru',
-          message: `${user.displayName} (${activeClass.name}) mengajukan booking "${selectedEquipment.name}" untuk ${bookDate} (${bookStart}-${bookEnd}). Mohon diverifikasi.`,
+          message: `${user.displayName} (${activeClass.name}) mengajukan booking "${selectedEquipment.name}" untuk ${bookDate} (${bookStart}-${bookEnd}).`,
           category: 'Tugas', link: 'booking', senderName: user.displayName,
         });
       } catch { /* non-fatal */ }
@@ -414,8 +414,7 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ============== VERIFIKATOR: APPROVE / REJECT ==============
-  // ✅ Buka modal approve (bukan langsung approve)
+  // ============== VERIFIKATOR ==============
   const handleOpenApprove = (booking: Booking) => {
     setApprovingBooking(booking);
     setApproveStart(booking.startTime);
@@ -425,23 +424,14 @@ export const BookingModule: React.FC = () => {
     setIsApproveModalOpen(true);
   };
 
-  // ✅ Konfirmasi approve dengan validasi
   const handleConfirmApprove = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !approvingBooking || !isVerifier) return;
 
-    // Validasi durasi
     const dur = getDurationMinutes(approveStart, approveEnd);
-    if (dur <= 0) {
-      setApproveError('Jam selesai harus lebih akhir dari jam mulai.');
-      return;
-    }
-    if (dur > MAX_BOOKING_MINUTES) {
-      setApproveError(`Maksimal ${formatDuration(MAX_BOOKING_MINUTES)} per booking.`);
-      return;
-    }
+    if (dur <= 0) { setApproveError('Jam selesai harus > jam mulai.'); return; }
+    if (dur > MAX_BOOKING_MINUTES) { setApproveError(`Maksimal ${formatDuration(MAX_BOOKING_MINUTES)}.`); return; }
 
-    // Validasi bentrok dengan booking APPROVED lain (alat + tanggal sama)
     const conflicting = bookings
       .filter(b =>
         b.id !== approvingBooking.id &&
@@ -459,9 +449,7 @@ export const BookingModule: React.FC = () => {
     setApproveError('');
     setSubmitting(true);
     try {
-      const wasRescheduled =
-        approveStart !== approvingBooking.startTime ||
-        approveEnd !== approvingBooking.endTime;
+      const wasRescheduled = approveStart !== approvingBooking.startTime || approveEnd !== approvingBooking.endTime;
 
       await updateDoc(doc(db, 'bookings', approvingBooking.id), {
         status: 'APPROVED',
@@ -470,7 +458,6 @@ export const BookingModule: React.FC = () => {
         approvedBy: user.displayName,
         approvedAt: new Date().toISOString(),
         verifierNote: approveNote.trim() || null,
-        // ✅ Simpan jam asli untuk audit
         originalStartTime: approvingBooking.startTime,
         originalEndTime: approvingBooking.endTime,
         wasRescheduledByVerifier: wasRescheduled,
@@ -479,43 +466,27 @@ export const BookingModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'UPDATE', targetType: 'Booking', targetId: approvingBooking.id,
-        details: `Setujui booking ${approvingBooking.equipmentName}${wasRescheduled
-          ? ` (jam diubah: ${approvingBooking.startTime}-${approvingBooking.endTime} → ${approveStart}-${approveEnd})`
-          : ''
-        }`,
+        details: `Setujui booking ${approvingBooking.equipmentName}${wasRescheduled ? ' (jam diubah)' : ''}`,
       });
 
-      // Notifikasi ke siswa
       try {
         const notifRef = doc(collection(db, 'notifications'));
         await setDoc(notifRef, {
-          id: notifRef.id,
-          userId: approvingBooking.bookedBy,
-          classId: approvingBooking.classId,
-          title: wasRescheduled
-            ? '✅ Booking Disetujui (Jam Disesuaikan)'
-            : '✅ Booking Disetujui',
+          id: notifRef.id, userId: approvingBooking.bookedBy, classId: approvingBooking.classId,
+          title: wasRescheduled ? '✅ Booking Disetujui (Jam Disesuaikan)' : '✅ Booking Disetujui',
           message: wasRescheduled
-            ? `${user.displayName} menyetujui "${approvingBooking.equipmentName}" untuk ${approvingBooking.date}. Jam disesuaikan menjadi ${approveStart}-${approveEnd}.${approveNote ? ` Catatan: ${approveNote}` : ''}`
-            : `${user.displayName} menyetujui booking "${approvingBooking.equipmentName}" (${approveStart}-${approveEnd}).`,
+            ? `${user.displayName} menyetujui "${approvingBooking.equipmentName}". Jam disesuaikan menjadi ${approveStart}-${approveEnd}.`
+            : `${user.displayName} menyetujui "${approvingBooking.equipmentName}" (${approveStart}-${approveEnd}).`,
           category: 'Feedback', read: false, link: 'booking',
           createdAt: new Date().toISOString(),
         });
       } catch { /* non-fatal */ }
 
-      showToast(
-        wasRescheduled
-          ? 'Booking disetujui dengan jam yang disesuaikan.'
-          : 'Booking disetujui.',
-        'success'
-      );
+      showToast(wasRescheduled ? 'Booking disetujui dengan jam baru.' : 'Booking disetujui.', 'success');
       setIsApproveModalOpen(false);
       setApprovingBooking(null);
-    } catch (err: any) {
-      showToast('Gagal: ' + err.message, 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    finally { setSubmitting(false); }
   };
 
   const handleOpenReject = (booking: Booking) => {
@@ -542,19 +513,19 @@ export const BookingModule: React.FC = () => {
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
         action: 'UPDATE', targetType: 'Booking', targetId: rejectingBooking.id,
-        details: `Tolak booking ${rejectingBooking.equipmentName} dari ${rejectingBooking.className}: ${rejectReason}`,
+        details: `Tolak booking ${rejectingBooking.equipmentName}: ${rejectReason}`,
       });
 
       const notifRef = doc(collection(db, 'notifications'));
       await setDoc(notifRef, {
         id: notifRef.id, userId: rejectingBooking.bookedBy, classId: rejectingBooking.classId,
-        title: '❌ Booking Alat Musik Ditolak',
-        message: `"${rejectingBooking.equipmentName}" (${rejectingBooking.date}): ${rejectReason}. Arahan: ${rejectGuidance}`,
+        title: '❌ Booking Ditolak',
+        message: `"${rejectingBooking.equipmentName}": ${rejectReason}. Arahan: ${rejectGuidance}`,
         category: 'Urgent', read: false, link: 'booking',
         createdAt: new Date().toISOString(),
       });
 
-      showToast('Booking ditolak. Siswa menerima arahan.', 'success');
+      showToast('Booking ditolak.', 'success');
       setIsRejectModalOpen(false);
       setRejectingBooking(null);
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
@@ -573,7 +544,7 @@ export const BookingModule: React.FC = () => {
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
   };
 
-  // ============== FILTER ==============
+  // ============== FILTER & LIST DATA ==============
   const filteredEquipment = equipment.filter(eq => {
     if (filterCategory !== 'ALL' && eq.category !== filterCategory) return false;
     if (searchQuery.trim()) return eq.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -587,25 +558,36 @@ export const BookingModule: React.FC = () => {
     return true;
   });
 
+  // Urutkan untuk tabel jadwal
+  const tableBookings = useMemo(() => {
+    return [...bookings]
+      .filter(b => b.status !== 'REJECTED')
+      .sort((a, b) => {
+        const dateCompare = a.date.localeCompare(b.date);
+        if (dateCompare !== 0) return dateCompare;
+        return a.startTime.localeCompare(b.startTime);
+      });
+  }, [bookings]);
+
   const getConditionColor = (cond: string) => {
     switch (cond) {
-      case 'BAIK': return 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40';
-      case 'RUSAK_RINGAN': return 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/40';
-      case 'RUSAK_BERAT': return 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40';
-      default: return 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300';
+      case 'BAIK': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+      case 'RUSAK_RINGAN': return 'bg-amber-100 text-amber-800 border-amber-300';
+      case 'RUSAK_BERAT': return 'bg-rose-100 text-rose-800 border-rose-300';
+      default: return 'bg-slate-100 text-slate-600';
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'APPROVED': return 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/40';
-      case 'REJECTED': return 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-500/40';
-      default: return 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-500/40';
+      case 'APPROVED': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
+      case 'REJECTED': return 'bg-rose-100 text-rose-800 border-rose-300';
+      default: return 'bg-amber-100 text-amber-800 border-amber-300';
     }
   };
 
   // =========================================
-  // RENDER: MODE VERIFIKATOR
+  // RENDER: MODE VERIFIKATOR (GURU / ADMIN)
   // =========================================
   if (isVerifier) {
     return (
@@ -619,9 +601,9 @@ export const BookingModule: React.FC = () => {
               </span>
               <div>
                 <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
-                  Verifikasi Booking
+                  Panel Guru / Admin
                 </span>
-                <h2 className="text-xl font-black text-white mt-1">Panel Verifikasi</h2>
+                <h2 className="text-xl font-black text-white mt-1">Verifikasi Booking</h2>
                 <p className="text-xs text-slate-300 mt-0.5">
                   {pendingBookings.length} booking menunggu • Aturan: minimal H-{minLeadDays}, maksimal 1 jam
                 </p>
@@ -634,412 +616,160 @@ export const BookingModule: React.FC = () => {
           </div>
         </div>
 
-        {/* Info */}
-        <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-          <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-            Lihat semua pengajuan booking dari semua kelas. Klik <strong>Setujui / Atur Jam</strong> — Anda dapat menyesuaikan jam sebelum menyetujui. Atau <strong>Tolak</strong> dengan arahan.
-          </p>
-        </div>
-
         {/* Tabs Verifikator */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
           <button onClick={() => setActiveTab('pending')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'pending' ? 'bg-rose-600 text-white shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}>
+            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'pending' ? 'bg-rose-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
             Perlu Verifikasi ({pendingBookings.length})
           </button>
-          <button onClick={() => setActiveTab('semua')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'semua' ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}>
-            Semua Booking ({bookings.length})
+          <button onClick={() => setActiveTab('tabel')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${activeTab === 'tabel' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
+            <Table className="w-3.5 h-3.5" /> Tabel Jadwal
+          </button>
+          <button onClick={() => setActiveTab('kalender')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition flex items-center gap-1.5 ${activeTab === 'kalender' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
+            <Calendar className="w-3.5 h-3.5" /> Kalender Lintas Kelas
+          </button>
+          <button onClick={() => setActiveTab('katalog')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
+            Katalog & Pinjam
           </button>
         </div>
 
-        {/* Filter Kelas (untuk tab 'semua') */}
-        {activeTab === 'semua' && classes.length > 1 && (
-          <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-slate-500 dark:text-slate-400" />
-            <select value={filterClass} onChange={(e) => setFilterClass(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white">
-              <option value="ALL">Semua Kelas</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-        )}
-
-        {/* List Booking (Verifikator) */}
-        <div className="space-y-3">
-          {(activeTab === 'pending' ? pendingBookings : allBookingsFiltered).length === 0 ? (
-            <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700">
-              <CheckCircle className="w-12 h-12 mx-auto text-emerald-400 mb-3" />
-              <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">
-                {activeTab === 'pending' ? 'Tidak Ada Booking Menunggu' : 'Belum Ada Booking'}
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                {activeTab === 'pending' ? 'Semua booking sudah diverifikasi.' : 'Belum ada siswa yang mengajukan booking.'}
-              </p>
-            </div>
-          ) : (
-            (activeTab === 'pending' ? pendingBookings : allBookingsFiltered).map(b => {
-              const daysLeft = daysDifference(new Date().toISOString().slice(0, 10), b.date);
-              const dur = getDurationMinutes(b.startTime, b.endTime);
-              const isOver = dur > MAX_BOOKING_MINUTES;
-              return (
-                <div key={b.id} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 shadow-sm">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div className="flex-1 min-w-0">
-                      {/* Header info: status + kelas + alat */}
-                      <div className="flex items-center gap-2 flex-wrap mb-2">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${getStatusColor(b.status)}`}>
-                          {b.status === 'PENDING' ? 'MENUNGGU' : b.status === 'APPROVED' ? 'DISETUJUI' : 'DITOLAK'}
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/40 flex items-center gap-1">
-                          <Building2 className="w-2.5 h-2.5" /> {b.className || 'Kelas'}
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
-                          <Music className="w-2.5 h-2.5" /> {b.equipmentName}
-                        </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${daysLeft < minLeadDays ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                          H-{daysLeft}
-                        </span>
-                        {isOver && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-600 text-white flex items-center gap-1">
-                            <AlertTriangle className="w-2.5 h-2.5" /> OVER 1 JAM
-                          </span>
-                        )}
-                        {!isOver && dur > 0 && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                            {formatDuration(dur)}
-                          </span>
-                        )}
-                        {(b as any).wasRescheduledByVerifier && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40">
-                            ✎ Disesuaikan
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Peminjam */}
-                      <p className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <UserIcon className="w-3.5 h-3.5 text-slate-500" />
-                        {b.bookerName} <span className="text-xs font-normal text-slate-500 dark:text-slate-400">({b.bookerRole})</span>
-                      </p>
-
-                      {/* Tanggal & jam */}
-                      <div className="flex items-center gap-3 text-[11px] text-slate-600 dark:text-slate-300 mt-1.5 flex-wrap">
-                        <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {new Date(b.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {b.startTime} - {b.endTime}</span>
-                      </div>
-
-                      {/* Keperluan */}
-                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 italic p-2 rounded-lg bg-slate-50 dark:bg-slate-800">
-                        "{b.purpose}"
-                      </p>
-
-                      {/* Original time info */}
-                      {(b as any).wasRescheduledByVerifier && (b as any).originalStartTime && (
-                        <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-1 italic">
-                          Jam asli: {(b as any).originalStartTime}–{(b as any).originalEndTime}
-                        </p>
-                      )}
-                      {(b as any).verifierNote && (
-                        <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-1 italic">
-                          Catatan guru: {(b as any).verifierNote}
-                        </p>
-                      )}
-
-                      {/* Rejection info */}
-                      {b.status === 'REJECTED' && b.rejectionReason && (
-                        <div className="mt-2 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
-                          <div className="flex items-start gap-2">
-                            <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[11px] font-black text-rose-900 dark:text-rose-200 uppercase">Alasan</p>
-                              <p className="text-[11px] text-rose-800 dark:text-rose-300 mt-0.5">{b.rejectionReason}</p>
-                              {b.rejectionGuidance && (
-                                <>
-                                  <p className="text-[11px] font-black text-rose-900 dark:text-rose-200 uppercase mt-1.5">Arahan</p>
-                                  <p className="text-[11px] text-rose-800 dark:text-rose-300 mt-0.5 italic">"{b.rejectionGuidance}"</p>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {b.approvedBy && b.status === 'APPROVED' && (
-                        <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-1 flex items-center gap-1">
-                          <CheckCircle className="w-3 h-3" /> Disetujui oleh: {b.approvedBy}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Tombol aksi */}
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-                      {b.status === 'PENDING' && (
-                        <>
-                          <button onClick={() => handleOpenApprove(b)}
-                            className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm">
-                            <CheckCircle className="w-4 h-4" /> Setujui / Atur Jam
-                          </button>
-                          <button onClick={() => handleOpenReject(b)}
-                            className="px-4 py-2 rounded-lg bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm">
-                            <XCircle className="w-4 h-4" /> Tolak
-                          </button>
-                        </>
-                      )}
-                      <button onClick={() => handleDeleteBooking(b)}
-                        className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
-                        title="Hapus">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* ═══════════════════════════════════════════════════════
-            MODAL APPROVE — GURU BISA SESUAIKAN JAM
-            ═══════════════════════════════════════════════════════ */}
-        {isApproveModalOpen && approvingBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
-            <form onSubmit={handleConfirmApprove}
-              className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 max-h-[95vh] overflow-y-auto my-auto">
-
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                  <CheckCircle className="w-5 h-5 text-emerald-500" /> Setujui Booking
-                </h3>
-                <button type="button" onClick={() => setIsApproveModalOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                  <X className="w-5 h-5" />
-                </button>
+        {/* Content Verifikator */}
+        {activeTab === 'pending' && (
+          <div className="space-y-3">
+            {pendingBookings.length === 0 ? (
+              <div className="p-12 text-center bg-white rounded-3xl border border-slate-200">
+                <CheckCircle className="w-12 h-12 mx-auto text-emerald-400 mb-3" />
+                <h3 className="text-sm font-extrabold text-slate-700">Tidak Ada Booking Menunggu</h3>
               </div>
-
-              {/* Info booking */}
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
-                <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Booking:</p>
-                <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Music className="w-3.5 h-3.5" /> {approvingBooking.equipmentName}
-                </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  {approvingBooking.className} • {approvingBooking.bookerName}
-                </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  📅 {approvingBooking.date} — Diajukan: <strong>{approvingBooking.startTime} – {approvingBooking.endTime}</strong>
-                </p>
-                <p className="text-[11px] italic text-slate-600 dark:text-slate-300 mt-1 p-2 rounded bg-white dark:bg-slate-900">
-                  "{approvingBooking.purpose}"
-                </p>
-              </div>
-
-              {/* Edit jam oleh guru */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" /> Sesuaikan Jam (Opsional)
-                </label>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400 mb-2 italic">
-                  Anda dapat mengubah jam sebelum menyetujui. Maksimal 1 jam per booking.
-                </p>
-                <div className="grid grid-cols-2 gap-3">
+            ) : (
+              pendingBookings.map(b => (
+                <div key={b.id} className="p-4 rounded-2xl bg-white border-2 border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between gap-3">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Jam Mulai</label>
-                    <input type="time" required
-                      value={approveStart}
-                      onChange={(e) => { setApproveStart(e.target.value); setApproveError(''); }}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Jam Selesai</label>
-                    <input type="time" required
-                      value={approveEnd}
-                      onChange={(e) => { setApproveEnd(e.target.value); setApproveError(''); }}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                  </div>
-                </div>
-
-                {/* Preview durasi */}
-                {(() => {
-                  const dur = getDurationMinutes(approveStart, approveEnd);
-                  const isOver = dur > MAX_BOOKING_MINUTES;
-                  const invalid = dur <= 0;
-                  if (!approveStart || !approveEnd) return null;
-                  return (
-                    <div className={`mt-2 p-2 rounded-lg border text-[11px] font-bold flex items-center justify-between ${
-                      invalid || isOver
-                        ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300'
-                        : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
-                    }`}>
-                      <span>
-                        {invalid ? '❌ Jam selesai harus > jam mulai' : `Durasi: ${formatDuration(dur)}`}
-                      </span>
-                      {isOver && <span className="text-[10px] font-black">MAKS 1 JAM!</span>}
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-700">{b.className}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">{b.equipmentName}</span>
                     </div>
-                  );
-                })()}
-
-                {(approveStart !== approvingBooking.startTime || approveEnd !== approvingBooking.endTime) && (
-                  <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300 italic flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    Jam akan diubah dari <strong>{approvingBooking.startTime}–{approvingBooking.endTime}</strong> ke <strong>{approveStart}–{approveEnd}</strong>.
-                    Siswa akan mendapat notifikasi.
-                  </p>
-                )}
-              </div>
-
-              {/* Catatan */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Catatan untuk Siswa (Opsional)
-                </label>
-                <textarea rows={2}
-                  value={approveNote}
-                  onChange={(e) => setApproveNote(e.target.value)}
-                  placeholder="Contoh: Jam dimajukan karena alat akan dipakai gladi"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
-              </div>
-
-              {approveError && (
-                <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                  <p className="text-[11px] font-bold text-rose-900 dark:text-rose-200">{approveError}</p>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-                <button type="button" onClick={() => setIsApproveModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">
-                  Batal
-                </button>
-                <button type="submit"
-                  disabled={
-                    submitting ||
-                    getDurationMinutes(approveStart, approveEnd) <= 0 ||
-                    getDurationMinutes(approveStart, approveEnd) > MAX_BOOKING_MINUTES
-                  }
-                  className="px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  {submitting ? 'Menyetujui...' : 'Setujui Booking'}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* Modal Reject */}
-        {isRejectModalOpen && rejectingBooking && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
-            <form onSubmit={handleSubmitReject} className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 max-h-[95vh] overflow-y-auto">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                  <XCircle className="w-5 h-5 text-rose-500" /> Tolak & Beri Arahan
-                </h3>
-                <button type="button" onClick={() => setIsRejectModalOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 space-y-1">
-                <p className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Booking yang Ditolak:</p>
-                <p className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <Music className="w-3.5 h-3.5" /> {rejectingBooking.equipmentName}
-                </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  {rejectingBooking.className} • {rejectingBooking.bookerName}
-                </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  {rejectingBooking.date} ({rejectingBooking.startTime}-{rejectingBooking.endTime})
-                </p>
-              </div>
-
-              <div>
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Template Cepat:</p>
-                <div className="space-y-1.5">
-                  {REJECTION_TEMPLATES(minLeadDays).map((tpl, i) => (
-                    <button key={i} type="button" onClick={() => { setRejectReason(tpl.reason); setRejectGuidance(tpl.guidance); }}
-                      className="w-full p-2.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-left hover:bg-amber-100 dark:hover:bg-amber-500/20 transition">
-                      <p className="text-[11px] font-bold text-amber-900 dark:text-amber-200">⚡ {tpl.label}</p>
+                    <p className="text-sm font-bold text-slate-900">{b.bookerName} <span className="text-xs font-normal text-slate-500">({b.bookerRole})</span></p>
+                    <p className="text-xs text-slate-600 mt-1">{b.date} • {b.startTime} - {b.endTime}</p>
+                    <p className="text-xs text-slate-500 italic mt-1">"{b.purpose}"</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 sm:flex-col sm:items-end">
+                    <button onClick={() => handleOpenApprove(b)} className="px-4 py-2 rounded-lg bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5">
+                      <CheckCircle className="w-4 h-4" /> Setujui
                     </button>
-                  ))}
+                    <button onClick={() => handleOpenReject(b)} className="px-4 py-2 rounded-lg bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5">
+                      <XCircle className="w-4 h-4" /> Tolak
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ))
+            )}
+          </div>
+        )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Alasan Penolakan <span className="text-rose-500">*</span></label>
-                <input type="text" required value={rejectReason} onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="Contoh: Tanggal terlalu dekat"
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-              </div>
+        {activeTab === 'tabel' && (
+          <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs whitespace-nowrap">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
+                  <tr>
+                    <th className="py-3 px-4">Tanggal</th>
+                    <th className="py-3 px-4">Waktu</th>
+                    <th className="py-3 px-4">Alat</th>
+                    <th className="py-3 px-4">Peminjam</th>
+                    <th className="py-3 px-4">Kelas</th>
+                    <th className="py-3 px-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tableBookings.map(b => (
+                    <tr key={b.id} className="hover:bg-slate-50">
+                      <td className="py-3 px-4 font-bold text-slate-800">{b.date}</td>
+                      <td className="py-3 px-4 text-slate-600 font-mono">{b.startTime} - {b.endTime}</td>
+                      <td className="py-3 px-4 font-bold text-indigo-600">{b.equipmentName}</td>
+                      <td className="py-3 px-4 text-slate-800">{b.bookerName}</td>
+                      <td className="py-3 px-4 text-slate-500">{b.className}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${getStatusColor(b.status)}`}>
+                          {b.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {tableBookings.length === 0 && (
+                    <tr><td colSpan={6} className="py-8 text-center text-slate-400">Belum ada jadwal.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Arahan untuk Siswa <span className="text-rose-500">*</span></label>
-                <textarea rows={3} required value={rejectGuidance} onChange={(e) => setRejectGuidance(e.target.value)}
-                  placeholder="Contoh: Silakan ajukan ulang dengan tanggal minimal 2 hari sebelum peminjaman..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
-              </div>
+        {activeTab === 'kalender' && <BookingCalendarModule embedded />}
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-                <button type="button" onClick={() => setIsRejectModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
-                <button type="submit" disabled={submitting}
-                  className="px-5 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                  <XCircle className="w-3.5 h-3.5" /> {submitting ? 'Menolak...' : 'Tolak & Kirim Arahan'}
+        {activeTab === 'katalog' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {filteredEquipment.map(eq => (
+              <div key={eq.id} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+                <h4 className="text-sm font-extrabold text-slate-900">{eq.name}</h4>
+                <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 rounded-xl bg-indigo-500 text-white font-bold text-xs">
+                  Booking Alat Ini (Guru)
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* MODAL APPROVE (Guru atur jam) */}
+        {isApproveModalOpen && approvingBooking && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
+            <form onSubmit={handleConfirmApprove} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
+              <h3 className="text-base font-extrabold text-slate-900">Setujui / Atur Jam</h3>
+              <div className="p-3 rounded-xl bg-slate-50 border text-xs">
+                <p className="font-bold">{approvingBooking.equipmentName} - {approvingBooking.className}</p>
+                <p className="text-slate-500">Asli: {approvingBooking.startTime} - {approvingBooking.endTime}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input type="time" value={approveStart} onChange={e => setApproveStart(e.target.value)} className="px-3 py-2 border rounded-xl" />
+                <input type="time" value={approveEnd} onChange={e => setApproveEnd(e.target.value)} className="px-3 py-2 border rounded-xl" />
+              </div>
+              {approveError && <p className="text-xs text-rose-600 font-bold">{approveError}</p>}
+              <div className="flex justify-end gap-2 pt-3">
+                <button type="button" onClick={() => setIsApproveModalOpen(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
+                <button type="submit" className="px-5 py-2 bg-emerald-500 text-white font-bold text-xs rounded-xl">Setujui</button>
               </div>
             </form>
           </div>
         )}
 
-        {/* Modal Settings */}
+        {/* MODAL REJECT */}
+        {isRejectModalOpen && rejectingBooking && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
+            <form onSubmit={handleSubmitReject} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
+              <h3 className="text-base font-extrabold text-slate-900">Tolak Booking</h3>
+              <input type="text" required value={rejectReason} onChange={e => setRejectReason(e.target.value)} placeholder="Alasan..." className="w-full px-3 py-2 border rounded-xl text-xs" />
+              <textarea required value={rejectGuidance} onChange={e => setRejectGuidance(e.target.value)} placeholder="Arahan untuk siswa..." className="w-full px-3 py-2 border rounded-xl text-xs" />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setIsRejectModalOpen(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
+                <button type="submit" className="px-5 py-2 bg-rose-500 text-white font-bold text-xs rounded-xl">Tolak</button>
+              </div>
+            </form>
+          </div>
+        )}
+        
+        {/* MODAL SETTINGS */}
         {isSettingsModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
-            <form onSubmit={handleSaveSettings} className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                  <SettingsIcon className="w-5 h-5 text-slate-600 dark:text-slate-400" /> Aturan Booking
-                </h3>
-                <button type="button" onClick={() => setIsSettingsModalOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Minimal Lead Time (H-)</label>
-                <div className="flex items-center gap-2 mb-2">
-                  <button type="button" onClick={() => setSettingsMinLead(Math.max(0, settingsMinLead - 1))}
-                    className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700">−</button>
-                  <input type="number" min="0" max="30" value={settingsMinLead}
-                    onChange={(e) => setSettingsMinLead(parseInt(e.target.value) || 0)}
-                    className="flex-1 px-3 py-3 rounded-xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-lg font-black text-center text-slate-800 dark:text-white" />
-                  <button type="button" onClick={() => setSettingsMinLead(Math.min(30, settingsMinLead + 1))}
-                    className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold hover:bg-slate-200 dark:hover:bg-slate-700">+</button>
-                </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                  Booking minimal <strong>H-{settingsMinLead}</strong> sebelum tanggal peminjaman.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-                <p className="text-[11px] text-amber-900 dark:text-amber-200 font-bold mb-1 flex items-center gap-1.5">
-                  <Info className="w-3.5 h-3.5" /> Aturan Tetap (Tidak Dapat Diubah):
-                </p>
-                <ul className="text-[10px] text-amber-800 dark:text-amber-300 space-y-0.5 pl-4 list-disc">
-                  <li>Maksimal <strong>1 jam per booking</strong>.</li>
-                  <li>Tidak boleh bentrok dengan booking lain (alat & tanggal sama).</li>
-                </ul>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-                <button type="button" onClick={() => setIsSettingsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
-                <button type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-slate-900 dark:bg-slate-700 hover:bg-slate-800 text-white font-bold text-xs shadow-sm flex items-center gap-1.5">
-                  <Save className="w-3.5 h-3.5" /> Simpan
-                </button>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
+            <form onSubmit={handleSaveSettings} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
+              <h3 className="text-base font-extrabold text-slate-900">Atur Lead Time Minimal</h3>
+              <input type="number" min="2" max="30" value={settingsMinLead} onChange={e => setSettingsMinLead(Math.max(2, parseInt(e.target.value)||2))} className="w-full px-3 py-2 border rounded-xl text-center text-xl font-bold" />
+              <p className="text-xs text-amber-600 font-bold">🔒 Minimal H-2 (Tidak dapat diturunkan).</p>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setIsSettingsModalOpen(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
+                <button type="submit" className="px-5 py-2 bg-slate-900 text-white font-bold text-xs rounded-xl">Simpan</button>
               </div>
             </form>
           </div>
@@ -1049,11 +779,11 @@ export const BookingModule: React.FC = () => {
   }
 
   // =========================================
-  // RENDER: MODE SISWA
+  // RENDER: MODE PEMINJAM (SISWA, PIMPROD, SUTRADARA, DLL)
   // =========================================
   return (
     <div className="space-y-6">
-      {/* Header Siswa */}
+      {/* Header Peminjam */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-slate-900 to-slate-800 text-white shadow-xl border border-indigo-500/20">
         <div className="flex items-center gap-3">
           <span className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
@@ -1061,112 +791,80 @@ export const BookingModule: React.FC = () => {
           </span>
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
-              Booking Alat Musik
+              Peminjaman Alat Musik
             </span>
-            <h2 className="text-xl font-black text-white mt-1">Peminjaman Alat Musik</h2>
+            <h2 className="text-xl font-black text-white mt-1">Katalog & Booking</h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              {equipment.length} alat tersedia • Booking minimal <strong className="text-amber-300">H-{minLeadDays}</strong> • Maks <strong className="text-amber-300">1 jam/booking</strong>
+              {equipment.length} alat tersedia • Minimal <strong>H-{minLeadDays}</strong> • Maks <strong>1 jam</strong>
             </p>
           </div>
         </div>
       </div>
 
-      {/* Info banner */}
-      <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-        <Music className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-        <p className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-          <strong>Katalog default:</strong> Babun, Gong, Gambus. Butuh alat lain? Klik <strong>"Tambah Alat Musik"</strong>.
-          Pengajuan booking akan diverifikasi oleh Guru/Koordinator Tata Musik.
-        </p>
-      </div>
+      {/* ✅ REMINDER KHUSUS KOOR MUSIK DI TAHAP PERSIAPAN */}
+      {user?.role === 'Koordinator Tata Musik' && stageConfig?.currentStage === 'PERSIAPAN' && (
+        <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 flex items-start gap-3 shadow-sm">
+          <Bell className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-bounce" />
+          <div>
+            <h4 className="text-sm font-extrabold text-amber-900">Pengingat Tata Musik (Persiapan)</h4>
+            <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+              Anda sedang di tahap **Persiapan**. Pastikan Anda telah membooking alat musik yang dibutuhkan untuk latihan. 
+              Peminjaman dibatasi **maks 1 jam per booking**. Jika butuh waktu lebih lama, silakan buat booking terpisah di jam yang berbeda.
+            </p>
+          </div>
+        </div>
+      )}
 
-      {/* Tabs Siswa */}
+      {/* Tabs Peminjam */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
         <button onClick={() => setActiveTab('katalog')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'katalog' ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}>
-          Katalog ({equipment.length})
+          className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
+          Katalog Alat ({equipment.length})
         </button>
         <button onClick={() => setActiveTab('saya')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'saya' ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-sm' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'}`}>
+          className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${activeTab === 'saya' ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
           Booking Saya ({myBookings.length})
         </button>
       </div>
 
-      {/* Katalog (Siswa) */}
+      {/* Katalog */}
       {activeTab === 'katalog' && (
         <>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-              <input type="text" placeholder="Cari alat musik... (babun, gong, gambus...)"
-                value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white" />
+              <input type="text" placeholder="Cari alat musik..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-800" />
             </div>
-            <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white">
-              <option value="ALL">Semua Kategori</option>
-              {MUSIC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <button onClick={openAddEquipment}
-              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap">
+            <button onClick={openAddEquipment} className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5">
               <Plus className="w-3.5 h-3.5" /> Tambah Alat
             </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {filteredEquipment.map(eq => {
-              const activeBookings = bookings.filter(b => b.equipmentId === eq.id && b.status === 'APPROVED' && b.date >= new Date().toISOString().slice(0, 10)).length;
-              return (
-                <div key={eq.id} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:shadow-md transition space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 shrink-0">
-                      <Music className="w-5 h-5" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-extrabold text-slate-900 dark:text-white leading-snug flex items-center gap-1.5 flex-wrap">
-                        {eq.name}
-                        {eq.isCustom && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-500/40">MANUAL</span>}
-                      </h4>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400">{eq.category}</p>
-                    </div>
+            {filteredEquipment.map(eq => (
+              <div key={eq.id} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 shrink-0">
+                    <Music className="w-5 h-5" />
                   </div>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className={`px-2 py-0.5 rounded-md border font-bold ${getConditionColor(eq.condition)}`}>
-                      {eq.condition === 'BAIK' ? 'Baik' : eq.condition === 'RUSAK_RINGAN' ? 'Rusak Ringan' : 'Rusak Berat'}
-                    </span>
-                    <span className="text-slate-600 dark:text-slate-300 font-bold">Qty: {eq.quantity}</span>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="text-sm font-extrabold text-slate-900 leading-snug">{eq.name}</h4>
+                    <p className="text-[10px] text-slate-500">{eq.category}</p>
                   </div>
-                  {eq.notes && <p className="text-[10px] text-slate-500 dark:text-slate-400 italic line-clamp-2">{eq.notes}</p>}
-                  {eq.addedByName && eq.isCustom && (
-                    <p className="text-[9px] text-purple-600 dark:text-purple-400 italic">Ditambah oleh: {eq.addedByName}</p>
-                  )}
-                  {activeBookings > 0 && (
-                    <p className="text-[10px] text-amber-700 dark:text-amber-300 font-bold bg-amber-50 dark:bg-amber-500/10 px-2 py-1 rounded-md border border-amber-200 dark:border-amber-500/30">
-                      {activeBookings} booking aktif
-                    </p>
-                  )}
-                  <button onClick={() => handleOpenBooking(eq)}
-                    className="w-full py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition">
-                    <Plus className="w-3.5 h-3.5" /> Booking Alat Ini
-                  </button>
                 </div>
-              );
-            })}
+                <div className="flex justify-between text-[11px]">
+                  <span className={`px-2 py-0.5 rounded border font-bold ${getConditionColor(eq.condition)}`}>
+                    {eq.condition}
+                  </span>
+                  <span className="font-bold text-slate-600">Qty: {eq.quantity}</span>
+                </div>
+                <button onClick={() => handleOpenBooking(eq)} className="w-full py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs transition">
+                  Booking Alat Ini
+                </button>
+              </div>
+            ))}
           </div>
-
-          {filteredEquipment.length === 0 && (
-            <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700">
-              <Music className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-              <h3 className="text-sm font-extrabold text-slate-700 dark:text-slate-200">Belum Ada Alat Musik</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-3">
-                Katalog default: Babun, Gong, Gambus. Butuh alat lain?
-              </p>
-              <button onClick={openAddEquipment}
-                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5">
-                <Plus className="w-3.5 h-3.5" /> Tambah Alat Musik
-              </button>
-            </div>
-          )}
         </>
       )}
 
@@ -1174,339 +872,68 @@ export const BookingModule: React.FC = () => {
       {activeTab === 'saya' && (
         <div className="space-y-3">
           {myBookings.length === 0 ? (
-            <div className="p-12 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 text-xs">
-              Belum ada booking. Buka tab Katalog untuk mulai booking.
+            <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 text-slate-400 text-xs">
+              Belum ada booking.
             </div>
           ) : (
-            myBookings.map(b => {
-              const daysLeft = daysDifference(new Date().toISOString().slice(0, 10), b.date);
-              const dur = getDurationMinutes(b.startTime, b.endTime);
-              const wasRescheduled = (b as any).wasRescheduledByVerifier;
-              return (
-                <div key={b.id} className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${getStatusColor(b.status)}`}>
-                          {b.status === 'PENDING' ? 'MENUNGGU' : b.status === 'APPROVED' ? 'DISETUJUI' : 'DITOLAK'}
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 flex items-center gap-1">
-                          <Music className="w-2.5 h-2.5" /> {b.equipmentName}
-                        </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${daysLeft < minLeadDays ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                          H-{daysLeft}
-                        </span>
-                        {wasRescheduled && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-500/40 flex items-center gap-1">
-                            ✎ Jam disesuaikan guru
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 text-[11px] text-slate-600 dark:text-slate-300 mt-1.5 flex-wrap">
-                        <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> {b.date}</span>
-                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {b.startTime} - {b.endTime}</span>
-                        {dur > 0 && (
-                          <span className="text-[10px] text-slate-400 italic">({formatDuration(dur)})</span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-2 italic">"{b.purpose}"</p>
-
-                      {/* Original time info kalau disesuaikan guru */}
-                      {wasRescheduled && (b as any).originalStartTime && (
-                        <p className="text-[10px] text-amber-700 dark:text-amber-300 mt-1 italic">
-                          ⚠️ Jam asli Anda: {(b as any).originalStartTime}–{(b as any).originalEndTime}
-                        </p>
-                      )}
-
-                      {/* Catatan guru */}
-                      {(b as any).verifierNote && (
-                        <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-1 italic p-2 rounded bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30">
-                          💬 Catatan guru: {(b as any).verifierNote}
-                        </p>
-                      )}
-
-                      {b.status === 'REJECTED' && b.rejectionReason && (
-                        <div className="mt-2 p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border-2 border-rose-300 dark:border-rose-500/40">
-                          <div className="flex items-start gap-2">
-                            <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[11px] font-black text-rose-900 dark:text-rose-200 uppercase">Alasan Penolakan</p>
-                              <p className="text-[11px] text-rose-800 dark:text-rose-300 mt-0.5">{b.rejectionReason}</p>
-                              {b.rejectionGuidance && (
-                                <>
-                                  <p className="text-[11px] font-black text-rose-900 dark:text-rose-200 uppercase mt-2">Arahan Guru</p>
-                                  <p className="text-[11px] text-rose-800 dark:text-rose-300 mt-0.5 italic">"{b.rejectionGuidance}"</p>
-                                </>
-                              )}
-                              <p className="text-[10px] text-rose-600 dark:text-rose-400 mt-1">Ditolak oleh: {b.approvedBy}</p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {b.approvedBy && b.status === 'APPROVED' && (
-                        <p className="text-[10px] text-emerald-700 dark:text-emerald-300 mt-1 flex items-center gap-1">
-                          <CheckCircle className="w-3 h-3" /> Disetujui oleh: {b.approvedBy}
-                        </p>
-                      )}
+            myBookings.map(b => (
+              <div key={b.id} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getStatusColor(b.status)}`}>
+                        {b.status}
+                      </span>
+                      <span className="text-xs font-bold text-slate-800">{b.equipmentName}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-                      {b.bookedBy === user?.uid && (
-                        <button onClick={() => handleDeleteBooking(b)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10" title="Hapus">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
+                    <p className="text-xs text-slate-600">{b.date} • {b.startTime} - {b.endTime}</p>
+                    <p className="text-xs italic text-slate-500 mt-1">"{b.purpose}"</p>
                   </div>
+                  {b.bookedBy === user?.uid && (
+                    <button onClick={() => handleDeleteBooking(b)} className="text-rose-500 hover:bg-rose-50 p-1.5 rounded-lg">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-              );
-            })
+              </div>
+            ))
           )}
         </div>
       )}
 
-      {/* Modal Booking */}
+      {/* MODAL BOOKING */}
       {isBookingOpen && selectedEquipment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 max-h-[95vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Music className="w-5 h-5 text-indigo-500" /> Booking Alat Musik
-              </h3>
-              <button onClick={() => setIsBookingOpen(false)} className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30">
-              <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200 flex items-center gap-1.5">
-                <Music className="w-3.5 h-3.5" /> {selectedEquipment.name}
-              </p>
-              <p className="text-[10px] text-indigo-700 dark:text-indigo-300">{selectedEquipment.category} • Qty: {selectedEquipment.quantity}</p>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                <p className="font-black">Minimal H-{minLeadDays}</p>
-                <p className="mt-0.5">Tanggal paling cepat: <strong>{new Date(minBookingDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</strong></p>
-              </div>
-            </div>
-
-            {/* ✅ ARAHAN PEMINJAMAN */}
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border-2 border-amber-300 dark:border-amber-500/40">
-              <p className="text-xs font-bold text-amber-900 dark:text-amber-200 mb-1.5 flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5" /> Aturan Peminjaman:
-              </p>
-              <ul className="text-[11px] text-amber-800 dark:text-amber-300 space-y-0.5 pl-4 list-disc">
-                <li>Maksimal <strong>1 jam per booking</strong>.</li>
-                <li>Ingin menambah jam? Buat <strong>booking terpisah</strong> di jam berbeda.</li>
-                <li><strong>Tidak boleh bentrok</strong> dengan booking lain (alat & tanggal sama).</li>
-                <li>Ajukan minimal <strong>H-{minLeadDays}</strong> sebelum pemakaian.</li>
-                <li>Guru dapat <strong>menyesuaikan jam</strong> saat verifikasi.</li>
-              </ul>
-            </div>
-
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base font-extrabold text-slate-900">Booking {selectedEquipment.name}</h3>
             <form onSubmit={handleSubmitBooking} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Tanggal Pemakaian <span className="text-rose-500">*</span></label>
-                <input type="date" required value={bookDate} min={minBookingDate} onChange={(e) => setBookDate(e.target.value)}
-                  className={`w-full px-3.5 py-2 rounded-xl border-2 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white ${daysDifference(new Date().toISOString().slice(0, 10), bookDate) < minLeadDays ? 'border-rose-400 dark:border-rose-500/60' : 'border-slate-200 dark:border-slate-700'}`} />
-                {daysDifference(new Date().toISOString().slice(0, 10), bookDate) < minLeadDays && (
-                  <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" /> Minimal {new Date(minBookingDate).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                  </p>
-                )}
-              </div>
-
+              <input type="date" required value={bookDate} min={minBookingDate} onChange={(e) => setBookDate(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Jam Mulai <span className="text-rose-500">*</span></label>
-                  <input type="time" required value={bookStart} onChange={(e) => setBookStart(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Jam Selesai <span className="text-rose-500">*</span></label>
-                  <input type="time" required value={bookEnd} onChange={(e) => setBookEnd(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                </div>
+                <input type="time" required value={bookStart} onChange={(e) => setBookStart(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+                <input type="time" required value={bookEnd} onChange={(e) => setBookEnd(e.target.value)} className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
               </div>
-
-              {/* ✅ PREVIEW DURASI */}
-              {bookStart && bookEnd && (() => {
-                const dur = getDurationMinutes(bookStart, bookEnd);
-                if (dur <= 0) {
-                  return (
-                    <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
-                      <p className="text-[11px] font-bold text-rose-900 dark:text-rose-200">
-                        Jam selesai harus lebih akhir dari jam mulai.
-                      </p>
-                    </div>
-                  );
-                }
-                const isOver = dur > MAX_BOOKING_MINUTES;
-                return (
-                  <div className={`p-2.5 rounded-xl border-2 flex items-center justify-between gap-2 ${
-                    isOver
-                      ? 'bg-rose-50 dark:bg-rose-500/10 border-rose-300 dark:border-rose-500/40'
-                      : 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-300 dark:border-emerald-500/40'
-                  }`}>
-                    <div className="flex items-center gap-2">
-                      {isOver
-                        ? <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                        : <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
-                      <span className={`text-[11px] font-bold ${isOver ? 'text-rose-900 dark:text-rose-200' : 'text-emerald-900 dark:text-emerald-200'}`}>
-                        Durasi: {formatDuration(dur)}
-                      </span>
-                    </div>
-                    {isOver && (
-                      <span className="text-[10px] font-black text-rose-700 dark:text-rose-300">
-                        MAKS 1 JAM!
-                      </span>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* ✅ SLOT YANG SUDAH DIBOOKING */}
-              {(() => {
-                const bookedSlots = bookings
-                  .filter(b =>
-                    b.equipmentId === selectedEquipment.id &&
-                    b.date === bookDate &&
-                    b.status !== 'REJECTED'
-                  )
-                  .sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-                if (bookedSlots.length === 0) return null;
-
-                return (
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                    <p className="text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase mb-1.5 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> Slot sudah dibooking tanggal ini ({bookedSlots.length}):
-                    </p>
-                    <div className="space-y-1">
-                      {bookedSlots.map(b => (
-                        <div key={b.id} className="flex items-center justify-between text-[11px] py-1 px-2 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                            {b.startTime} – {b.endTime}
-                          </span>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                            b.status === 'APPROVED'
-                              ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300'
-                              : 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300'
-                          }`}>
-                            {b.status === 'APPROVED' ? 'Disetujui' : 'Menunggu'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 italic">
-                      Pilih jam di luar slot di atas agar tidak bentrok.
-                    </p>
-                  </div>
-                );
-              })()}
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Keperluan <span className="text-rose-500">*</span></label>
-                <textarea rows={3} required value={bookPurpose} onChange={(e) => setBookPurpose(e.target.value)}
-                  placeholder="Contoh: Latihan musik pengiring adegan perang, butuh babun & gong..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
-              </div>
-
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-                <Send className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-blue-800 dark:text-blue-300">
-                  Booking akan <strong>diverifikasi</strong> oleh Guru/Koordinator Tata Musik. Anda akan menerima notifikasi.
-                </p>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-                <button type="button" onClick={() => setIsBookingOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
-                <button type="submit"
-                  disabled={
-                    submitting ||
-                    daysDifference(new Date().toISOString().slice(0, 10), bookDate) < minLeadDays ||
-                    getDurationMinutes(bookStart, bookEnd) <= 0 ||
-                    getDurationMinutes(bookStart, bookEnd) > MAX_BOOKING_MINUTES
-                  }
-                  className="px-5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-bold text-xs shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5">
-                  <Save className="w-3.5 h-3.5" /> {submitting ? 'Mengajukan...' : 'Ajukan Booking'}
-                </button>
+              <textarea rows={3} required value={bookPurpose} onChange={(e) => setBookPurpose(e.target.value)} placeholder="Keperluan..." className="w-full p-3 rounded-xl border border-slate-200 text-xs" />
+              
+              <div className="flex justify-end gap-2 pt-3">
+                <button type="button" onClick={() => setIsBookingOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+                <button type="submit" className="px-5 py-2 rounded-xl bg-indigo-500 text-white font-bold text-xs">Ajukan</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Modal Tambah Alat (SISWA) */}
+      {/* MODAL TAMBAH ALAT */}
       {isEquipmentModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 space-y-4 max-h-[95vh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Plus className="w-5 h-5 text-amber-500" /> Tambah Alat Musik Manual
-              </h3>
-              <button onClick={() => setIsEquipmentModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 flex items-start gap-2">
-              <Music className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                <strong>Katalog default:</strong> Babun, Gong, Gambus. Kalau alat yang Anda butuhkan belum ada, tambahkan di sini agar bisa dipinjam semua siswa.
-              </p>
-            </div>
-
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
+          <div className="w-full max-w-md bg-white rounded-3xl p-6 space-y-3">
+            <h3 className="text-base font-extrabold text-slate-900">Tambah Alat Musik Manual</h3>
             <form onSubmit={handleSaveEquipment} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Nama Alat Musik <span className="text-rose-500">*</span></label>
-                <input type="text" required value={eqName} onChange={(e) => setEqName(e.target.value)}
-                  placeholder="Contoh: Sape, Suling, Biola, Ukulele..."
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Kategori <span className="text-rose-500">*</span></label>
-                <select value={eqCategory} onChange={(e) => setEqCategory(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                  {MUSIC_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Jumlah <span className="text-rose-500">*</span></label>
-                  <input type="number" min="1" required value={eqQuantity}
-                    onChange={(e) => setEqQuantity(parseInt(e.target.value) || 1)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Kondisi</label>
-                  <select value={eqCondition} onChange={(e) => setEqCondition(e.target.value as any)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-white">
-                    <option value="BAIK">Baik</option>
-                    <option value="RUSAK_RINGAN">Rusak Ringan</option>
-                    <option value="RUSAK_BERAT">Rusak Berat</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Catatan (Opsional)</label>
-                <textarea rows={2} value={eqNotes} onChange={(e) => setEqNotes(e.target.value)}
-                  placeholder="Contoh: Alat pinjaman dari Bu Guru / ada di gudang sekolah"
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-800 dark:text-white" />
-              </div>
-              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-700">
-                <button type="button" onClick={() => setIsEquipmentModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Batal</button>
-                <button type="submit" disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-sm disabled:opacity-50 flex items-center gap-1.5">
-                  <Save className="w-3.5 h-3.5" /> {submitting ? 'Menyimpan...' : 'Tambah ke Katalog'}
-                </button>
+              <input type="text" required value={eqName} onChange={(e) => setEqName(e.target.value)} placeholder="Nama Alat" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+              <input type="number" required value={eqQuantity} onChange={(e) => setEqQuantity(parseInt(e.target.value)||1)} placeholder="Qty" className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs" />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setIsEquipmentModalOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600">Batal</button>
+                <button type="submit" className="px-5 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs">Simpan</button>
               </div>
             </form>
           </div>
