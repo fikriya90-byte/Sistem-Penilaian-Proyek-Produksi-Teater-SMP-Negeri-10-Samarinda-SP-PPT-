@@ -1,9 +1,10 @@
+// src/components/modules/StructureModule.tsx
 import React, { useState, useEffect } from 'react';
 import {
   ExternalLink, MessageCircle, Phone, Search, Share2, Sparkles,
   Users, Camera, Pencil, Check, X, Lock, Unlock, Download, Eye,
   KeyRound, EyeOff, Copy, Mail, UserCog, Save, Trash2, ShieldAlert,
-  RefreshCw, AlertTriangle, Info, Shield,
+  RefreshCw, AlertTriangle, Info, Shield, Layers,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { DIVISIONS, getDivisionFromRole } from '../../core/constants';
@@ -18,19 +19,22 @@ import {
 import { db } from '../../core/firebase';
 
 // =====================================================
-// ROLE GROUP
+// ROLE GROUP (dengan icon, tanpa emoji)
 // =====================================================
-const ROLE_OPTIONS: { group: string; roles: UserRole[] }[] = [
+const ROLE_OPTIONS: { group: string; icon: any; roles: UserRole[] }[] = [
   {
     group: 'Pengurus Inti',
+    icon: Users,
     roles: ['Pimpinan Produksi', 'Sekretaris', 'Bendahara'],
   },
   {
     group: 'Pemeran & Penyutradaraan',
+    icon: Sparkles,
     roles: ['Sutradara', 'Asisten Sutradara', 'Pemeran'],
   },
   {
     group: 'Koordinator Divisi',
+    icon: Layers,
     roles: [
       'Koordinator Perlengkapan', 'Koordinator Publikasi',
       'Koordinator Tata Panggung', 'Koordinator Tata Rias',
@@ -39,6 +43,7 @@ const ROLE_OPTIONS: { group: string; roles: UserRole[] }[] = [
   },
   {
     group: 'Anggota Divisi',
+    icon: UserCog,
     roles: [
       'Anggota Perlengkapan', 'Anggota Publikasi',
       'Anggota Tata Panggung', 'Anggota Tata Rias',
@@ -49,7 +54,8 @@ const ROLE_OPTIONS: { group: string; roles: UserRole[] }[] = [
 
 export const StructureModule: React.FC = () => {
   const {
-    user, activeClass, isTeacher, isGuruPengampu, isAdminRole, isPimprod,
+    user, activeClass, classes, setActiveClass,
+    isTeacher, isGuruPengampu, isAdminRole, isPimprod,
     canEditKerabatKerja, updateKerabatKerja,
   } = useAuth();
   const { showToast } = useToast();
@@ -214,12 +220,12 @@ export const StructureModule: React.FC = () => {
     return true;
   });
 
-  // ✅ FUNGSI WA YANG SUDAH DIPERBARUI
+  // ✅ WA link dengan template salam
   const getWhatsAppLink = (phone?: string, name?: string) => {
     if (!phone) return '#';
     let clean = phone.replace(/\D/g, '');
     if (clean.startsWith('0')) clean = '62' + clean.slice(1);
-    
+
     const namaGuru = user?.displayName || 'Guru Pengampu';
     const namaKelas = activeClass?.name || 'IX';
     const namaKerabat = activeClass?.kerabatKerja || '-';
@@ -346,9 +352,16 @@ export const StructureModule: React.FC = () => {
     } catch { showToast('Gagal menyalin.', 'error'); }
   };
 
+  // ✅ Guru multi-kelas: kelas yang diampu
+  const myClassIds = Array.isArray(user?.classIds) && user.classIds.length > 0
+    ? user.classIds
+    : (user?.classId ? [user.classId] : []);
+
+  const isGuruMultiClass = user?.role === 'Guru Pengampu' && myClassIds.length > 1;
+
   return (
     <div className="space-y-6">
-      {/* Header dengan Logo & Nama Kerabat */}
+      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700 shadow-sm">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -415,6 +428,42 @@ export const StructureModule: React.FC = () => {
               <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mt-0.5">
                 {members.length} anggota terdaftar
               </p>
+
+              {/* ✅ Multi-class badge (guru multi-kelas) */}
+              {isGuruMultiClass && (
+                <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                    <Layers className="w-2.5 h-2.5" /> Kelas:
+                  </span>
+                  {myClassIds.map(cid => {
+                    const cls = classes.find(c => c.id === cid);
+                    if (!cls) return null;
+                    const isActive = cls.id === activeClass?.id;
+                    return (
+                      <button
+                        key={cid}
+                        onClick={() => {
+                          if (!isActive && setActiveClass) {
+                            const targetClass = classes.find(c => c.id === cid);
+                            if (targetClass) {
+                              setActiveClass(targetClass);
+                              showToast(`Beralih ke ${cls.name}`, 'info');
+                            }
+                          }
+                        }}
+                        disabled={isActive}
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border transition ${
+                          isActive
+                            ? 'bg-amber-100 text-amber-800 border-amber-300 cursor-default'
+                            : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-indigo-100 hover:text-indigo-800 hover:border-indigo-300 cursor-pointer'
+                        }`}
+                      >
+                        {cls.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -529,7 +578,7 @@ export const StructureModule: React.FC = () => {
                   </a>
                 ) : (
                   <button disabled className="flex-1 py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-400 text-xs font-bold cursor-not-allowed">
-                    No WA -
+                    No WA
                   </button>
                 )}
                 <button onClick={() => setSelectedMember(member)}
@@ -543,7 +592,7 @@ export const StructureModule: React.FC = () => {
         })}
       </div>
 
-      {/* ═══ MODAL DETAIL MEMBER ═══ */}
+      {/* MODAL DETAIL MEMBER */}
       {selectedMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 p-6 my-auto max-h-[95vh] overflow-y-auto">
@@ -575,7 +624,7 @@ export const StructureModule: React.FC = () => {
               </h3>
               <p className="text-xs font-bold text-amber-700 dark:text-amber-400">{selectedMember.role}</p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                {selectedMember.divisionName || 'Pemeran'} • {selectedMember.className}
+                {selectedMember.divisionName || 'Pemeran'} - {selectedMember.className}
               </p>
             </div>
 
@@ -598,7 +647,6 @@ export const StructureModule: React.FC = () => {
               </div>
             </div>
 
-            {/* Aksi Guru */}
             {canManageStudentData && (
               <div className="mt-4 p-3 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-500/10 dark:to-orange-500/10 border-2 border-amber-200 dark:border-amber-500/40">
                 <div className="flex items-center gap-2 mb-2">
@@ -650,7 +698,7 @@ export const StructureModule: React.FC = () => {
         </div>
       )}
 
-      {/* ═══ MODAL LIHAT PASSWORD ═══ */}
+      {/* MODAL LIHAT PASSWORD */}
       {credModal.open && credModal.member && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-purple-200 dark:border-purple-500/40 my-auto overflow-hidden">
@@ -756,7 +804,7 @@ export const StructureModule: React.FC = () => {
                       <p className="font-bold mb-1">Alternatif:</p>
                       <ul className="list-disc pl-4 space-y-0.5">
                         <li>Klik tombol <strong>Reset Pass</strong> untuk kirim link reset password ke email siswa</li>
-                        <li>Siswa buka email → klik link → buat password baru sendiri</li>
+                        <li>Siswa buka email, klik link, buat password baru sendiri</li>
                       </ul>
                     </div>
                   </div>
@@ -774,7 +822,7 @@ export const StructureModule: React.FC = () => {
         </div>
       )}
 
-      {/* ═══ MODAL EDIT MEMBER ═══ */}
+      {/* MODAL EDIT MEMBER */}
       {editModal.open && editModal.member && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
           <form onSubmit={handleSaveEdit}
@@ -841,7 +889,7 @@ export const StructureModule: React.FC = () => {
         </div>
       )}
 
-      {/* ═══ MODAL VIEW FOTO ═══ */}
+      {/* MODAL VIEW FOTO */}
       {viewingPhoto && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-6 bg-slate-950/95 backdrop-blur-md print:hidden"
           onClick={() => setViewingPhoto(null)}
@@ -852,9 +900,9 @@ export const StructureModule: React.FC = () => {
               <h3 className="text-white font-black text-lg">{viewingPhoto.name}</h3>
               <p className="text-xs text-slate-400 mt-0.5 flex items-center justify-center gap-1.5">
                 {viewingPhoto.canDownload ? (
-                  <><Unlock className="w-3 h-3 text-emerald-400" /> Logo kerabat — boleh diunduh</>
+                  <><Unlock className="w-3 h-3 text-emerald-400" /> Logo kerabat, boleh diunduh</>
                 ) : (
-                  <><Lock className="w-3 h-3 text-rose-400" /> Foto profil — dilindungi</>
+                  <><Lock className="w-3 h-3 text-rose-400" /> Foto profil, dilindungi</>
                 )}
               </p>
             </div>
