@@ -179,9 +179,7 @@ export const BookingModule: React.FC = () => {
   const minBookingDate = calculateMinDate(minLeadDays);
 
   // ═══════════════════════════════════════════════════════
-  // ✅ BUG FIX #1: DEDUPE di UI — meski Firestore masih berisi duplikat,
-  // tampilkan hanya versi unik berdasarkan nama (lowercase).
-  // Pertahankan yang paling awal createdAt (stabil).
+  // DEDUPE di UI
   // ═══════════════════════════════════════════════════════
   const dedupedEquipment = useMemo(() => {
     const map: Record<string, Equipment> = {};
@@ -189,16 +187,10 @@ export const BookingModule: React.FC = () => {
       const key = (eq.name || '').trim().toLowerCase();
       if (!key) return;
       const existing = map[key];
-      if (!existing) {
-        map[key] = eq;
-        return;
-      }
-      // Pertahankan yang lebih awal createdAt (kalau ada), else yang pertama
+      if (!existing) { map[key] = eq; return; }
       const existingTime = existing.createdAt ? new Date(existing.createdAt).getTime() : Infinity;
       const eqTime = eq.createdAt ? new Date(eq.createdAt).getTime() : Infinity;
-      if (eqTime < existingTime) {
-        map[key] = eq;
-      }
+      if (eqTime < existingTime) map[key] = eq;
     });
     return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
   }, [equipment]);
@@ -233,13 +225,11 @@ export const BookingModule: React.FC = () => {
   }, [activeClass]);
 
   // ═══════════════════════════════════════════════════════
-  // ✅ BUG FIX #2: KATALOG SHARED — seed sekali via getDocs (bukan onSnapshot)
-  // Mencegah infinite seed loop.
+  // KATALOG SHARED — seed sekali via getDocs
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     let isCancelled = false;
 
-    // 1. Seed sekali — cek kosong via getDocs
     (async () => {
       try {
         const snap = await getDocs(collection(db, 'equipment'));
@@ -263,7 +253,6 @@ export const BookingModule: React.FC = () => {
       }
     })();
 
-    // 2. Subscribe — tanpa logika seed di dalamnya
     const unsub = onSnapshot(collection(db, 'equipment'), snap => {
       if (isCancelled) return;
       const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as Equipment));
@@ -277,7 +266,7 @@ export const BookingModule: React.FC = () => {
   }, []);
 
   // ═══════════════════════════════════════════════════════
-  // BOOKINGS SHARED — semua role lihat semua booking
+  // BOOKINGS SHARED
   // ═══════════════════════════════════════════════════════
   useEffect(() => {
     const qBk = query(collection(db, 'bookings'));
@@ -354,7 +343,7 @@ export const BookingModule: React.FC = () => {
   };
 
   // ═══════════════════════════════════════════════════════
-  // HANDLERS: SETTINGS
+  // SETTINGS
   // ═══════════════════════════════════════════════════════
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,7 +365,7 @@ export const BookingModule: React.FC = () => {
   };
 
   // ═══════════════════════════════════════════════════════
-  // HANDLERS: EQUIPMENT CRUD
+  // EQUIPMENT CRUD
   // ═══════════════════════════════════════════════════════
   const openAddEquipment = () => {
     setEditingEquipment(null);
@@ -397,7 +386,6 @@ export const BookingModule: React.FC = () => {
     if (!user) return;
     if (!eqName.trim()) { showToast('Nama alat wajib.', 'warning'); return; }
 
-    // ✅ Cek nama unik (di dedupedEquipment, bukan equipment — agar konsisten dengan apa yang user lihat)
     const exists = dedupedEquipment.some(e =>
       e.name.toLowerCase() === eqName.trim().toLowerCase() && e.id !== editingEquipment?.id
     );
@@ -434,7 +422,6 @@ export const BookingModule: React.FC = () => {
     finally { setSubmitting(false); }
   };
 
-  // ✅ BUG FIX #4: Hanya verifier yang bisa hapus dari katalog shared
   const handleDeleteEquipment = async (eq: Equipment) => {
     if (!user) return;
     if (!isVerifier) {
@@ -449,7 +436,7 @@ export const BookingModule: React.FC = () => {
   };
 
   // ═══════════════════════════════════════════════════════
-  // HANDLERS: BOOKING FLOW
+  // BOOKING FLOW
   // ═══════════════════════════════════════════════════════
   const handleOpenBooking = (eq: Equipment) => {
     if (!activeClass) {
@@ -511,13 +498,10 @@ export const BookingModule: React.FC = () => {
       };
       await setDoc(newRef, bookingData);
 
-      // Notif real-time ke guru kelas
       let guruList: any[] = [];
       try {
         const teachers = await fetchUsersByClass(activeClass.id);
-        guruList = teachers.filter(t =>
-          t.role === 'Guru Pengampu' || t.role === 'Guru Pembina'
-        );
+        guruList = teachers.filter(t => t.role === 'Guru Pengampu' || t.role === 'Guru Pembina');
         if (guruList.length > 0) {
           const notifBatch = writeBatch(db);
           const nowStr = new Date().toISOString();
@@ -547,7 +531,6 @@ export const BookingModule: React.FC = () => {
         details: `Booking ${selectedEquipment.name} - ${bookDate} ${bookStart}-${bookEnd}`,
       });
 
-      // Build WA info
       const primaryGuru = guruList[0];
       const hasPhone = primaryGuru?.phone;
       let waUrl: string | null = null;
@@ -556,9 +539,7 @@ export const BookingModule: React.FC = () => {
         let clean = primaryGuru.phone.replace(/\D/g, '');
         if (clean.startsWith('0')) clean = '62' + clean.slice(1);
         const equipmentList = [selectedEquipment.name].join('; ');
-        const kerabatText = activeClass.kerabatKerja
-          ? ` (Kerabat Kerja: ${activeClass.kerabatKerja})`
-          : '';
+        const kerabatText = activeClass.kerabatKerja ? ` (Kerabat Kerja: ${activeClass.kerabatKerja})` : '';
         const formattedDate = new Date(bookDate).toLocaleDateString('id-ID', {
           weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
         });
@@ -666,7 +647,7 @@ export const BookingModule: React.FC = () => {
   };
 
   // ═══════════════════════════════════════════════════════
-  // DATA FILTERS — pakai dedupedEquipment
+  // DATA FILTERS
   // ═══════════════════════════════════════════════════════
   const filteredEquipment = dedupedEquipment.filter(eq => {
     if (filterCategory !== 'ALL' && eq.category !== filterCategory) return false;
@@ -699,7 +680,7 @@ export const BookingModule: React.FC = () => {
   };
 
   // ═══════════════════════════════════════════════════════
-  // RENDER: VERIFIKATOR
+  // RENDER: VERIFIKATOR (GURU / ADMIN)
   // ═══════════════════════════════════════════════════════
   if (isVerifier) {
     return (
@@ -756,23 +737,30 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-          <button onClick={() => setActiveTab('pending')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'pending' ? 'bg-rose-600 text-white' : 'bg-white text-slate-600 border'}`}>
-            Perlu Verifikasi ({pendingBookings.length})
-          </button>
-          <button onClick={() => setActiveTab('tabel')} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'tabel' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border'}`}>
-            <Table className="w-3.5 h-3.5" /> Tabel Jadwal
-          </button>
-          <button onClick={() => setActiveTab('kalender')} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'kalender' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border'}`}>
-            <Calendar className="w-3.5 h-3.5" /> Kalender
-          </button>
-          <button onClick={() => setActiveTab('katalog')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
-            Katalog Alat ({dedupedEquipment.length})
-          </button>
+        {/* ✅ PATCH 1: Tabs scrollable (GURU) */}
+        <div className="relative">
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none touch-pan-x snap-x snap-mandatory">
+            <button onClick={() => setActiveTab('pending')}
+              className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'pending' ? 'bg-rose-600 text-white' : 'bg-white text-slate-600 border'}`}>
+              Perlu Verifikasi ({pendingBookings.length})
+            </button>
+            <button onClick={() => setActiveTab('tabel')}
+              className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'tabel' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border'}`}>
+              <Table className="w-3.5 h-3.5" /> Tabel
+            </button>
+            <button onClick={() => setActiveTab('kalender')}
+              className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'kalender' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border'}`}>
+              <Calendar className="w-3.5 h-3.5" /> Kalender
+            </button>
+            <button onClick={() => setActiveTab('katalog')}
+              className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
+              Katalog ({dedupedEquipment.length})
+            </button>
+          </div>
+          <div className="absolute right-0 top-0 bottom-2 w-8 bg-gradient-to-l from-slate-50 dark:from-slate-950 to-transparent pointer-events-none" />
         </div>
 
-        {/* Pending */}
+        {/* ✅ PATCH 3: Pending card guru — tambah Kelas + Kerabat */}
         {activeTab === 'pending' && (
           <div className="space-y-3">
             {pendingBookings.length === 0 ? (
@@ -780,58 +768,101 @@ export const BookingModule: React.FC = () => {
                 <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
                 <h3 className="font-bold">Tidak Ada Antrean</h3>
               </div>
-            ) : pendingBookings.map(b => (
-              <div key={b.id} className="p-4 rounded-2xl bg-white border-2 shadow-sm flex justify-between gap-3 flex-wrap">
-                <div>
-                  <p className="text-sm font-bold text-slate-900">
-                    {b.bookerName}
-                    <span className="text-xs text-slate-500 ml-1.5">({b.className})</span>
-                  </p>
-                  <p className="text-xs text-slate-600 mt-1 flex items-center gap-1.5">
-                    <Music className="w-3 h-3" /> {b.equipmentName} • {b.date} ({b.startTime}-{b.endTime})
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5 italic">"{b.purpose}"</p>
+            ) : pendingBookings.map(b => {
+              const cls = classes.find(c => c.id === b.classId);
+              return (
+                <div key={b.id} className="p-4 rounded-2xl bg-white border-2 shadow-sm">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300">
+                          {b.className || cls?.name || '-'}
+                        </span>
+                        {cls?.kerabatKerja && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" /> {cls.kerabatKerja}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm font-bold text-slate-900">{b.bookerName}</p>
+                      <p className="text-xs text-slate-600 mt-1 flex items-center gap-1.5 flex-wrap">
+                        <Music className="w-3 h-3" /> {b.equipmentName}
+                        <span className="text-slate-400">•</span>
+                        <span className="font-mono">{b.date}</span>
+                        <span className="text-slate-400">•</span>
+                        <span className="font-mono">{b.startTime}-{b.endTime}</span>
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1 italic">"{b.purpose}"</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button onClick={() => handleOpenApprove(b)}
+                        className="px-3 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Setujui
+                      </button>
+                      <button onClick={() => { setRejectingBooking(b); setRejectReason(''); setRejectGuidance(''); setIsRejectModalOpen(true); }}
+                        className="px-3 py-1.5 bg-rose-500 text-white rounded-lg text-xs font-bold flex items-center gap-1">
+                        <XCircle className="w-3 h-3" /> Tolak
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button onClick={() => handleOpenApprove(b)} className="px-3 py-1.5 bg-emerald-500 text-white rounded text-xs font-bold">Setujui</button>
-                  <button onClick={() => { setRejectingBooking(b); setRejectReason(''); setRejectGuidance(''); setIsRejectModalOpen(true); }} className="px-3 py-1.5 bg-rose-500 text-white rounded text-xs font-bold">Tolak</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        {/* Tabel */}
+        {/* ✅ PATCH 2: Tabel guru — tambah Kelas + Kerabat */}
         {activeTab === 'tabel' && (
           <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
-            <table className="w-full text-left text-xs whitespace-nowrap">
-              <thead className="bg-slate-50 border-b">
-                <tr>
-                  <th className="p-3">Tanggal</th><th className="p-3">Waktu</th><th className="p-3">Alat</th>
-                  <th className="p-3">Peminjam</th><th className="p-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {tableBookings.map(b => (
-                  <tr key={b.id}>
-                    <td className="p-3 font-bold">{b.date}</td>
-                    <td className="p-3 font-mono">{b.startTime}-{b.endTime}</td>
-                    <td className="p-3 text-indigo-600 font-bold">{b.equipmentName}</td>
-                    <td className="p-3">{b.bookerName} ({b.className})</td>
-                    <td className="p-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(b.status)}`}>{b.status}</span>
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs min-w-[820px]">
+                <thead className="bg-slate-50 border-b">
+                  <tr>
+                    <th className="p-3">Tanggal</th>
+                    <th className="p-3">Waktu</th>
+                    <th className="p-3">Alat</th>
+                    <th className="p-3">Peminjam</th>
+                    <th className="p-3">Kelas</th>
+                    <th className="p-3">Kerabat Kerja</th>
+                    <th className="p-3">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tableBookings.map(b => {
+                    const cls = classes.find(c => c.id === b.classId);
+                    return (
+                      <tr key={b.id}>
+                        <td className="p-3 font-bold">{b.date}</td>
+                        <td className="p-3 font-mono">{b.startTime}-{b.endTime}</td>
+                        <td className="p-3 text-indigo-600 font-bold">{b.equipmentName}</td>
+                        <td className="p-3">{b.bookerName}</td>
+                        <td className="p-3">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                            {b.className || cls?.name || '-'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-[11px] text-slate-600 italic">
+                          {cls?.kerabatKerja || '-'}
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(b.status)}`}>
+                            {b.status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {tableBookings.length === 0 && (
+                    <tr><td colSpan={7} className="p-8 text-center text-slate-400">Belum ada jadwal.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
-        {/* Kalender */}
         {activeTab === 'kalender' && <BookingCalendarModule embedded />}
 
-        {/* Katalog */}
         {activeTab === 'katalog' && (
           <div className="space-y-3">
             <div className="flex justify-between items-center flex-wrap gap-2">
@@ -866,7 +897,7 @@ export const BookingModule: React.FC = () => {
           </div>
         )}
 
-        {/* Modals Approve/Reject/Settings/Equipment */}
+        {/* Modals Guru */}
         {isApproveModalOpen && approvingBooking && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-sm">
             <form onSubmit={handleConfirmApprove} className="w-full max-w-md bg-white rounded-3xl p-6 space-y-4">
@@ -979,19 +1010,27 @@ export const BookingModule: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-        <button onClick={() => setActiveTab('katalog')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
-          Katalog Alat ({dedupedEquipment.length})
-        </button>
-        <button onClick={() => setActiveTab('jadwal')} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'jadwal' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border'}`}>
-          <Table className="w-3.5 h-3.5" /> Jadwal Peminjaman
-        </button>
-        <button onClick={() => setActiveTab('kalender')} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'kalender' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border'}`}>
-          <Calendar className="w-3.5 h-3.5" /> Kalender
-        </button>
-        <button onClick={() => setActiveTab('saya')} className={`px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'saya' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
-          Booking Saya ({myBookings.length})
-        </button>
+      {/* ✅ PATCH 1: Tabs scrollable (SISWA) */}
+      <div className="relative">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none touch-pan-x snap-x snap-mandatory">
+          <button onClick={() => setActiveTab('katalog')}
+            className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'katalog' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
+            Katalog ({dedupedEquipment.length})
+          </button>
+          <button onClick={() => setActiveTab('jadwal')}
+            className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'jadwal' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 border'}`}>
+            <Table className="w-3.5 h-3.5" /> Jadwal
+          </button>
+          <button onClick={() => setActiveTab('kalender')}
+            className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${activeTab === 'kalender' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border'}`}>
+            <Calendar className="w-3.5 h-3.5" /> Kalender
+          </button>
+          <button onClick={() => setActiveTab('saya')}
+            className={`snap-start shrink-0 px-4 py-2 rounded-xl text-xs font-bold transition ${activeTab === 'saya' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 border'}`}>
+            Booking Saya ({myBookings.length})
+          </button>
+        </div>
+        <div className="absolute right-0 top-0 bottom-2 w-8 bg-gradient-to-l from-slate-50 dark:from-slate-950 to-transparent pointer-events-none" />
       </div>
 
       {activeTab === 'katalog' && (
@@ -1014,7 +1053,6 @@ export const BookingModule: React.FC = () => {
                     <h4 className="font-bold">{eq.name}</h4>
                     <p className="text-[10px] text-slate-500">{eq.category}</p>
                   </div>
-                  {/* Siswa hanya bisa edit/delete alat yang mereka tambahkan sendiri */}
                   {eq.addedByName === user?.displayName && (
                     <div className="flex gap-1">
                       <button onClick={() => openEditEquipment(eq)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded-lg"><Edit3 className="w-4 h-4" /></button>
@@ -1032,48 +1070,86 @@ export const BookingModule: React.FC = () => {
         </>
       )}
 
+      {/* ✅ PATCH 2: Tabel siswa — tambah Kelas + Kerabat */}
       {activeTab === 'jadwal' && (
         <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
-          <table className="w-full text-left text-xs whitespace-nowrap">
-            <thead className="bg-slate-50 border-b">
-              <tr><th className="p-3">Tanggal</th><th className="p-3">Waktu</th><th className="p-3">Alat</th><th className="p-3">Peminjam</th><th className="p-3">Kelas</th></tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {tableBookings.map(b => (
-                <tr key={b.id}>
-                  <td className="p-3 font-bold">{b.date}</td>
-                  <td className="p-3 font-mono">{b.startTime}-{b.endTime}</td>
-                  <td className="p-3 text-indigo-600 font-bold">{b.equipmentName}</td>
-                  <td className="p-3">{b.bookerName}</td>
-                  <td className="p-3 text-slate-500">{b.className}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs min-w-[760px]">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="p-3">Tanggal</th>
+                  <th className="p-3">Waktu</th>
+                  <th className="p-3">Alat</th>
+                  <th className="p-3">Peminjam</th>
+                  <th className="p-3">Kelas</th>
+                  <th className="p-3">Kerabat Kerja</th>
                 </tr>
-              ))}
-              {tableBookings.length === 0 && (
-                <tr><td colSpan={5} className="p-8 text-center text-slate-400">Belum ada jadwal.</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {tableBookings.map(b => {
+                  const cls = classes.find(c => c.id === b.classId);
+                  return (
+                    <tr key={b.id}>
+                      <td className="p-3 font-bold">{b.date}</td>
+                      <td className="p-3 font-mono">{b.startTime}-{b.endTime}</td>
+                      <td className="p-3 text-indigo-600 font-bold">{b.equipmentName}</td>
+                      <td className="p-3">{b.bookerName}</td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                          {b.className || cls?.name || '-'}
+                        </span>
+                      </td>
+                      <td className="p-3 text-[11px] text-slate-600 italic">
+                        {cls?.kerabatKerja || '-'}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {tableBookings.length === 0 && (
+                  <tr><td colSpan={6} className="p-8 text-center text-slate-400">Belum ada jadwal.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
       {activeTab === 'kalender' && <BookingCalendarModule embedded />}
 
+      {/* ✅ PATCH 4: Card "Booking Saya" — tambah Kelas + Kerabat */}
       {activeTab === 'saya' && (
         <div className="space-y-3">
           {myBookings.length === 0 ? (
             <div className="p-12 text-center bg-white border rounded-3xl text-slate-400 text-xs">Belum ada booking.</div>
-          ) : myBookings.map(b => (
-            <div key={b.id} className="p-4 rounded-2xl bg-white border shadow-sm flex justify-between items-start">
-              <div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getStatusColor(b.status)}`}>{b.status}</span>
-                <p className="font-bold text-sm mt-1">{b.equipmentName}</p>
-                <p className="text-xs text-slate-500">{b.date} • {b.startTime}-{b.endTime}</p>
+          ) : myBookings.map(b => {
+            const cls = classes.find(c => c.id === b.classId);
+            return (
+              <div key={b.id} className="p-4 rounded-2xl bg-white border shadow-sm flex justify-between items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getStatusColor(b.status)}`}>
+                      {b.status}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 border border-blue-300">
+                      {b.className || cls?.name || '-'}
+                    </span>
+                  </div>
+                  <p className="font-bold text-sm mt-1 flex items-center gap-1.5">
+                    <Music className="w-3.5 h-3.5 text-slate-400" /> {b.equipmentName}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">{b.date} • {b.startTime}-{b.endTime}</p>
+                  {cls?.kerabatKerja && (
+                    <p className="text-[10px] text-slate-400 italic mt-1 flex items-center gap-1">
+                      <Sparkles className="w-2.5 h-2.5" /> {cls.kerabatKerja}
+                    </p>
+                  )}
+                </div>
+                {b.bookedBy === user?.uid && b.status === 'PENDING' && (
+                  <button onClick={() => handleDeleteBooking(b)} className="text-rose-500 p-1 shrink-0"><Trash2 className="w-4 h-4" /></button>
+                )}
               </div>
-              {b.bookedBy === user?.uid && b.status === 'PENDING' && (
-                <button onClick={() => handleDeleteBooking(b)} className="text-rose-500 p-1"><Trash2 className="w-4 h-4" /></button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -1146,6 +1222,10 @@ export const BookingModule: React.FC = () => {
                 <div className="flex justify-between gap-2">
                   <span className="text-slate-500 dark:text-slate-400">Alat:</span>
                   <span className="font-bold text-slate-900 dark:text-white text-right">{successBooking.equipmentName}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-500 dark:text-slate-400">Kelas:</span>
+                  <span className="font-bold text-slate-900 dark:text-white text-right">{successBooking.className}</span>
                 </div>
                 <div className="flex justify-between gap-2">
                   <span className="text-slate-500 dark:text-slate-400">Tanggal:</span>
