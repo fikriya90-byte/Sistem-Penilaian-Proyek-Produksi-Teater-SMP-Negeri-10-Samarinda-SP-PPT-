@@ -1,4 +1,3 @@
-// src/components/modules/ActivityCalendarModule.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Search,
@@ -6,19 +5,17 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import { useToast } from '../common/Toast';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../core/firebase';
+import { PageGuideOverlay } from '../common/PageGuideOverlay';
 
-// ═══════════════════════════════════════════════════════
-// TIPE DATA
-// ═══════════════════════════════════════════════════════
 type ActivityType = 'TIMELINE' | 'SCHEDULE' | 'BOOKING' | 'DEADLINE';
 
 interface CalendarActivity {
   id: string;
   type: ActivityType;
   title: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   startTime?: string;
   endTime?: string;
   location?: string;
@@ -28,44 +25,13 @@ interface CalendarActivity {
   status?: string;
 }
 
-// ═══════════════════════════════════════════════════════
-// KONFIGURASI
-// ═══════════════════════════════════════════════════════
 const TYPE_CONFIG: Record<ActivityType, {
   label: string; icon: any; color: string; bg: string; border: string; dot: string;
 }> = {
-  TIMELINE: {
-    label: 'Timeline',
-    icon: Film,
-    color: 'text-indigo-800 dark:text-indigo-200',
-    bg: 'bg-indigo-100 dark:bg-indigo-500/20',
-    border: 'border-indigo-300 dark:border-indigo-500/40',
-    dot: 'bg-indigo-500',
-  },
-  SCHEDULE: {
-    label: 'Agenda',
-    icon: Calendar,
-    color: 'text-blue-800 dark:text-blue-200',
-    bg: 'bg-blue-100 dark:bg-blue-500/20',
-    border: 'border-blue-300 dark:border-blue-500/40',
-    dot: 'bg-blue-500',
-  },
-  BOOKING: {
-    label: 'Booking',
-    icon: Package,
-    color: 'text-purple-800 dark:text-purple-200',
-    bg: 'bg-purple-100 dark:bg-purple-500/20',
-    border: 'border-purple-300 dark:border-purple-500/40',
-    dot: 'bg-purple-500',
-  },
-  DEADLINE: {
-    label: 'Deadline',
-    icon: Clock,
-    color: 'text-amber-800 dark:text-amber-200',
-    bg: 'bg-amber-100 dark:bg-amber-500/20',
-    border: 'border-amber-300 dark:border-amber-500/40',
-    dot: 'bg-amber-500',
-  },
+  TIMELINE: { label: 'Timeline', icon: Film, color: 'text-indigo-800 dark:text-indigo-200', bg: 'bg-indigo-100 dark:bg-indigo-500/20', border: 'border-indigo-300 dark:border-indigo-500/40', dot: 'bg-indigo-500' },
+  SCHEDULE: { label: 'Agenda', icon: Calendar, color: 'text-blue-800 dark:text-blue-200', bg: 'bg-blue-100 dark:bg-blue-500/20', border: 'border-blue-300 dark:border-blue-500/40', dot: 'bg-blue-500' },
+  BOOKING: { label: 'Booking', icon: Package, color: 'text-purple-800 dark:text-purple-200', bg: 'bg-purple-100 dark:bg-purple-500/20', border: 'border-purple-300 dark:border-purple-500/40', dot: 'bg-purple-500' },
+  DEADLINE: { label: 'Deadline', icon: Clock, color: 'text-amber-800 dark:text-amber-200', bg: 'bg-amber-100 dark:bg-amber-500/20', border: 'border-amber-300 dark:border-amber-500/40', dot: 'bg-amber-500' },
 };
 
 const CLASS_COLORS = [
@@ -82,9 +48,12 @@ const CLASS_COLORS = [
 const MONTH_NAMES = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 const DAY_NAMES = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
 
-// ═══════════════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════════════
+const CALENDAR_GUIDE = [
+  { title: 'Kalender Terpadu', description: 'Semua jadwal dari berbagai divisi, rapat pleno, hingga deadline tugas dikumpulkan di sini.' },
+  { title: 'Filter Warna', description: 'Gunakan filter di atas untuk melihat agenda berdasarkan jenisnya (Timeline, Agenda, Booking, atau Deadline).' },
+  { title: 'Detail Tanggal', description: 'Klik tanggal mana saja pada kalender untuk melihat rincian jam dan lokasi kegiatan pada hari tersebut.' }
+];
+
 const getMonthDays = (date: Date): (Date | null)[] => {
   const year = date.getFullYear();
   const month = date.getMonth();
@@ -106,10 +75,7 @@ const toDateStr = (d: Date): string => {
 };
 
 const isoToDateStr = (iso: string): string => {
-  try {
-    const d = new Date(iso);
-    return toDateStr(d);
-  } catch { return ''; }
+  try { return toDateStr(new Date(iso)); } catch { return ''; }
 };
 
 const getTimeFromISO = (iso: string): string => {
@@ -119,9 +85,6 @@ const getTimeFromISO = (iso: string): string => {
   } catch { return ''; }
 };
 
-// ═══════════════════════════════════════════════════════
-// KOMPONEN
-// ═══════════════════════════════════════════════════════
 export const ActivityCalendarModule: React.FC = () => {
   const { user, activeClass, classes, isGuruPengampu, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -130,6 +93,7 @@ export const ActivityCalendarModule: React.FC = () => {
 
   const [timelineWeeks, setTimelineWeeks] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<any[]>([]);
+  const [divisionSchedules, setDivisionSchedules] = useState<any[]>([]); // ✅ State Baru
   const [bookings, setBookings] = useState<any[]>([]);
   const [deadlines, setDeadlines] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,11 +104,10 @@ export const ActivityCalendarModule: React.FC = () => {
   const [filterType, setFilterType] = useState<'ALL' | ActivityType>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Subscribe semua koleksi
   useEffect(() => {
     if (!canAccess) { setLoading(false); return; }
     let count = 0;
-    const checkDone = () => { count++; if (count >= 4) setLoading(false); };
+    const checkDone = () => { count++; if (count >= 5) setLoading(false); }; // ✅ Ubah jadi 5
 
     const unsub1 = onSnapshot(collection(db, 'timelineWeeks'), snap => {
       setTimelineWeeks(snap.docs.map(d => ({ ...d.data(), id: d.id })));
@@ -156,20 +119,25 @@ export const ActivityCalendarModule: React.FC = () => {
       checkDone();
     }, () => checkDone());
 
-    const unsub3 = onSnapshot(collection(db, 'bookings'), snap => {
+    // ✅ BARU: Subscription Agenda Divisi
+    const unsub3 = onSnapshot(collection(db, 'divisionSchedules'), snap => {
+      setDivisionSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id })));
+      checkDone();
+    }, () => checkDone());
+
+    const unsub4 = onSnapshot(collection(db, 'bookings'), snap => {
       setBookings(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       checkDone();
     }, () => checkDone());
 
-    const unsub4 = onSnapshot(collection(db, 'deadlines'), snap => {
+    const unsub5 = onSnapshot(collection(db, 'deadlines'), snap => {
       setDeadlines(snap.docs.map(d => ({ ...d.data(), id: d.id })));
       checkDone();
     }, () => checkDone());
 
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
   }, [canAccess]);
 
-  // Build activities
   const allActivities: CalendarActivity[] = useMemo(() => {
     const list: CalendarActivity[] = [];
     const classNameMap: Record<string, string> = {};
@@ -181,53 +149,44 @@ export const ActivityCalendarModule: React.FC = () => {
       const date = isoToDateStr(w.startDate);
       if (!date) return;
       list.push({
-        id: `tw-${w.id}`,
-        type: 'TIMELINE',
-        title: w.title,
-        date,
-        startTime: getTimeFromISO(w.startDate),
-        endTime: getTimeFromISO(w.endDate),
-        classId: w.classId,
-        className: classNameMap[w.classId],
-        extra: `${w.label} • ${w.phase || ''}`.trim(),
-        status: w.status,
+        id: `tw-${w.id}`, type: 'TIMELINE', title: w.title, date,
+        startTime: getTimeFromISO(w.startDate), endTime: getTimeFromISO(w.endDate),
+        classId: w.classId, className: classNameMap[w.classId],
+        extra: `${w.label} • ${w.phase || ''}`.trim(), status: w.status,
       });
     });
 
-    // 2. Schedules
+    // 2. Schedules Umum
     schedules.forEach(s => {
       const date = isoToDateStr(s.startAt);
       if (!date) return;
       list.push({
-        id: `sch-${s.id}`,
-        type: 'SCHEDULE',
-        title: s.title,
-        date,
-        startTime: getTimeFromISO(s.startAt),
-        endTime: getTimeFromISO(s.endAt),
-        location: s.location,
-        classId: s.classId,
-        className: classNameMap[s.classId],
-        extra: s.type || '',
-        status: undefined,
+        id: `sch-${s.id}`, type: 'SCHEDULE', title: s.title, date,
+        startTime: getTimeFromISO(s.startAt), endTime: getTimeFromISO(s.endAt),
+        location: s.location, classId: s.classId, className: classNameMap[s.classId],
+        extra: s.type || '', status: undefined,
+      });
+    });
+
+    // ✅ BARU: 2b. Division Schedules (Koordinator)
+    divisionSchedules.forEach(ds => {
+      if (!ds.date) return;
+      list.push({
+        id: `ds-${ds.id}`, type: 'SCHEDULE', title: ds.title, date: ds.date,
+        startTime: ds.time || '', location: ds.location || '',
+        classId: ds.classId, className: classNameMap[ds.classId],
+        extra: `Divisi: ${ds.divisionName}`, status: undefined,
       });
     });
 
     // 3. Bookings
     bookings.forEach(b => {
-      if (!b.date) return;
-      if (['REJECTED', 'CANCELLED'].includes(b.status)) return;
+      if (!b.date || ['REJECTED', 'CANCELLED'].includes(b.status)) return;
       list.push({
-        id: `bk-${b.id}`,
-        type: 'BOOKING',
-        title: `${b.equipmentName} — ${b.bookerName}`,
-        date: b.date,
-        startTime: b.startTime,
-        endTime: b.endTime,
-        classId: b.classId,
-        className: b.className || classNameMap[b.classId],
-        extra: b.purpose,
-        status: b.status,
+        id: `bk-${b.id}`, type: 'BOOKING', title: `${b.equipmentName} — ${b.bookerName}`,
+        date: b.date, startTime: b.startTime, endTime: b.endTime,
+        classId: b.classId, className: b.className || classNameMap[b.classId],
+        extra: b.purpose, status: b.status,
       });
     });
 
@@ -237,22 +196,16 @@ export const ActivityCalendarModule: React.FC = () => {
       const date = isoToDateStr(d.dueDate);
       if (!date) return;
       list.push({
-        id: `dl-${d.id}`,
-        type: 'DEADLINE',
-        title: d.title,
-        date,
-        startTime: getTimeFromISO(d.dueDate),
-        classId: d.classId,
+        id: `dl-${d.id}`, type: 'DEADLINE', title: d.title, date,
+        startTime: getTimeFromISO(d.dueDate), classId: d.classId,
         className: classNameMap[d.classId],
-        extra: `${d.stage || ''} • ${d.priority || ''}`.trim(),
-        status: d.status,
+        extra: `${d.stage || ''} • ${d.priority || ''}`.trim(), status: d.status,
       });
     });
 
     return list;
-  }, [timelineWeeks, schedules, bookings, deadlines, classes]);
+  }, [timelineWeeks, schedules, divisionSchedules, bookings, deadlines, classes]);
 
-  // Filter
   const filteredActivities = useMemo(() => {
     return allActivities.filter(a => {
       if (filterClass !== 'ALL' && a.classId !== filterClass) return false;
@@ -260,17 +213,14 @@ export const ActivityCalendarModule: React.FC = () => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         return (
-          a.title.toLowerCase().includes(q) ||
-          (a.className || '').toLowerCase().includes(q) ||
-          (a.extra || '').toLowerCase().includes(q) ||
-          (a.location || '').toLowerCase().includes(q)
+          a.title.toLowerCase().includes(q) || (a.className || '').toLowerCase().includes(q) ||
+          (a.extra || '').toLowerCase().includes(q) || (a.location || '').toLowerCase().includes(q)
         );
       }
       return true;
     });
   }, [allActivities, filterClass, filterType, searchQuery]);
 
-  // Group by date
   const byDate = useMemo(() => {
     const map: Record<string, CalendarActivity[]> = {};
     filteredActivities.forEach(a => {
@@ -281,7 +231,6 @@ export const ActivityCalendarModule: React.FC = () => {
     return map;
   }, [filteredActivities]);
 
-  // Month stats
   const monthStats = useMemo(() => {
     const year = currentMonth.getFullYear();
     const month = currentMonth.getMonth();
@@ -319,6 +268,8 @@ export const ActivityCalendarModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <PageGuideOverlay moduleId="activity-calendar" title="Panduan Kalender Kegiatan" steps={CALENDAR_GUIDE} />
+      
       {/* Header */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900 via-purple-900 to-slate-900 text-white shadow-xl border border-indigo-500/20">
         <div className="flex items-center gap-3">
@@ -511,43 +462,4 @@ export const ActivityCalendarModule: React.FC = () => {
                             </span>
                           )}
                           {a.startTime && (
-                            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-0.5">
-                              <Clock className="w-2.5 h-2.5" /> {a.startTime}{a.endTime ? `-${a.endTime}` : ''}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs font-bold text-slate-900 dark:text-white">{a.title}</p>
-                        {a.location && (
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1">
-                            <Layers className="w-2.5 h-2.5" /> {a.location}
-                          </p>
-                        )}
-                        {a.extra && (
-                          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 italic">{a.extra}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Info */}
-          <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 flex items-start gap-2">
-            <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <div className="text-[11px] text-blue-900 dark:text-blue-200 leading-relaxed">
-              <p className="font-bold mb-0.5">Informasi:</p>
-              <ul className="list-disc pl-4 space-y-0.5">
-                <li>Kalender ini mengumpulkan agenda dari <strong>semua kelas</strong>.</li>
-                <li>Titik warna = jenis agenda berbeda di tanggal itu.</li>
-                <li>Klik tanggal untuk melihat detail semua agenda.</li>
-                <li>Klik kartu statistik di atas untuk filter cepat per jenis.</li>
-              </ul>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
+                            <span className="text-[10px] font-bold text
