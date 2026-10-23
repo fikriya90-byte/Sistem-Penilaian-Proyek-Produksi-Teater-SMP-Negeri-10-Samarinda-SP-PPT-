@@ -6,7 +6,7 @@ import {
   Star, Users, Wallet, X, Megaphone, Camera, Film, TrendingUp, Calculator,
   GraduationCap, Home, BookOpen, Globe, Bug, ChevronDown, ChevronRight,
   Info, LayoutGrid, Layers, Target,
-  Library, CalendarCheck, // ✅ Tambahan CalendarCheck
+  Library, CalendarCheck, CalendarDays,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 
@@ -55,7 +55,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           icon: Home,
           items: [
             { id: 'dashboard', label: 'Kelola Kelas', icon: BookOpen },
-            { id: 'welcome-booking', label: 'Verifikasi Booking', icon: CalendarCheck }, // ✅ Tambahan
+            { id: 'welcome-booking', label: 'Verifikasi Booking', icon: CalendarCheck },
+            { id: 'activity-calendar', label: 'Kalender Kerabat Kerja', icon: CalendarDays },
           ],
         },
         {
@@ -129,6 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'inter-class', label: 'Koordinasi Lintas Kelas', icon: Globe },
         ]},
         { title: 'Monitoring', icon: TrendingUp, items: [
+            { id: 'activity-calendar', label: 'Kalender Kerabat Kerja', icon: CalendarDays },
             { id: 'master-timeline', label: 'Master Timeline', icon: Film },
             { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
             { id: 'division-schedule', label: 'Jadwal Divisi', icon: Users },
@@ -182,6 +184,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ]},
         { title: 'Jadwal & Timeline', icon: Calendar, items: [
             { id: 'jadwal', label: 'Jadwal & Agenda', icon: Calendar },
+            { id: 'activity-calendar', label: 'Kalender Kerabat Kerja', icon: CalendarDays },
             { id: 'master-timeline', label: 'Master Timeline', icon: Film },
             { id: 'content-schedule', label: 'Jadwal Konten', icon: Camera },
             { id: 'director-timeline', label: 'Timeline Sutradara', icon: Sparkles },
@@ -529,7 +532,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         }`}
       >
         <div className="flex flex-col h-full">
-          {/* Mobile close header */}
           <div className="p-4 flex items-center justify-between border-b border-slate-100 dark:border-slate-700 lg:hidden">
             <span className="font-extrabold text-base text-amber-600">
               {mode === 'welcome' ? 'Menu Beranda' : 'Menu Kelas'}
@@ -539,7 +541,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
 
-          {/* User card */}
           <div className={`p-4 m-3 rounded-2xl text-white shadow-md shrink-0 ${
             isAdminRole ? 'bg-gradient-to-br from-blue-900 to-blue-800' :
             mode === 'welcome' ? 'bg-gradient-to-br from-amber-700 to-orange-800' :
@@ -575,7 +576,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          {/* NAVIGATION */}
           <nav className="flex-1 px-3 py-2 overflow-y-auto">
             {menuGroups.map((group) => {
               const GroupIcon = group.icon;
@@ -637,7 +637,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </nav>
 
-          {/* Footer */}
           <div className="p-3 border-t border-slate-100 dark:border-slate-700 text-center shrink-0">
             <p className="text-[10px] font-semibold text-slate-400">SP-PPT © 2026 SMPN 10 Samarinda</p>
           </div>
