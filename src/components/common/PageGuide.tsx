@@ -19,16 +19,17 @@ const GUIDES: Record<string, { title: string; desc: string; tips: string[] }> = 
     title: 'Panduan Presensi & Absensi',
     desc: 'Halaman ini khusus untuk mengisi kehadiran Anda. Sistem akan menutup absen otomatis jika waktu yang ditentukan sudah habis.',
     tips: [
+      '⚠️ PRESENSI MASUK KE AKUMULASI NILAI (Kehadiran & Kedisiplinan). Jangan main-main!',
       'Cari sesi presensi yang sesuai dengan nama atau divisi Anda.',
       'Klik tombol "Hadir", "Izin", "Sakit", atau "Alpa" dengan jujur.',
-      'Jika ada keterangan (misal: izin karena sakit), isi kolom catatan yang tersedia.'
+      'Jika Anda diundang rapat namun tidak hadir, Guru/Pembuat sesi berhak mengubah status Anda menjadi Alpa.'
     ]
   },
   jadwal: {
     title: 'Panduan Kalender Kegiatan',
     desc: 'Di sini Anda bisa melihat agenda rapat atau gladi besar. Hanya jadwal yang ditujukan untuk Anda (atau divisi Anda) yang akan muncul.',
     tips: [
-      'Klik tombol "Hadir" untuk mengonfirmasi bahwa Anda tahu dan akan datang.',
+      'Klik tombol "Saya Akan Datang" atau "Berhalangan" untuk konfirmasi RSVP (bukan absensi).',
       'Untuk jadwal latihan rutin khusus divisi Anda, silakan cek menu "Jadwal Divisi".',
       'Gunakan tampilan "Kalender" untuk melihat jadwal sebulan penuh.'
     ]
