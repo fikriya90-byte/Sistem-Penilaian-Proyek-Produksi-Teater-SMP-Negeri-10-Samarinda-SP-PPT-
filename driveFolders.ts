@@ -2,8 +2,18 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 
 export const DRIVE_FOLDERS = {
-  utama: '', publikasi: '', dokumentasi: '', keuangan: '', nota: '',
-  properti: '', panggung: '', rias: '', busana: '', musik: '', naskah: '', lpj: '',
+  utama: '',
+  publikasi: '',
+  dokumentasi: '',
+  keuangan: '',
+  nota: '',
+  properti: '',
+  panggung: '',
+  rias: '',
+  busana: '',
+  musik: '',
+  naskah: '',
+  lpj: '',
 };
 
 export type DriveFolderKey = keyof typeof DRIVE_FOLDERS;
@@ -36,10 +46,9 @@ export async function openDriveFolder(key: DriveFolderKey) {
     const snap = await getDoc(docRef);
     let url = '';
     if (snap.exists()) {
-      url = (snap.data()[key] || '').trim(); // Pastikan tidak ada spasi
+      url = (snap.data()[key] || '').trim();
     }
     
-    // Jika link belum diatur atau tidak valid
     if (!url || !url.startsWith('http')) {
       const config = DRIVE_CONFIG[key];
       alert(
@@ -47,12 +56,10 @@ export async function openDriveFolder(key: DriveFolderKey) {
         `Folder "${config.label}" seharusnya dibuat oleh: ${config.role}.\n\n` +
         `Sistem akan membuka Google Drive. Silakan buat folder baru, atur akses menjadi "${config.access}", lalu tempelkan link-nya di menu Pengaturan.`
       );
-      // Buka Google Drive agar siswa bisa langsung membuat foldernya
       window.open('https://drive.google.com', '_blank', 'noopener,noreferrer');
       return;
     }
     
-    // Jika link sudah ada, buka link tersebut
     window.open(url, '_blank', 'noopener,noreferrer');
   } catch (error) {
     console.error('Gagal buka drive:', error);
