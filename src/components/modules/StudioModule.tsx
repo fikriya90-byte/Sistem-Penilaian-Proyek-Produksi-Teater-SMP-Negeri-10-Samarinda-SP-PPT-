@@ -53,6 +53,7 @@ interface MusicReference {
   updatedAt?: string;
   duplicatedFrom?: string;
   duplicatedAt?: string;
+  duplicatedFromClassName?: string;
 }
 
 // ═══════════════════════════════════════════════════════
@@ -201,7 +202,6 @@ const MusicCopyModal: React.FC<{
 
   const otherClasses = allClasses.filter(c => c.id !== currentClassId);
 
-  // Auto-select semua referensi saat pertama buka
   useEffect(() => {
     setSelectedRefIds(musicRefs.map(r => r.id));
   }, [musicRefs]);
@@ -221,14 +221,8 @@ const MusicCopyModal: React.FC<{
 
   const handleDuplicate = async () => {
     if (!user) return;
-    if (selectedRefIds.length === 0) {
-      showToast('Pilih minimal 1 referensi.', 'warning');
-      return;
-    }
-    if (selectedClassIds.length === 0) {
-      showToast('Pilih minimal 1 kelas tujuan.', 'warning');
-      return;
-    }
+    if (selectedRefIds.length === 0) { showToast('Pilih minimal 1 referensi.', 'warning'); return; }
+    if (selectedClassIds.length === 0) { showToast('Pilih minimal 1 kelas tujuan.', 'warning'); return; }
 
     setSubmitting(true);
     let totalCreated = 0;
@@ -300,7 +294,6 @@ const MusicCopyModal: React.FC<{
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
       <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-100 dark:border-slate-700 my-auto max-h-[95vh] flex flex-col overflow-hidden">
 
-        {/* HEADER */}
         <div className="p-5 bg-gradient-to-r from-purple-700 to-indigo-800 text-white shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -318,7 +311,6 @@ const MusicCopyModal: React.FC<{
               <X className="w-5 h-5" />
             </button>
           </div>
-          {/* Progress bar */}
           <div className="flex items-center gap-2 mt-4">
             {[1, 2, 3].map(s => (
               <div key={s} className={`flex-1 h-1.5 rounded-full transition ${s <= step ? 'bg-white' : 'bg-white/30'}`} />
@@ -326,10 +318,7 @@ const MusicCopyModal: React.FC<{
           </div>
         </div>
 
-        {/* BODY */}
         <div className="p-6 overflow-y-auto flex-1">
-
-          {/* STEP 1: Pilih referensi */}
           {step === 1 && (
             <>
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -404,7 +393,6 @@ const MusicCopyModal: React.FC<{
             </>
           )}
 
-          {/* STEP 2: Pilih kelas tujuan */}
           {step === 2 && (
             <>
               <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -468,7 +456,6 @@ const MusicCopyModal: React.FC<{
             </>
           )}
 
-          {/* STEP 3: Konfirmasi */}
           {step === 3 && (
             <>
               <h4 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3">
@@ -520,7 +507,6 @@ const MusicCopyModal: React.FC<{
           )}
         </div>
 
-        {/* FOOTER */}
         <div className="p-4 bg-slate-50 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center gap-2 shrink-0">
           <button onClick={onClose}
             className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">
@@ -994,7 +980,7 @@ export const StudioModule: React.FC = () => {
               </div>
               {canManageMusic && (
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* 🆕 TOMBOL DUPLIKAT */}
+                  {/* TOMBOL DUPLIKAT */}
                   <button onClick={() => {
                     if (musicRefs.length === 0) {
                       showToast('Belum ada referensi untuk diduplikat.', 'warning');
@@ -1269,9 +1255,22 @@ export const StudioModule: React.FC = () => {
           </div>
 
           {audioUrl && (
-            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-left space-y-2">
-              <span className="text-xs font-bold text-amber-900 dark:text-amber-200">Dengar Ulang:</span>
+            <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-left space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-amber-900 dark:text-amber-200">Dengar Ulang:</span>
+              </div>
               <audio controls src={audioUrl} className="w-full" />
+              
+              {/* ✅ FITUR BARU: TOMBOL UNDUH & PERINGATAN */}
+              <div className="pt-2 border-t border-amber-200 dark:border-amber-500/30 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <p className="text-[10px] text-rose-600 font-bold italic text-center sm:text-left">
+                  ⚠️ Rekaman akan hilang jika Anda me-refresh halaman. Harap unduh sekarang!
+                </p>
+                <a href={audioUrl} download={`Rekaman_Dialog_${user?.displayName?.replace(/\s+/g, '_') || 'Siswa'}_${new Date().getTime()}.webm`}
+                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm shrink-0">
+                  <Download className="w-3.5 h-3.5" /> Unduh Rekaman
+                </a>
+              </div>
             </div>
           )}
         </div>
