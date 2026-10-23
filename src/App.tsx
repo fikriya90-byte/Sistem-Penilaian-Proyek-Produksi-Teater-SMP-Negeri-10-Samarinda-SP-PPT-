@@ -63,7 +63,7 @@ const VIEW_STORAGE_KEY = 'spppt-view';
 const WELCOME_MODULES = [
   'dashboard', 'informasi', 'notifikasi', 'panduan', 'pengaturan',
   'aktivitas', 'notulensi', 'backup', 'inter-class', 'debug-users', 'welcome-broadcast',
-  'welcome-booking', // ✅ TAMBAHAN
+  'welcome-booking', 
 ];
 
 const IN_CLASS_MODULES = [
@@ -102,7 +102,7 @@ const WelcomeLayout: React.FC<{
       case 'inter-class': return <InterClassCoordModule />;
       case 'debug-users': return <DebugUsersModule />;
       case 'welcome-broadcast': return <WelcomeBroadcastModule />;
-      case 'welcome-booking': return <BookingModule />; // ✅ TAMBAHAN
+      case 'welcome-booking': return <BookingModule />;
       case 'dashboard':
       default:
         return isGuruPengampu || isAdminRole ? (
@@ -122,6 +122,7 @@ const WelcomeLayout: React.FC<{
           {renderWelcomeModule()}
         </main>
       </div>
+      <DashboardReminder onNavigate={onNavigate} />
     </div>
   );
 };
@@ -158,7 +159,6 @@ const MainLayout: React.FC = () => {
 
   useEffect(() => { viewInitRef.current = false; }, [user?.uid]);
 
-  // ✅ FIX: Timeout jika kelas tidak kunjung termuat
   useEffect(() => {
     if (!loading && user) {
       if (view === 'in-class' && !activeClass) {
@@ -170,7 +170,6 @@ const MainLayout: React.FC = () => {
     }
   }, [view, activeClass, loading, user]);
 
-  // AUTO-ENTER CLASS
   useEffect(() => {
     if (!user || loading) return;
     if (viewInitRef.current) return;
@@ -265,6 +264,7 @@ const MainLayout: React.FC = () => {
             </main>
           </div>
         </div>
+        <DashboardReminder onNavigate={handleNavigate} />
         {showLoginConfirm && user && <LoginConfirmModal user={user} onYes={handleLoginConfirmYes} onNo={handleLoginConfirmNo} />}
       </>
     );
