@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar as CalendarIcon, Clock, MapPin, PlusCircle, Trash2, UserCheck,
-  Users, ChevronLeft, ChevronRight, Check, X, Pencil, Filter, MessageCircle, Building2
+  Users, ChevronLeft, ChevronRight, Check, X, Pencil, Filter, BookOpen, ShieldAlert, Star, CheckSquare, Square, Building2, MessageCircle
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
-import { ScheduleEvent, ScheduleType, UserProfile } from '../../core/types';
+import { ScheduleEvent, ScheduleType, UserProfile, ClassRoom } from '../../core/types';
 import {
   createSchedule, deleteSchedule, recordAuditLog, subscribeSchedules, fetchUsersByClass, fetchClasses
 } from '../../services/firestoreService';
@@ -26,8 +26,6 @@ const ALL_DIVISIONS = [
   'Tata Panggung', 'Tata Rias', 'Tata Busana', 'Tata Musik & Suara'
 ];
 
-const ARTISTIK_DIVISIONS = ['Tata Panggung', 'Tata Rias', 'Tata Busana', 'Tata Musik & Suara', 'Pemeran'];
-
 const ALL_ROLES = [
   'Pimpinan Produksi', 'Sekretaris', 'Bendahara', 
   'Sutradara', 'Asisten Sutradara', 'Pemeran',
@@ -39,18 +37,10 @@ const ALL_ROLES = [
   'Koordinator Tata Musik', 'Anggota Tata Musik'
 ];
 
-const ARTISTIK_ROLES = [
-  'Sutradara', 'Asisten Sutradara', 'Pemeran',
-  'Koordinator Tata Panggung', 'Anggota Tata Panggung',
-  'Koordinator Tata Rias', 'Anggota Tata Rias',
-  'Koordinator Tata Busana', 'Anggota Tata Busana',
-  'Koordinator Tata Musik', 'Anggota Tata Musik'
-];
-
 export const ScheduleModule: React.FC = () => {
   const { 
-    user, activeClass, classes, isGuruPengampu, isAdminRole, 
-    isPimprod, isSekretaris, isSutradara, isAsisten
+    user, activeClass, classes, isTeacher, isGuruPengampu, isAdminRole, 
+    isPimprod, isSekretaris 
   } = useAuth();
   const { showToast } = useToast();
 
@@ -82,10 +72,8 @@ export const ScheduleModule: React.FC = () => {
   const [selectedDivisions, setSelectedDivisions] = useState<string[]>([]);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
 
-  // HAK AKSES PEMBUATAN (Koordinator DIHAPUS dari sini)
-  const canCreateGeneral = isPimprod || isSekretaris || isGuruPengampu || isAdminRole;
-  const canCreateArtistic = isSutradara || isAsisten;
-  const canCreate = canCreateGeneral || canCreateArtistic;
+  // Hak Akses
+  const canCreate = isPimprod || isSekretaris || isGuruPengampu || isAdminRole;
   const canSeeAllClasses = isGuruPengampu || isAdminRole;
 
   useEffect(() => {
@@ -93,12 +81,14 @@ export const ScheduleModule: React.FC = () => {
 
     let unsubSchedules: () => void;
 
+    // JIKA GURU/ADMIN: Tarik semua jadwal dari semua kelas
     if (canSeeAllClasses) {
       const q = query(collection(db, 'schedules'));
       unsubSchedules = onSnapshot(q, snap => {
         setSchedules(snap.docs.map(d => ({ ...d.data(), id: d.id } as ScheduleEvent)));
       });
     } else {
+      // JIKA SISWA/SISWA LAIN: Hanya tarik jadwal kelasnya sendiri
       unsubSchedules = subscribeSchedules(activeClass.id, setSchedules);
     }
 
@@ -111,6 +101,11 @@ export const ScheduleModule: React.FC = () => {
 
     return () => { unsubSchedules(); unsubConf(); };
   }, [activeClass, user, canSeeAllClasses]);
+
+  // HELPER: Cek apakah jadwal sudah lewat
+  const isPastEvent = (endAtIso: string) => {
+    return new Date(endAtIso).getTime() < Date.now();
+  };
 
   const formatLocalDatetime = (isoString: string) => {
     if (!isoString) return '';
@@ -161,20 +156,12 @@ export const ScheduleModule: React.FC = () => {
     const validStudents = classStudents.filter(s => !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role));
 
     if (targetMode === 'ALL') {
-      if (canCreateGeneral) {
-        ids = validStudents.map(s => s.uid);
-      } else if (canCreateArtistic) {
-        ids = validStudents.filter(s => 
-          ARTISTIK_DIVISIONS.includes(s.divisionName || '') || 
-          ARTISTIK_ROLES.includes(s.role)
-        ).map(s => s.uid);
-      }
+      ids = validStudents.map(s => s.uid);
     } else if (targetMode === 'MANUAL') {
       validStudents.forEach(s => {
         const isDivMatch = selectedDivisions.length > 0 && selectedDivisions.includes(s.divisionName || '');
         const isRoleMatch = selectedRoles.length > 0 && selectedRoles.includes(s.role);
         const isUserMatch = selectedUserIds.includes(s.uid);
-        
         if (isDivMatch || isRoleMatch || isUserMatch) ids.push(s.uid);
       });
     }
@@ -209,6 +196,7 @@ export const ScheduleModule: React.FC = () => {
         targetUserIds: finalTargetIds, 
         divisionName: '', 
         pic: user.displayName,
+        creatorRole: user.role, // Simpan role pembuat untuk info WA
         description: description.trim(),
       };
 
@@ -231,7 +219,7 @@ export const ScheduleModule: React.FC = () => {
           action: 'CREATE', targetType: 'Schedule', targetId: newId,
           details: `Membuat kalender kegiatan: ${title} (${finalTargetIds.length} target)`,
         });
-        showToast(`Kegiatan ditambahkan!`, 'success');
+        showToast(`Kegiatan ditambahkan untuk kelas ${activeClass.name}!`, 'success');
       }
       setIsModalOpen(false);
     } catch (err: any) {
@@ -263,17 +251,50 @@ export const ScheduleModule: React.FC = () => {
         userId: user.uid, userName: user.displayName,
         status, confirmedAt: new Date().toISOString(),
       });
-      showToast(`Konfirmasi: ${status === 'HADIR' ? 'Hadir' : 'Tidak Hadir'}`, 'success');
+      showToast(`RSVP: ${status === 'HADIR' ? 'Akan Hadir' : 'Tidak Hadir'}`, 'success');
     } catch (err: any) {
       showToast('Gagal: ' + err.message, 'error');
     }
   };
 
+  // HELPER: Share ke WhatsApp dengan Format Lengkap
   const handleShareWA = (event: ScheduleEvent) => {
-    const text = `*AGENDA KEGIATAN: ${event.title}*\n\nHari/Tgl: ${new Date(event.startAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\nWaktu: ${new Date(event.startAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${new Date(event.endAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\nLokasi: ${event.location}\n\nMohon konfirmasi kehadiran Anda di web SP-PPT sebelum acara. Terima kasih.`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    const startObj = new Date(event.startAt);
+    const endObj = new Date(event.endAt);
+    
+    const formatTanggal = startObj.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const formatWaktu = `${startObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} - ${endObj.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} WITA`;
+    
+    // Dapatkan info target peserta (jika 1 orang sebutkan namanya, jika banyak sebut jumlahnya)
+    const targets = (event as any).targetUserIds || [];
+    let targetStr = "Semua Siswa";
+    if (targets.length > 0) {
+       if (targets.length === 1) targetStr = classStudents.find(s => s.uid === targets[0])?.displayName || "Siswa Spesifik";
+       else targetStr = `${targets.length} Orang Siswa Spesifik`;
+    }
+
+    const text = 
+      `*📅 UNDANGAN / JADWAL KEGIATAN*\n\n` +
+      `*${event.title}*\n\n` +
+      `📌 *Detail Acara:*\n` +
+      `🗓️ Tanggal: ${formatTanggal}\n` +
+      `⏰ Waktu: ${formatWaktu}\n` +
+      `📍 Lokasi: ${event.location}\n` +
+      `📝 Catatan: ${event.description || '-'}\n\n` +
+      `----------------------------------\n` +
+      `👤 *Pengirim:*\n` +
+      `${event.creatorName} (${(event as any).creatorRole || 'Panitia'})\n\n` +
+      `🎯 *Ditujukan Untuk:*\n` +
+      `${targetStr}\n` +
+      `----------------------------------\n\n` +
+      `_Mohon konfirmasi kehadiran (RSVP) Anda di aplikasi SP-PPT._`;
+
+    const waUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+    showToast('Membuka WhatsApp. Silakan pilih grup tujuan.', 'info');
   };
 
+  // LOGIKA FILTER TAMPILAN
   const mySchedules = schedules.filter(s => {
     if (canSeeAllClasses) {
        if (filterClass !== 'ALL' && s.classId !== filterClass) return false;
@@ -281,7 +302,7 @@ export const ScheduleModule: React.FC = () => {
        if (s.classId !== activeClass?.id) return false;
     }
 
-    if (!canSeeAllClasses) {
+    if (!isTeacher && !canSeeAllClasses) {
       const targets = (s as any).targetUserIds || [];
       if (targets.length === 0) return true;
       return targets.includes(user?.uid || '');
@@ -298,6 +319,7 @@ export const ScheduleModule: React.FC = () => {
     return true;
   });
 
+  // KALENDER HELPER
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
@@ -338,10 +360,6 @@ export const ScheduleModule: React.FC = () => {
     if (!canCreate) return null;
     const allowedUsers = classStudents.filter(s => !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role));
 
-    // Pembatasan untuk Sutradara (Hanya Artistik)
-    const availableDivisions = canCreateGeneral ? ALL_DIVISIONS : ARTISTIK_DIVISIONS;
-    const availableRoles = canCreateGeneral ? ALL_ROLES : ARTISTIK_ROLES;
-
     return (
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
         <label className="block text-xs font-bold text-slate-800 flex items-center gap-1.5">
@@ -350,7 +368,7 @@ export const ScheduleModule: React.FC = () => {
 
         <div className="flex gap-2 mb-2">
             <button type="button" onClick={() => setTargetMode('ALL')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${targetMode === 'ALL' ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-white text-slate-600'}`}>
-              {canCreateGeneral ? 'Pilih Semua Siswa' : 'Pilih Semua Tim Artistik'}
+              Pilih Semua Siswa
             </button>
             <button type="button" onClick={() => setTargetMode('MANUAL')} className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${targetMode === 'MANUAL' ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-white text-slate-600'}`}>
               Pilih Spesifik (Checklist)
@@ -362,7 +380,7 @@ export const ScheduleModule: React.FC = () => {
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Berdasarkan Divisi</p>
               <div className="flex flex-wrap gap-1.5">
-                {availableDivisions.map(div => (
+                {ALL_DIVISIONS.map(div => (
                   <label key={div} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
                     <input type="checkbox" checked={selectedDivisions.includes(div)} onChange={(e) => {
                       if (e.target.checked) setSelectedDivisions([...selectedDivisions, div]);
@@ -377,7 +395,7 @@ export const ScheduleModule: React.FC = () => {
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Berdasarkan Peran Spesifik</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                {availableRoles.map(role => (
+                {ALL_ROLES.map(role => (
                   <label key={role} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
                     <input type="checkbox" checked={selectedRoles.includes(role)} onChange={(e) => {
                       if (e.target.checked) setSelectedRoles([...selectedRoles, role]);
@@ -392,12 +410,7 @@ export const ScheduleModule: React.FC = () => {
             <div>
               <p className="text-[10px] font-bold text-slate-500 uppercase mb-1">Centang Nama Spesifik</p>
               <div className="grid grid-cols-2 gap-1.5">
-                {allowedUsers.filter(s => {
-                  if (canCreateArtistic && !canCreateGeneral) {
-                    return ARTISTIK_DIVISIONS.includes(s.divisionName || '') || ARTISTIK_ROLES.includes(s.role);
-                  }
-                  return true;
-                }).map(s => (
+                {allowedUsers.map(s => (
                   <label key={s.uid} className="flex items-center gap-1.5 bg-white px-2 py-1 rounded border border-slate-200 cursor-pointer hover:bg-slate-50">
                     <input type="checkbox" checked={selectedUserIds.includes(s.uid)} onChange={(e) => {
                       if (e.target.checked) setSelectedUserIds([...selectedUserIds, s.uid]);
@@ -437,7 +450,7 @@ export const ScheduleModule: React.FC = () => {
             <p className="text-xs text-slate-500 font-medium">
               {canSeeAllClasses 
                 ? 'Memantau seluruh agenda lintas kelas yang Anda ampu.' 
-                : 'Agenda rapat, gladi, dan acara besar (Bukan jadwal harian divisi).'}
+                : 'Agenda rapat, gladi, dan acara besar untuk kelas Anda.'}
             </p>
           </div>
         </div>
@@ -458,7 +471,7 @@ export const ScheduleModule: React.FC = () => {
         <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-none flex-1">
           {['ALL', 'Rapat', 'Gladi', 'Pementasan', 'Briefing'].map(t => (
             <button key={t} onClick={() => setSelectedType(t)} className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${selectedType === t ? 'bg-slate-900 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200'}`}>
-              {t === 'ALL' ? 'Semua Agenda' : t}
+              {t === 'ALL' ? 'Semua Jenis' : t}
             </button>
           ))}
         </div>
@@ -509,29 +522,36 @@ export const ScheduleModule: React.FC = () => {
              <div className="mt-4 pt-4 border-t border-slate-100">
                <p className="text-xs font-bold mb-2">Agenda: {new Date(selectedDate).toLocaleDateString('id-ID')}</p>
                {filteredSchedules.map(s => {
+                 const isPast = isPastEvent(s.endAt);
                  const myConf = myConfirmation(s.id);
                  const canDelete = s.createdBy === user?.uid || isGuruPengampu || isAdminRole;
+                 
                  return (
-                   <div key={s.id} className={`p-3 mb-2 rounded-xl border-l-4 ${typeColor(s.type)}`}>
+                   <div key={s.id} className={`p-3 mb-2 rounded-xl border-l-4 ${isPast ? 'opacity-60 border-slate-300 bg-slate-50' : typeColor(s.type)}`}>
                      <div className="flex items-center gap-2 mb-1">
                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-white text-slate-600">{(s as any).className || 'Kelas'}</span>
-                       <p className="text-xs font-bold text-slate-900">{s.title}</p>
+                       <p className={`text-xs font-bold ${isPast ? 'text-slate-500 line-through' : 'text-slate-900'}`}>{s.title}</p>
                      </div>
                      <p className="text-[10px] text-slate-500">{new Date(s.startAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - {s.location}</p>
-                     <div className="flex justify-between mt-2 items-center">
-                       <div className="flex gap-1">
-                          {myConf ? <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">{myConf.status}</span> : 
-                           <><button onClick={() => handleConfirm(s, 'HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500 text-white rounded">Saya Akan Datang</button>
-                             <button onClick={() => handleConfirm(s, 'TIDAK_HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-rose-500 text-white rounded">Berhalangan</button></>
-                          }
-                       </div>
-                       {canDelete && (
-                         <div className="flex gap-1">
-                           <button onClick={() => handleShareWA(s)} className="p-1 text-green-600 hover:bg-green-50 rounded"><MessageCircle className="w-3.5 h-3.5"/></button>
-                           <button onClick={() => handleDelete(s)} className="p-1 text-rose-500 hover:bg-rose-50 rounded"><Trash2 className="w-3.5 h-3.5"/></button>
+                     
+                     {/* JIKA BELUM LEWAT, TAMPILKAN TOMBOL */}
+                     {!isPast && (
+                       <div className="flex justify-between mt-2 items-center">
+                         <div className="flex gap-1 items-center">
+                            {myConf ? <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">{myConf.status}</span> : 
+                             <><button onClick={() => handleConfirm(s, 'HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500 text-white rounded">RSVP Hadir</button>
+                               <button onClick={() => handleConfirm(s, 'TIDAK_HADIR')} className="text-[10px] font-bold px-2 py-0.5 bg-rose-500 text-white rounded">Tidak</button></>
+                            }
+                            <button onClick={() => handleShareWA(s)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="Share ke WA"><MessageCircle className="w-3.5 h-3.5"/></button>
                          </div>
-                       )}
-                     </div>
+                         {canDelete && (
+                           <div className="flex items-center gap-1">
+                             <button onClick={() => openEdit(s)} className="p-1 text-blue-500 hover:bg-blue-50 rounded"><Pencil className="w-3.5 h-3.5"/></button>
+                             <button onClick={() => handleDelete(s)} className="p-1 text-rose-500 hover:bg-rose-50 rounded"><Trash2 className="w-3.5 h-3.5"/></button>
+                           </div>
+                         )}
+                       </div>
+                     )}
                    </div>
                  );
                })}
@@ -546,6 +566,7 @@ export const ScheduleModule: React.FC = () => {
             filteredSchedules.map(event => {
               const startObj = new Date(event.startAt);
               const endObj = new Date(event.endAt);
+              const isPast = isPastEvent(event.endAt);
               const myConf = myConfirmation(event.id);
               const canDelete = event.createdBy === user?.uid || isGuruPengampu || isAdminRole;
               const targets = (event as any).targetUserIds || [];
@@ -554,10 +575,10 @@ export const ScheduleModule: React.FC = () => {
               else if (targets.length === 1 && targets[0] === user?.uid) targetLabel = 'Anda Spesifik';
 
               return (
-                <div key={event.id} className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div key={event.id} className={`p-4 rounded-2xl bg-white border shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${isPast ? 'opacity-60 bg-slate-50 border-slate-200' : 'border-slate-200'}`}>
                   <div className="flex items-start gap-3">
-                    <div className="p-2.5 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 text-center shrink-0 min-w-[60px]">
-                      <span className="text-[10px] font-bold uppercase block text-amber-700">{startObj.toLocaleDateString('id-ID', { month: 'short' })}</span>
+                    <div className={`p-2.5 rounded-xl text-center shrink-0 min-w-[60px] border ${isPast ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-amber-50 text-amber-900 border-amber-200'}`}>
+                      <span className="text-[10px] font-bold uppercase block">{startObj.toLocaleDateString('id-ID', { month: 'short' })}</span>
                       <span className="text-lg font-black block leading-none">{startObj.getDate()}</span>
                     </div>
                     <div>
@@ -567,33 +588,46 @@ export const ScheduleModule: React.FC = () => {
                             <Building2 className="w-3 h-3" /> {(event as any).className || 'Kelas'}
                           </span>
                         )}
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 text-blue-700">{event.type}</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">Untuk: {targetLabel}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isPast ? 'bg-slate-200 text-slate-500' : 'bg-blue-100 text-blue-700'}`}>{event.type}</span>
+                        {!isPast && <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-300">Untuk: {targetLabel}</span>}
+                        
                         <span className="text-[10px] text-slate-500 font-mono">{startObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {endObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        
+                        {isPast && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200">SELESAI</span>}
                       </div>
-                      <h3 className="text-sm font-extrabold text-slate-900">{event.title}</h3>
+                      <h3 className={`text-sm font-extrabold ${isPast ? 'text-slate-500' : 'text-slate-900'}`}>{event.title}</h3>
                       <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> {event.location}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 self-end md:self-center shrink-0">
-                    {(!canSeeAllClasses || event.classId === activeClass?.id) && (
-                      myConf ? (
-                        <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'}`}>
-                          {myConf.status === 'HADIR' ? '✅ Hadir' : '❌ Tidak Hadir'}
-                        </span>
-                      ) : (
-                        <>
-                          <button onClick={() => handleConfirm(event, 'HADIR')} className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saya Akan Datang</button>
-                          <button onClick={() => handleConfirm(event, 'TIDAK_HADIR')} className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Berhalangan</button>
-                        </>
-                      )
-                    )}
-                    {canDelete && (
-                      <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200">
-                        <button onClick={() => handleShareWA(event)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg" title="Bagikan ke WA"><MessageCircle className="w-4 h-4" /></button>
-                        <button onClick={() => openEdit(event)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Edit Agenda"><Pencil className="w-4 h-4" /></button>
-                        <button onClick={() => handleDelete(event)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg" title="Hapus Agenda"><Trash2 className="w-4 h-4" /></button>
-                      </div>
+                  
+                  <div className="flex items-center gap-2 self-end md:self-center shrink-0 flex-wrap">
+                    {/* TOMBOL WA SELALU MUNCUL (Untuk share info ke grup) */}
+                    <button onClick={() => handleShareWA(event)} className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-bold text-xs flex items-center gap-1" title="Bagikan ke Grup WhatsApp">
+                      <MessageCircle className="w-3.5 h-3.5" /> Share
+                    </button>
+
+                    {/* JIKA BUKAN JADWAL LEWAT, TAMPILKAN TOMBOL KONFIRMASI & EDIT/HAPUS */}
+                    {!isPast && (
+                      <>
+                        {(!canSeeAllClasses || event.classId === activeClass?.id) && (
+                          myConf ? (
+                            <span className={`text-xs font-bold px-3 py-1.5 rounded-xl border ${myConf.status === 'HADIR' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-rose-50 text-rose-800 border-rose-300'}`}>
+                              {myConf.status === 'HADIR' ? '✅ RSVP Hadir' : '❌ Tidak Hadir'}
+                            </span>
+                          ) : (
+                            <>
+                              <button onClick={() => handleConfirm(event, 'HADIR')} className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1"><Check className="w-3.5 h-3.5" /> RSVP</button>
+                              <button onClick={() => handleConfirm(event, 'TIDAK_HADIR')} className="px-3 py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1"><X className="w-3.5 h-3.5" /> Tidak</button>
+                            </>
+                          )
+                        )}
+                        {canDelete && (
+                          <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200">
+                            <button onClick={() => openEdit(event)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg" title="Edit Agenda"><Pencil className="w-4 h-4" /></button>
+                            <button onClick={() => handleDelete(event)} className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg" title="Hapus Agenda"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -651,7 +685,7 @@ export const ScheduleModule: React.FC = () => {
               {canSeeAllClasses && (
                 <div className="p-2 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-800 flex items-center gap-1.5">
                   <Building2 className="w-4 h-4 shrink-0" />
-                  Agenda ini disimpan untuk kelas: <strong>{activeClass?.name}</strong>
+                  Agenda ini akan disimpan untuk kelas aktif saat ini: <strong>{activeClass?.name}</strong>
                 </div>
               )}
 
