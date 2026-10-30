@@ -37,12 +37,44 @@ function buildWhatsAppUrl(phone: string, text: string): string {
   return clean ? `https://wa.me/${clean}?text=${encodeURIComponent(text)}` : '#';
 }
 
+// ✅ FIX: helper untuk membangun ISO dari field terpisah
+function buildISOFromParts(dateStr: string, timeStr: string): string {
+  if (!dateStr) return '';
+  const t = timeStr || '00:00';
+  try { return new Date(`${dateStr}T${t}:00`).toISOString(); } catch { return ''; }
+}
+
 function isAssessmentOpen(stageDeadlines: any, stageId: ProductionStage) {
   const cfg = stageDeadlines?.[stageId];
   if (!cfg) return { open: false, reason: 'no-config' as const };
-  if (cfg.assessmentEnabled === false) return { open: false, reason: 'disabled' as const };
-  const startMs = cfg.assessmentStart ? new Date(cfg.assessmentStart).getTime() : undefined;
-  const endMs = cfg.assessmentEnd ? new Date(cfg.assessmentEnd).getTime() : undefined;
+
+  // Cek enabled — dukung boolean maupun string 'true'
+  const isEnabled = cfg.assessmentEnabled === true || cfg.assessmentEnabled === 'true';
+  if (!isEnabled) return { open: false, reason: 'disabled' as const };
+
+  // ✅ FIX: field name di AssessmentScheduleModule adalah
+  //    assessmentStartDate + assessmentStartTime
+  //    assessmentEndDate + assessmentEndTime
+  //    bukan assessmentStart / assessmentEnd.
+  let startMs: number | undefined;
+  let endMs: number | undefined;
+
+  if (cfg.assessmentStartDate) {
+    const iso = buildISOFromParts(cfg.assessmentStartDate, cfg.assessmentStartTime || '00:00');
+    if (iso) startMs = new Date(iso).getTime();
+  } else if (cfg.assessmentStart) {
+    const ms = new Date(cfg.assessmentStart).getTime();
+    if (!isNaN(ms)) startMs = ms;
+  }
+
+  if (cfg.assessmentEndDate) {
+    const iso = buildISOFromParts(cfg.assessmentEndDate, cfg.assessmentEndTime || '23:59');
+    if (iso) endMs = new Date(iso).getTime();
+  } else if (cfg.assessmentEnd) {
+    const ms = new Date(cfg.assessmentEnd).getTime();
+    if (!isNaN(ms)) endMs = ms;
+  }
+
   const now = Date.now();
   if (startMs && !isNaN(startMs) && now < startMs) return { open: false, reason: 'not-started' as const, startMs, endMs };
   if (endMs && !isNaN(endMs) && now > endMs) return { open: false, reason: 'ended' as const, startMs, endMs };
@@ -113,7 +145,6 @@ export const MyGradeModule: React.FC = () => {
     if (!activeClass) return;
     const q = query(collection(db, 'users'), where('classId', '==', activeClass.id));
     const unsub = onSnapshot(q, snap => {
-      // Normalize role ketika load classmates
       const users = snap.docs.map(d => {
         const raw = { ...d.data(), uid: d.id };
         return { ...raw, role: normalizeUserRole(raw.role) };
@@ -132,11 +163,9 @@ export const MyGradeModule: React.FC = () => {
       return { total: 0, filled: 0, pending: 0, pct: 100, isComplete: true, targets: [] as any[] };
     }
 
-    // Cari classmate yang MATRIX-NYA mengizinkan user.role menjadi penilai
     const targets = classmates.filter(s => {
       if (s.uid === user.uid) return false;
       if (['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(s.role)) return false;
-      // Cek apakah user boleh menilai s (berdasarkan matrix SISI TARGET)
       return canRoleAssessTarget(s.role, user.role);
     });
 
@@ -179,7 +208,6 @@ export const MyGradeModule: React.FC = () => {
     const avg = (arr: AssessmentRecord[]) =>
       arr.length > 0 ? arr.reduce((s, a) => s + a.totalScore, 0) / arr.length : null;
 
-    // Ambil bobot berdasarkan role user (dinormalisasi)
     const weights = getAssessorWeights(normalizeUserRole(user?.role));
 
     let sum = 0, wSum = 0;
@@ -210,7 +238,6 @@ export const MyGradeModule: React.FC = () => {
   const predikatInfo = getPredikat(finalScore);
   const hasAnyScore = Object.values(stageScores).some(s => s !== null);
 
-  // ✅ Gunakan helper dari constants
   const isActor = isPemeranRole(user?.role);
   const allCriteria = isActor ? PEMERAN_CRITERIA : GENERAL_CRITERIA;
 
