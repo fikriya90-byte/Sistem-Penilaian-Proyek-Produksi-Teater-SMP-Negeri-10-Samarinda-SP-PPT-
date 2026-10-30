@@ -155,12 +155,31 @@ export const AttendanceModule: React.FC = () => {
           });
         });
         await batch.commit();
-      } catch (err) {}
+      } catch (notifErr: any) {
+        // ✅ FIX: sebelumnya catch kosong — sekarang laporkan ke user
+        console.warn('Gagal kirim notifikasi presensi:', notifErr);
+        showToast(
+          'Sesi berhasil dibuat, tapi notifikasi ke siswa gagal terkirim. ' +
+          'Periksa koneksi atau hubungi admin.',
+          'warning'
+        );
+      }
 
       showToast('Sesi presensi berhasil dibuka!', 'success');
       setIsCreatingSession(false);
       setTitle(''); setAgenda('');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    } catch (err: any) {
+      // ✅ FIX: error handling lebih informatif
+      console.error('Gagal buat sesi presensi:', err);
+      const msg = err?.message || String(err);
+      if (msg.includes('Missing or insufficient permissions')) {
+        showToast('Akses ditolak: pastikan Anda pembuat sesi yang sah.', 'error');
+      } else if (msg.toLowerCase().includes('index')) {
+        showToast('Database belum siap (index). Coba lagi dalam 1 menit.', 'error');
+      } else {
+        showToast('Gagal buat sesi: ' + msg, 'error');
+      }
+    }
   };
 
   // EDIT STATUS MANUAL OLEH GURU/PEMBUAT
@@ -186,7 +205,15 @@ export const AttendanceModule: React.FC = () => {
         timestamp: new Date().toISOString(),
       });
       showToast(`Status ${studentName} diubah ke ${newStatus}`, 'success');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
+    } catch (err: any) {
+      console.error('Gagal edit status manual:', err);
+      const msg = err?.message || String(err);
+      if (msg.includes('Missing or insufficient permissions')) {
+        showToast('Akses ditolak. Hubungi guru/admin.', 'error');
+      } else {
+        showToast('Gagal: ' + msg, 'error');
+      }
+    }
   };
 
   const handleCheckin = async () => {
@@ -205,8 +232,17 @@ export const AttendanceModule: React.FC = () => {
         timestamp: new Date().toISOString(),
       });
       showToast(`Kehadiran Anda (${myStatus}) dicatat!`, 'success');
-    } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); } 
-    finally { setIsSubmittingCheckin(false); }
+    } catch (err: any) {
+      console.error('Gagal check-in:', err);
+      const msg = err?.message || String(err);
+      if (msg.includes('Missing or insufficient permissions')) {
+        showToast('Akses ditolak. Periksa apakah sesi masih terbuka.', 'error');
+      } else if (msg.toLowerCase().includes('index')) {
+        showToast('Database belum siap (index). Coba lagi dalam 1 menit.', 'error');
+      } else {
+        showToast('Gagal: ' + msg, 'error');
+      }
+    } finally { setIsSubmittingCheckin(false); }
   };
 
   const handleShareWA = () => {
@@ -362,7 +398,6 @@ export const AttendanceModule: React.FC = () => {
                     <tbody className="divide-y">
                       {targetParticipants.map(st => {
                         const rec = records.find(r => r.studentId === st.uid);
-                        const isManualMode = (activeSession as any).attendanceMode === 'MANUAL';
                         const canEdit = isTeacherOrStaff || activeSession.createdBy === user?.uid;
                         return (
                           <tr key={st.uid}>
