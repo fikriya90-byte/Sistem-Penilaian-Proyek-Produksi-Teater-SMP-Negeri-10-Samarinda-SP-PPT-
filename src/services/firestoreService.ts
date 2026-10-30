@@ -209,4 +209,4 @@ export async function recordAuditLog(log: Omit<AuditLogItem, 'id' | 'timestamp'>
     const newRef = doc(collection(db, 'auditLogs'));
     await setDoc(newRef, sanitizeData({ ...log, id: newRef.id, timestamp: log.timestamp || new Date().toISOString() }));
   } catch (error) {}
-}
+} 
