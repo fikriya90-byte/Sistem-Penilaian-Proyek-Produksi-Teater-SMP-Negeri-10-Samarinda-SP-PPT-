@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Calendar, CheckCircle, Clock, Lock, MapPin, PlusCircle, UserCheck,
-  Users, XCircle, X, Save, Info, ShieldAlert, BookOpen, Filter, MessageCircle, Edit3
+  Users, XCircle, X, Save, Info, ShieldAlert, BookOpen, Filter, MessageCircle, Edit3,
+  AlertTriangle, CheckSquare, Square
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
 import {
@@ -29,6 +30,7 @@ export const AttendanceModule: React.FC = () => {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [classStudents, setClassStudents] = useState<UserProfile[]>([]);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [isSubmittingSession, setIsSubmittingSession] = useState(false); // ✅ Cegah double-click
 
   // Form State
   const [title, setTitle] = useState('');
@@ -51,14 +53,16 @@ export const AttendanceModule: React.FC = () => {
   useEffect(() => {
     if (!activeClass) return;
     const unsub = subscribeAttendanceSessions(activeClass.id, (sess) => {
-      setSessions(sess);
-      if (sess.length > 0 && !activeSessionId) setActiveSessionId(sess[0].id);
+      // ✅ Cegah duplikat di tampilan UI dengan filter ID unik
+      const uniqueSessions = Array.from(new Map(sess.map(s => [s.id, s])).values());
+      setSessions(uniqueSessions);
+      if (uniqueSessions.length > 0 && !activeSessionId) setActiveSessionId(uniqueSessions[0].id);
     });
     fetchUsersByClass(activeClass.id).then(u => setClassStudents(u));
     return () => unsub();
   }, [activeClass]);
 
-  // AUTO-CLOSE OTOMATIS (Diperbaiki dengan zona waktu lokal)
+  // AUTO-CLOSE OTOMATIS
   useEffect(() => {
     if (!sessions.length) return;
     const checkExpiredSessions = () => {
@@ -66,17 +70,14 @@ export const AttendanceModule: React.FC = () => {
       sessions.forEach(session => {
         if (session.isOpen) {
           const [eh, em] = session.endTime.split(':').map(Number);
-          // Menggunakan new Date(`${date}T${time}`) agar terbaca sebagai waktu LOKAL (WITA)
           const endDateTime = new Date(`${session.date}T${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}:00`);
-          
           if (now.getTime() > endDateTime.getTime()) {
-            console.log(`Auto-closing session ${session.id} because time is over.`);
             closeAttendanceSession(session.id).catch(() => {});
           }
         }
       });
     };
-    const timer = setInterval(checkExpiredSessions, 60000); // Cek tiap 1 menit
+    const timer = setInterval(checkExpiredSessions, 60000);
     checkExpiredSessions();
     return () => clearInterval(timer);
   }, [sessions]);
@@ -90,6 +91,7 @@ export const AttendanceModule: React.FC = () => {
   }, [activeSessionId]);
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
+  const myRecord = records.find(r => r.studentId === user?.uid);
 
   const openCreateForm = () => {
     if (isSutradara || isAsisten) setTargetScope('PEMAIN_MUSIK');
@@ -105,6 +107,21 @@ export const AttendanceModule: React.FC = () => {
     if (!title.trim() || !startTime || !endTime) { showToast('Lengkapi judul dan jam!', 'warning'); return; }
     if (startTime >= endTime) { showToast('Jam Selesai harus lebih lambat.', 'warning'); return; }
 
+    // ✅ Cek apakah ada siswa yang masuk target
+    const recipients = classStudents.filter(s => {
+      if (s.role === 'Guru Pengampu' || s.role === 'Admin' || s.role === 'Super Admin') return false;
+      if (targetScope === 'SEMUA') return true;
+      if (targetScope === 'PEMAIN_MUSIK') return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara' || s.role === 'Sutradara' || s.role === 'Asisten Sutradara';
+      if (targetScope === 'DIVISI') return s.divisionId === user.divisionId;
+      return false;
+    });
+
+    if (recipients.length === 0) {
+      showToast('Target peserta kosong. Tidak ada siswa yang sesuai dengan target.', 'warning');
+      return;
+    }
+
+    setIsSubmittingSession(true); // Kunci tombol
     try {
       const newId = await createAttendanceSession({
         title: title.trim(),
@@ -119,9 +136,8 @@ export const AttendanceModule: React.FC = () => {
         creatorName: user.displayName,
         agenda: agenda.trim(),
         isOpen: true,
-        // @ts-ignore
         attendanceMode: attendanceMode
-      });
+      } as any);
 
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
@@ -129,16 +145,7 @@ export const AttendanceModule: React.FC = () => {
         details: `Membuat sesi absensi: ${title} (${attendanceMode})`,
       });
 
-      // NOTIFIKASI (dipindah ke try-catch terpisah agar sesi tetap dibuat jika notif gagal)
       try {
-        const recipients = classStudents.filter(s => {
-          if (s.role === 'Guru Pengampu' || s.role === 'Admin' || s.role === 'Super Admin') return false;
-          if (targetScope === 'SEMUA') return true;
-          if (targetScope === 'PEMAIN_MUSIK') return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara';
-          if (targetScope === 'DIVISI') return s.divisionId === user.divisionId;
-          return false;
-        });
-
         const batch = writeBatch(db);
         recipients.forEach(r => {
           const notifRef = doc(collection(db, 'notifications'));
@@ -159,6 +166,8 @@ export const AttendanceModule: React.FC = () => {
       setTitle(''); setAgenda('');
     } catch (err: any) {
       showToast(err.message || 'Gagal membuat sesi presensi', 'error');
+    } finally {
+      setIsSubmittingSession(false);
     }
   };
 
@@ -167,15 +176,10 @@ export const AttendanceModule: React.FC = () => {
     setIsSubmittingCheckin(true);
     try {
       await submitAttendanceRecord({
-        sessionId: activeSession.id,
-        classId: activeClass.id,
-        studentId: user.uid,
-        studentName: user.displayName,
-        role: user.role,
-        divisionName: user.divisionName,
-        status: myStatus,
-        note: myNote.trim(),
-        timestamp: new Date().toISOString(),
+        sessionId: activeSession.id, classId: activeClass.id,
+        studentId: user.uid, studentName: user.displayName,
+        role: user.role, divisionName: user.divisionName,
+        status: myStatus, note: myNote.trim(), timestamp: new Date().toISOString(),
       });
       showToast(`Kehadiran Anda (${myStatus}) berhasil dicatat!`, 'success');
     } catch (err: any) {
@@ -186,17 +190,13 @@ export const AttendanceModule: React.FC = () => {
   const handleEditStatusManual = async (studentId: string, studentName: string, newStatus: AttendanceStatus) => {
     if (!user || !activeSession || !activeClass) return;
     const isCreator = activeSession.createdBy === user.uid;
-    if (!isTeacherOrStaff && !isCreator) {
-      showToast('Hanya pembuat sesi atau guru yang bisa mengedit manual.', 'warning');
-      return;
-    }
+    if (!isTeacherOrStaff && !isCreator) return showToast('Hanya pembuat sesi/guru yang bisa mengedit.', 'warning');
+    
     try {
       await submitAttendanceRecord({
         sessionId: activeSession.id, classId: activeClass.id,
-        studentId, studentName,
-        role: classStudents.find(s => s.uid === studentId)?.role || 'Pemeran',
-        status: newStatus, note: `Diedit oleh ${user.displayName}`,
-        timestamp: new Date().toISOString(),
+        studentId, studentName, role: classStudents.find(s => s.uid === studentId)?.role || 'Pemeran',
+        status: newStatus, note: `Diedit oleh ${user.displayName}`, timestamp: new Date().toISOString(),
       });
       showToast(`Status ${studentName} diubah ke ${newStatus}`, 'success');
     } catch (err: any) {
@@ -220,6 +220,7 @@ export const AttendanceModule: React.FC = () => {
   });
 
   const isForMe = (s: AttendanceSession) => s.targetScope === 'SEMUA' || (s.targetScope === 'PEMAIN_MUSIK' && (user?.role === 'Pemeran' || user?.divisionName === 'Tata Musik & Suara')) || (s.targetScope === 'DIVISI' && user?.divisionId === s.targetDivisionId);
+  
   const filteredSessions = sessions.filter(s => {
     if (filterTab === 'MY_TASKS') return isForMe(s);
     if (filterTab === 'PEMAIN') return s.targetScope === 'PEMAIN_MUSIK';
@@ -230,12 +231,11 @@ export const AttendanceModule: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* HEADER & FORM SAMA SEPERTI SEBELUMNYA */}
       <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3">
         <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
         <div className="text-xs text-rose-900 leading-relaxed">
           <p className="font-bold text-sm mb-1">Perhatian: Presensi Masuk Akumulasi Nilai!</p>
-          <p>Kehadiran Anda di sesi ini sangat mempengaruhi nilai rapor (Kedisiplinan & Kehadiran). Siswa yang tidak mengisi tanpa keterangan akan dianggap Alpa.</p>
+          <p>Kehadiran Anda di sesi ini sangat mempengaruhi nilai rapor (Kedisiplinan & Kehadiran).</p>
         </div>
       </div>
 
@@ -291,7 +291,9 @@ export const AttendanceModule: React.FC = () => {
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={() => setIsCreatingSession(false)} className="px-4 py-2 text-xs font-bold">Batal</button>
-            <button type="submit" className="px-5 py-2 rounded-xl bg-amber-500 font-bold text-xs"><Save className="w-3.5 h-3.5 inline" /> Buka Sesi</button>
+            <button type="submit" disabled={isSubmittingSession} className="px-5 py-2 rounded-xl bg-amber-500 font-bold text-xs disabled:opacity-50 flex items-center gap-1.5">
+              {isSubmittingSession ? 'Menyimpan...' : <><Save className="w-3.5 h-3.5" /> Buka Sesi</>}
+            </button>
           </div>
         </form>
       )}
@@ -328,7 +330,8 @@ export const AttendanceModule: React.FC = () => {
                 </div>
               </div>
 
-              {activeSession.isOpen && !isTeacherOrStaff && (activeSession as any).attendanceMode !== 'MANUAL' && (
+              {/* ✅ PERBAIKAN: Form absen mandiri TETAP MUNCUL jika belum ada record, meskipun mode manual (agar siswa tidak bingung) */}
+              {activeSession.isOpen && !myRecord && (
                 <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200">
                   <p className="text-xs font-bold mb-2">Formulir Kehadiran Mandiri</p>
                   <div className="grid grid-cols-4 gap-2">
@@ -337,7 +340,16 @@ export const AttendanceModule: React.FC = () => {
                     ))}
                   </div>
                   {myStatus !== 'Hadir' && <input type="text" placeholder="Alasan..." value={myNote} onChange={e=>setMyNote(e.target.value)} className="w-full mt-2 px-3 py-1.5 rounded-lg border text-xs" />}
-                  <button onClick={handleCheckin} disabled={isSubmittingCheckin} className="mt-3 w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs">Kirim Kehadiran Saya</button>
+                  <button onClick={handleCheckin} disabled={isSubmittingCheckin} className="mt-3 w-full py-2 bg-slate-900 text-white rounded-xl font-bold text-xs">
+                    {isSubmittingCheckin ? 'Menyimpan...' : 'Kirim Kehadiran Saya'}
+                  </button>
+                </div>
+              )}
+
+              {myRecord && (
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                  <p className="text-xs text-emerald-900 font-bold">Anda sudah absen: {myRecord.status}</p>
                 </div>
               )}
 
