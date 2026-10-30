@@ -22,6 +22,7 @@ import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 import { exportMultiSheetXLSX } from '../../utils/exportXLSX';
 
+// ✅ FIX: Definisikan tipe dengan aman
 type AssessorCategory = 'GURU' | 'ATASAN' | 'REKAN' | 'BAWAHAN';
 
 const CATEGORY_LABEL: Record<AssessorCategory, string> = {
@@ -149,7 +150,7 @@ export const MyGradeModule: React.FC = () => {
   }, [activeClass]);
 
   // ============================================================
-  // PEER GATE LOGIC (Cek berdasarkan matriks target)
+  // PEER GATE LOGIC
   // ============================================================
   const peerStatus = (() => {
     if (!user || classmates.length === 0) {
@@ -493,4 +494,79 @@ export const MyGradeModule: React.FC = () => {
               <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
               <Bar dataKey="Nilai" radius={[6, 6, 0, 0]}>
                 {barData.map((entry, i) => (
-                  <Cell key={i} fill={entry.Nilai >= 90 ? '#F59E0B' : entry.Nilai >= 80 ? '#3B82F6' : entry.Nilai >= 70 ? '#10B981'
+                  <Cell key={i} fill={entry.Nilai >= 90 ? '#F59E0B' : entry.Nilai >= 80 ? '#3B82F6' : entry.Nilai >= 70 ? '#10B981' : entry.Nilai >= 60 ? '#F97316' : '#EF4444'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2"><CheckCircle className="w-4 h-4 text-emerald-600" /> Rincian Per Kriteria</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {allCriteria.map(c => {
+            const isAuto = c.source !== 'MANUAL';
+            const arr = criteriaScores[c.key] || [];
+            const avg = arr.length > 0 ? arr.reduce((s, x) => s + x, 0) / arr.length : 0;
+            const colorClass = avg >= 3.5 ? 'border-emerald-300 bg-emerald-50 dark:bg-emerald-500/10' : avg >= 2.5 ? 'border-blue-300 bg-blue-50 dark:bg-blue-500/10' : avg >= 1.5 ? 'border-amber-300 bg-amber-50 dark:bg-amber-500/10' : avg > 0 ? 'border-rose-300 bg-rose-50 dark:bg-rose-500/10' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800';
+            return (
+              <div key={c.key} className={`p-3 rounded-2xl border ${colorClass}`}>
+                <div className="flex items-start justify-between mb-1 gap-2">
+                  <span className="text-xs font-bold text-slate-800 dark:text-white">{c.label}</span>
+                  <span className="text-[10px] font-bold text-slate-500 shrink-0">{c.weight}%</span>
+                </div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  {isAuto ? (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 flex items-center gap-0.5"><Bot className="w-2.5 h-2.5" /> OTOMATIS</span>
+                  ) : (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300">MANUAL</span>
+                  )}
+                </div>
+                <div className="flex items-end justify-between mt-2">
+                  <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">{avg > 0 ? avg.toFixed(1) : '-'}</span>
+                  <span className="text-[10px] text-slate-500">{avg > 0 ? `≈ ${SCORE_SCALE[Math.round(avg)]?.score100}` : 'Belum dinilai'}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mb-3 flex items-center gap-2"><MessageSquare className="w-4 h-4 text-purple-600" /> Komentar dari Penilai ({comments.length})</h3>
+        {comments.length === 0 ? (
+          <p className="text-xs text-slate-400 italic text-center py-6">Belum ada komentar.</p>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {comments.map(c => {
+              const cat = ((c as any).assessorCategory as AssessorCategory) || 'REKAN';
+              const shouldAnonymize = cat === 'BAWAHAN' || cat === 'REKAN';
+              return (
+                <div key={c.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                  <div className="flex items-center justify-between text-[11px] mb-1 flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-bold px-2 py-0.5 rounded-md border ${getCategoryBadgeClass(cat)}`}>{CATEGORY_LABEL[cat]}</span>
+                      {shouldAnonymize ? (
+                        <span className="text-[10px] text-slate-500 flex items-center gap-1"><EyeOff className="w-3 h-3" /> Anonim</span>
+                      ) : (
+                        <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300">{c.assessorName}</span>
+                      )}
+                    </div>
+                    <span className="text-slate-400 text-[10px]">{new Date(c.createdAt || 0).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed italic">"{c.comment}"</p>
+                  <p className="text-[10px] text-slate-400 mt-1">Tahap: {c.stage} • Nilai: {c.totalScore}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="hidden print:block text-center text-[10px] text-slate-500 pt-4 border-t">
+        SP-PPT — SMP Negeri 10 Samarinda • T.A. 2025/2026 • Dicetak: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+      </div>
+    </div>
+  );
+};
