@@ -5,7 +5,6 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore: uses named database if specified, otherwise uses (default) database
 export const db = (firebaseConfig as any).firestoreDatabaseId
   ? getFirestore(app, (firebaseConfig as any).firestoreDatabaseId)
   : getFirestore(app);
@@ -54,11 +53,26 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path,
   };
+  
   console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+
+  // ✅ PERBAIKAN: Lempar pesan yang mudah dibaca ke Toast UI, 
+  // jangan lempar JSON panjang.
+  const originalMsg = (error instanceof Error ? error.message : String(error));
+  
+  if (originalMsg.includes('Missing or insufficient permissions')) {
+    throw new Error('Akses ditolak oleh aturan keamanan (Rules). Hubungi Admin.');
+  }
+  if (originalMsg.includes('requires an index')) {
+    throw new Error('Database belum siap (index belum dibangun). Tunggu 1-2 menit lalu coba lagi.');
+  }
+  if (originalMsg.includes('Unsupported field value: undefined')) {
+    throw new Error('Data tidak lengkap (ada form yang kosong). Mohon periksa kembali.');
+  }
+
+  throw new Error(originalMsg || 'Terjadi kesalahan sistem.');
 }
 
-// Test initial connection to Firestore
 async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
