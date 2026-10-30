@@ -37,7 +37,10 @@ export function computeTaskResponsibility(
 ): TaskResponsibilityResult {
   // Filter tugas untuk siswa ini & tahap ini
   const myTasks = tasks.filter(t => {
-    if ((t as any).stageId && (t as any).stageId !== stage) return false;
+    // ✅ FIX: Task schema pakai field `stage` (bukan `stageId`)
+    //    Cek keduanya untuk kompatibilitas data lama & baru
+    const tStage = (t as any).stage ?? (t as any).stageId;
+    if (tStage && tStage !== stage) return false;
     return (
       t.assigneeId === student.uid ||
       (t as any).targetRole === student.role ||
@@ -145,8 +148,9 @@ export function computeAttendanceScore(
 ): AttendanceResult {
   // Filter sesi di tahap ini
   const stageSessions = sessions.filter(s => {
-    // Sesuaikan dengan field stage jika ada
-    if ((s as any).stageId && (s as any).stageId !== stage) return false;
+    // ✅ FIX: AttendanceSession schema pakai field `stage` (bukan `stageId`)
+    const sStage = (s as any).stage ?? (s as any).stageId;
+    if (sStage && sStage !== stage) return false;
     return true;
   });
 
