@@ -10,9 +10,11 @@ import {
 import {
   closeAttendanceSession, createAttendanceSession, fetchUsersByClass,
   recordAuditLog, submitAttendanceRecord, subscribeAttendanceRecords,
-  subscribeAttendanceSessions, notifyTeachers,
+  subscribeAttendanceSessions,
 } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
+import { collection, doc, writeBatch } from 'firebase/firestore';
+import { db } from '../../core/firebase';
 
 export const AttendanceModule: React.FC = () => {
   const {
@@ -36,8 +38,6 @@ export const AttendanceModule: React.FC = () => {
   const [endTime, setEndTime] = useState('16:00');
   const [location, setLocation] = useState('Panggung Terbuka SMPN 10');
   const [agenda, setAgenda] = useState('');
-  
-  // State Cakupan & Mode
   const [targetScope, setTargetScope] = useState<'SEMUA' | 'PEMAIN_MUSIK' | 'DIVISI'>('SEMUA');
   const [attendanceMode, setAttendanceMode] = useState<'MANDIRI' | 'MANUAL'>('MANDIRI');
 
@@ -58,7 +58,7 @@ export const AttendanceModule: React.FC = () => {
     return () => unsub();
   }, [activeClass]);
 
-  // AUTO-CLOSE OTOMATIS
+  // AUTO-CLOSE OTOMATIS (Diperbaiki dengan zona waktu lokal)
   useEffect(() => {
     if (!sessions.length) return;
     const checkExpiredSessions = () => {
@@ -66,13 +66,17 @@ export const AttendanceModule: React.FC = () => {
       sessions.forEach(session => {
         if (session.isOpen) {
           const [eh, em] = session.endTime.split(':').map(Number);
-          const endDateTime = new Date(session.date);
-          endDateTime.setHours(eh || 0, em || 0, 0, 0);
-          if (now > endDateTime) closeAttendanceSession(session.id).catch(() => {});
+          // Menggunakan new Date(`${date}T${time}`) agar terbaca sebagai waktu LOKAL (WITA)
+          const endDateTime = new Date(`${session.date}T${String(eh).padStart(2,'0')}:${String(em).padStart(2,'0')}:00`);
+          
+          if (now.getTime() > endDateTime.getTime()) {
+            console.log(`Auto-closing session ${session.id} because time is over.`);
+            closeAttendanceSession(session.id).catch(() => {});
+          }
         }
       });
     };
-    const timer = setInterval(checkExpiredSessions, 30000);
+    const timer = setInterval(checkExpiredSessions, 60000); // Cek tiap 1 menit
     checkExpiredSessions();
     return () => clearInterval(timer);
   }, [sessions]);
@@ -91,7 +95,6 @@ export const AttendanceModule: React.FC = () => {
     if (isSutradara || isAsisten) setTargetScope('PEMAIN_MUSIK');
     else if (isKoordinator && user?.divisionName) setTargetScope('DIVISI');
     else setTargetScope('SEMUA');
-    
     setAttendanceMode('MANDIRI');
     setIsCreatingSession(true);
   };
@@ -99,7 +102,6 @@ export const AttendanceModule: React.FC = () => {
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !activeClass) return;
-
     if (!title.trim() || !startTime || !endTime) { showToast('Lengkapi judul dan jam!', 'warning'); return; }
     if (startTime >= endTime) { showToast('Jam Selesai harus lebih lambat.', 'warning'); return; }
 
@@ -107,20 +109,17 @@ export const AttendanceModule: React.FC = () => {
       const newId = await createAttendanceSession({
         title: title.trim(),
         classId: activeClass.id,
-        activityType,
-        date,
-        startTime,
-        endTime,
+        activityType, date, startTime, endTime,
         location: location.trim(),
         targetScope: targetScope,
-        targetDivisionId: targetScope === 'DIVISI' ? user.divisionId : undefined,
-        targetDivisionName: targetScope === 'DIVISI' ? user.divisionName : undefined,
+        targetDivisionId: targetScope === 'DIVISI' ? user.divisionId : '',
+        targetDivisionName: targetScope === 'DIVISI' ? user.divisionName : '',
         createdBy: user.uid,
         creatorRole: user.role,
         creatorName: user.displayName,
         agenda: agenda.trim(),
         isOpen: true,
-        // @ts-ignore - Menyimpan mode presensi
+        // @ts-ignore
         attendanceMode: attendanceMode
       });
 
@@ -130,89 +129,36 @@ export const AttendanceModule: React.FC = () => {
         details: `Membuat sesi absensi: ${title} (${attendanceMode})`,
       });
 
-      // NOTIFIKASI
+      // NOTIFIKASI (dipindah ke try-catch terpisah agar sesi tetap dibuat jika notif gagal)
       try {
         const recipients = classStudents.filter(s => {
           if (s.role === 'Guru Pengampu' || s.role === 'Admin' || s.role === 'Super Admin') return false;
           if (targetScope === 'SEMUA') return true;
-          if (targetScope === 'PEMAIN_MUSIK') return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara' || s.role === 'Sutradara' || s.role === 'Asisten Sutradara';
+          if (targetScope === 'PEMAIN_MUSIK') return s.role === 'Pemeran' || s.divisionName === 'Tata Musik & Suara';
           if (targetScope === 'DIVISI') return s.divisionId === user.divisionId;
           return false;
         });
 
-        const { writeBatch } = await import('firebase/firestore');
-        const { doc, collection } = await import('firebase/firestore');
-        const { db } = await import('../../core/firebase');
         const batch = writeBatch(db);
-        
         recipients.forEach(r => {
           const notifRef = doc(collection(db, 'notifications'));
           batch.set(notifRef, {
             id: notifRef.id, userId: r.uid, classId: activeClass.id,
             title: 'Sesi Presensi Dibuka',
-            message: `${user.displayName} membuka presensi: "${title.trim()}". Batas waktu: ${endTime}.`,
+            message: `${user.displayName} membuka presensi: "${title.trim()}". Batas: ${endTime}.`,
             category: 'Reminder', read: false, link: 'absensi', createdAt: new Date().toISOString(),
           });
         });
         await batch.commit();
-      } catch (notifErr: any) {
-        // ✅ FIX: sebelumnya catch kosong — sekarang laporkan ke user
-        console.warn('Gagal kirim notifikasi presensi:', notifErr);
-        showToast(
-          'Sesi berhasil dibuat, tapi notifikasi ke siswa gagal terkirim. ' +
-          'Periksa koneksi atau hubungi admin.',
-          'warning'
-        );
+      } catch (notifErr) {
+        console.warn('Gagal kirim notifikasi:', notifErr);
       }
 
       showToast('Sesi presensi berhasil dibuka!', 'success');
       setIsCreatingSession(false);
       setTitle(''); setAgenda('');
     } catch (err: any) {
-      // ✅ FIX: error handling lebih informatif
-      console.error('Gagal buat sesi presensi:', err);
-      const msg = err?.message || String(err);
-      if (msg.includes('Missing or insufficient permissions')) {
-        showToast('Akses ditolak: pastikan Anda pembuat sesi yang sah.', 'error');
-      } else if (msg.toLowerCase().includes('index')) {
-        showToast('Database belum siap (index). Coba lagi dalam 1 menit.', 'error');
-      } else {
-        showToast('Gagal buat sesi: ' + msg, 'error');
-      }
-    }
-  };
-
-  // EDIT STATUS MANUAL OLEH GURU/PEMBUAT
-  const handleEditStatusManual = async (studentId: string, studentName: string, newStatus: AttendanceStatus) => {
-    if (!user || !activeSession || !activeClass) return;
-    
-    // Cek Hak Akses
-    const isCreator = activeSession.createdBy === user.uid;
-    if (!isTeacherOrStaff && !isCreator) {
-      showToast('Hanya pembuat sesi atau guru yang bisa mengedit manual.', 'warning');
-      return;
-    }
-
-    try {
-      await submitAttendanceRecord({
-        sessionId: activeSession.id,
-        classId: activeClass.id,
-        studentId,
-        studentName,
-        role: classStudents.find(s => s.uid === studentId)?.role || 'Pemeran',
-        status: newStatus,
-        note: `Diedit manual oleh ${user.displayName}`,
-        timestamp: new Date().toISOString(),
-      });
-      showToast(`Status ${studentName} diubah ke ${newStatus}`, 'success');
-    } catch (err: any) {
-      console.error('Gagal edit status manual:', err);
-      const msg = err?.message || String(err);
-      if (msg.includes('Missing or insufficient permissions')) {
-        showToast('Akses ditolak. Hubungi guru/admin.', 'error');
-      } else {
-        showToast('Gagal: ' + msg, 'error');
-      }
+      showToast(err.message || 'Gagal membuat sesi presensi', 'error');
     }
   };
 
@@ -231,18 +177,31 @@ export const AttendanceModule: React.FC = () => {
         note: myNote.trim(),
         timestamp: new Date().toISOString(),
       });
-      showToast(`Kehadiran Anda (${myStatus}) dicatat!`, 'success');
+      showToast(`Kehadiran Anda (${myStatus}) berhasil dicatat!`, 'success');
     } catch (err: any) {
-      console.error('Gagal check-in:', err);
-      const msg = err?.message || String(err);
-      if (msg.includes('Missing or insufficient permissions')) {
-        showToast('Akses ditolak. Periksa apakah sesi masih terbuka.', 'error');
-      } else if (msg.toLowerCase().includes('index')) {
-        showToast('Database belum siap (index). Coba lagi dalam 1 menit.', 'error');
-      } else {
-        showToast('Gagal: ' + msg, 'error');
-      }
+      showToast(err.message || 'Gagal mencatat kehadiran', 'error');
     } finally { setIsSubmittingCheckin(false); }
+  };
+
+  const handleEditStatusManual = async (studentId: string, studentName: string, newStatus: AttendanceStatus) => {
+    if (!user || !activeSession || !activeClass) return;
+    const isCreator = activeSession.createdBy === user.uid;
+    if (!isTeacherOrStaff && !isCreator) {
+      showToast('Hanya pembuat sesi atau guru yang bisa mengedit manual.', 'warning');
+      return;
+    }
+    try {
+      await submitAttendanceRecord({
+        sessionId: activeSession.id, classId: activeClass.id,
+        studentId, studentName,
+        role: classStudents.find(s => s.uid === studentId)?.role || 'Pemeran',
+        status: newStatus, note: `Diedit oleh ${user.displayName}`,
+        timestamp: new Date().toISOString(),
+      });
+      showToast(`Status ${studentName} diubah ke ${newStatus}`, 'success');
+    } catch (err: any) {
+      showToast(err.message || 'Gagal edit status', 'error');
+    }
   };
 
   const handleShareWA = () => {
@@ -260,9 +219,7 @@ export const AttendanceModule: React.FC = () => {
     return true;
   });
 
-  const myRecord = records.find(r => r.studentId === user?.uid);
   const isForMe = (s: AttendanceSession) => s.targetScope === 'SEMUA' || (s.targetScope === 'PEMAIN_MUSIK' && (user?.role === 'Pemeran' || user?.divisionName === 'Tata Musik & Suara')) || (s.targetScope === 'DIVISI' && user?.divisionId === s.targetDivisionId);
-  
   const filteredSessions = sessions.filter(s => {
     if (filterTab === 'MY_TASKS') return isForMe(s);
     if (filterTab === 'PEMAIN') return s.targetScope === 'PEMAIN_MUSIK';
@@ -271,14 +228,9 @@ export const AttendanceModule: React.FC = () => {
     return true;
   });
 
-  const renderScopeBadge = (s: AttendanceSession) => {
-    if (s.targetScope === 'PEMAIN_MUSIK') return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300 flex items-center gap-1"><Users className="w-3 h-3" /> PEMAIN & MUSIK</span>;
-    if (s.targetScope === 'DIVISI') return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-orange-100 text-orange-800 border border-orange-300 flex items-center gap-1"><ShieldAlert className="w-3 h-3" /> DIVISI {s.targetDivisionName?.toUpperCase()}</span>;
-    return <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300 flex items-center gap-1"><CheckCircle className="w-3 h-3" /> SEMUA SISWA</span>;
-  };
-
   return (
     <div className="space-y-6">
+      {/* HEADER & FORM SAMA SEPERTI SEBELUMNYA */}
       <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3">
         <ShieldAlert className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
         <div className="text-xs text-rose-900 leading-relaxed">
@@ -349,14 +301,13 @@ export const AttendanceModule: React.FC = () => {
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             <button onClick={()=>setFilterTab('ALL')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filterTab==='ALL'?'bg-slate-900 text-white':'bg-white border'}`}>Semua</button>
             <button onClick={()=>setFilterTab('MY_TASKS')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filterTab==='MY_TASKS'?'bg-amber-500 text-slate-950':'bg-white border'}`}>Untuk Saya</button>
-            <button onClick={()=>setFilterTab('PEMAIN')} className={`px-3 py-1.5 rounded-lg text-xs font-bold ${filterTab==='PEMAIN'?'bg-purple-600 text-white':'bg-white border'}`}>Pemain</button>
           </div>
           {filteredSessions.map(s => (
             <div key={s.id} onClick={() => setActiveSessionId(s.id)} className={`p-4 rounded-2xl border cursor-pointer ${s.id===activeSessionId?'bg-amber-50 border-amber-400':'bg-white'}`}>
-              <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold bg-blue-100 px-2 py-0.5 rounded uppercase">{s.activityType}</span>{renderScopeBadge(s)}</div>
+              <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold bg-blue-100 px-2 py-0.5 rounded uppercase">{s.activityType}</span></div>
               <p className="text-xs font-bold mt-2">{s.title}</p>
               <p className="text-[10px] text-slate-500">{s.date} • {s.startTime}-{s.endTime}</p>
-              {(s as any).attendanceMode === 'MANUAL' && <span className="text-[9px] font-bold text-rose-600 mt-1 block">* Mode Manual</span>}
+              {s.isOpen ? <span className="text-[9px] font-bold text-emerald-600 mt-1 block">● Sesi Dibuka</span> : <span className="text-[9px] font-bold text-slate-400 mt-1 block">○ Sesi Ditutup</span>}
             </div>
           ))}
         </div>
