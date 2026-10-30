@@ -32,6 +32,22 @@ import {
 import { normalizeUserRole } from '../core/constants';
 
 // ==========================================
+// HELPER: BERSIHKAN FIELD UNDEFINED
+// Firestore menolak nilai `undefined`. Fungsi ini
+// membuang semua key yang bernilai undefined sebelum
+// data dikirim ke database.
+// ==========================================
+function sanitizeData<T extends Record<string, any>>(data: T): T {
+  const cleaned: any = {};
+  for (const key in data) {
+    if (Object.prototype.hasOwnProperty.call(data, key) && data[key] !== undefined) {
+      cleaned[key] = data[key];
+    }
+  }
+  return cleaned as T;
+}
+
+// ==========================================
 // ROLE → DIVISI MAPPING (auto-fill)
 // ==========================================
 const ROLE_DIV_MAP: Record<string, { id: string; name: any }> = {
@@ -124,7 +140,6 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
     });
   } catch (err) {
     // Silent: banyak index firestore belum punya field classIds
-    // console.warn('fetchUsersByClass FALLBACK 2 gagal:', err);
   }
 
   // 4. Fallback: query by className
@@ -182,7 +197,7 @@ export async function fetchUserProfile(uid: string): Promise<UserProfile | null>
 export async function updateUserProfile(uid: string, data: Partial<UserProfile>): Promise<void> {
   const path = `users/${uid}`;
   try {
-    await updateDoc(doc(db, 'users', uid), { ...data, updatedAt: new Date().toISOString() });
+    await updateDoc(doc(db, 'users', uid), sanitizeData({ ...data, updatedAt: new Date().toISOString() }));
   } catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
@@ -243,14 +258,15 @@ export async function createTask(task: Omit<TaskItem, 'id'>): Promise<string> {
   const path = 'tasks';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...task, id: newRef.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    const payload = sanitizeData({ ...task, id: newRef.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await setDoc(newRef, payload);
     return newRef.id;
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
 export async function updateTask(taskId: string, data: Partial<TaskItem>): Promise<void> {
   const path = `tasks/${taskId}`;
-  try { await updateDoc(doc(db, 'tasks', taskId), { ...data, updatedAt: new Date().toISOString() }); }
+  try { await updateDoc(doc(db, 'tasks', taskId), sanitizeData({ ...data, updatedAt: new Date().toISOString() })); }
   catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
@@ -321,7 +337,7 @@ export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): 
     if (existing.exists()) {
       const oldData = existing.data();
       const histRef = doc(collection(db, 'assessmentHistory'));
-      await setDoc(histRef, { ...oldData, id: histRef.id, originalId: customId, supersededAt: new Date().toISOString(), supersededBy: assessment.assessorId });
+      await setDoc(histRef, sanitizeData({ ...oldData, id: histRef.id, originalId: customId, supersededAt: new Date().toISOString(), supersededBy: assessment.assessorId }));
     }
     const version = existing.exists() ? ((existing.data()?.version || 1) + 1) : 1;
     const fullRecord: AssessmentRecord = {
@@ -329,7 +345,7 @@ export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): 
       updatedAt: new Date().toISOString(),
       createdAt: existing.exists() ? existing.data()?.createdAt : new Date().toISOString(),
     };
-    await setDoc(targetRef, fullRecord);
+    await setDoc(targetRef, sanitizeData(fullRecord));
     return customId;
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
@@ -362,7 +378,12 @@ export async function createAttendanceSession(session: Omit<AttendanceSession, '
   const path = 'attendanceSessions';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...session, id: newRef.id, createdAt: new Date().toISOString() });
+    const payload = sanitizeData({
+      ...session,
+      id: newRef.id,
+      createdAt: new Date().toISOString(),
+    });
+    await setDoc(newRef, payload);
     return newRef.id;
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
@@ -389,7 +410,12 @@ export async function submitAttendanceRecord(record: Omit<AttendanceRecord, 'id'
   const path = 'attendanceRecords';
   try {
     const recId = `${record.sessionId}_${record.studentId}`;
-    await setDoc(doc(db, path, recId), { ...record, id: recId, timestamp: new Date().toISOString() });
+    const payload = sanitizeData({
+      ...record,
+      id: recId,
+      timestamp: new Date().toISOString(),
+    });
+    await setDoc(doc(db, path, recId), payload);
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
@@ -406,7 +432,12 @@ export async function createSchedule(event: Omit<ScheduleEvent, 'id'>): Promise<
   const path = 'schedules';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...event, id: newRef.id, createdAt: new Date().toISOString() });
+    const payload = sanitizeData({
+      ...event,
+      id: newRef.id,
+      createdAt: new Date().toISOString(),
+    });
+    await setDoc(newRef, payload);
     return newRef.id;
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
@@ -430,7 +461,12 @@ export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>
   const path = 'documents';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...docData, id: newRef.id, createdAt: new Date().toISOString() });
+    const payload = sanitizeData({
+      ...docData,
+      id: newRef.id,
+      createdAt: new Date().toISOString(),
+    });
+    await setDoc(newRef, payload);
     return newRef.id;
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
@@ -492,7 +528,7 @@ export async function createNotification(notif: Omit<SystemNotification, 'id'>):
   const path = 'notifications';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...notif, id: newRef.id });
+    await setDoc(newRef, sanitizeData({ ...notif, id: newRef.id }));
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
@@ -507,7 +543,6 @@ export async function notifyTeachers(classId: string, notif: {
   senderName?: string;
 }): Promise<void> {
   try {
-    // Pakai fetchUsersByClass agar support classIds array (guru multi-kelas)
     const users = await fetchUsersByClass(classId);
     const guruList = users.filter(u =>
       u.role === 'Guru Pengampu' ||
@@ -516,7 +551,6 @@ export async function notifyTeachers(classId: string, notif: {
     );
 
     if (guruList.length === 0) {
-      // Fallback: full scan semua guru aktif
       const allSnap = await getDocs(collection(db, 'users'));
       const fallback = allSnap.docs.filter(d => {
         const role = d.data().role;
@@ -528,7 +562,7 @@ export async function notifyTeachers(classId: string, notif: {
       const now = new Date().toISOString();
       fallback.forEach(d => {
         const notifRef = doc(collection(db, 'notifications'));
-        batch.set(notifRef, {
+        batch.set(notifRef, sanitizeData({
           id: notifRef.id,
           userId: d.id,
           classId,
@@ -538,7 +572,7 @@ export async function notifyTeachers(classId: string, notif: {
           read: false,
           link: notif.link || '',
           createdAt: now,
-        });
+        }));
       });
       await batch.commit();
       return;
@@ -548,7 +582,7 @@ export async function notifyTeachers(classId: string, notif: {
     const now = new Date().toISOString();
     guruList.forEach(u => {
       const notifRef = doc(collection(db, 'notifications'));
-      batch.set(notifRef, {
+      batch.set(notifRef, sanitizeData({
         id: notifRef.id,
         userId: u.uid,
         classId,
@@ -558,7 +592,7 @@ export async function notifyTeachers(classId: string, notif: {
         read: false,
         link: notif.link || '',
         createdAt: now,
-      });
+      }));
     });
     await batch.commit();
   } catch (err) { console.warn('Non-fatal notifyTeachers error:', err); }
@@ -571,7 +605,7 @@ export async function notifyUsers(userIds: string[], notif: { title: string; mes
     const now = new Date().toISOString();
     userIds.forEach(uid => {
       const notifRef = doc(collection(db, 'notifications'));
-      batch.set(notifRef, { id: notifRef.id, userId: uid, classId: notif.classId || '', title: notif.title, message: notif.message, category: notif.category, read: false, link: notif.link || '', createdAt: now });
+      batch.set(notifRef, sanitizeData({ id: notifRef.id, userId: uid, classId: notif.classId || '', title: notif.title, message: notif.message, category: notif.category, read: false, link: notif.link || '', createdAt: now }));
     });
     await batch.commit();
   } catch (err) { console.warn('notifyUsers error:', err); }
@@ -590,7 +624,7 @@ export async function sendBroadcast(msg: Omit<BroadcastMessage, 'id'>): Promise<
   const path = 'broadcasts';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...msg, id: newRef.id, createdAt: new Date().toISOString() });
+    await setDoc(newRef, sanitizeData({ ...msg, id: newRef.id, createdAt: new Date().toISOString() }));
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
 
@@ -607,7 +641,7 @@ export async function submitComplaint(data: Omit<StudentComplaint, 'id'>): Promi
   const path = 'complaints';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...data, id: newRef.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await setDoc(newRef, sanitizeData({ ...data, id: newRef.id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }));
     return newRef.id;
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, path); }
 }
@@ -615,7 +649,7 @@ export async function submitComplaint(data: Omit<StudentComplaint, 'id'>): Promi
 export async function replyComplaint(id: string, response: string, status: 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED', respondedBy: string): Promise<void> {
   const path = `complaints/${id}`;
   try {
-    await updateDoc(doc(db, 'complaints', id), { teacherResponse: response, status, respondedBy, updatedAt: new Date().toISOString() });
+    await updateDoc(doc(db, 'complaints', id), sanitizeData({ teacherResponse: response, status, respondedBy, updatedAt: new Date().toISOString() }));
   } catch (error) { handleFirestoreError(error, OperationType.UPDATE, path); }
 }
 
@@ -630,7 +664,7 @@ export function subscribePromptBooks(classId: string, onUpdate: (books: PromptBo
 
 export async function savePromptBookScene(sceneData: PromptBookScene): Promise<void> {
   const path = `promptBooks/${sceneData.id}`;
-  try { await setDoc(doc(db, 'promptBooks', sceneData.id), { ...sceneData, updatedAt: new Date().toISOString() }); }
+  try { await setDoc(doc(db, 'promptBooks', sceneData.id), sanitizeData({ ...sceneData, updatedAt: new Date().toISOString() })); }
   catch (error) { handleFirestoreError(error, OperationType.WRITE, path); }
 }
 
@@ -641,6 +675,6 @@ export async function recordAuditLog(log: Omit<AuditLogItem, 'id' | 'timestamp'>
   const path = 'auditLogs';
   try {
     const newRef = doc(collection(db, path));
-    await setDoc(newRef, { ...log, id: newRef.id, timestamp: log.timestamp || new Date().toISOString() });
+    await setDoc(newRef, sanitizeData({ ...log, id: newRef.id, timestamp: log.timestamp || new Date().toISOString() }));
   } catch (error) { console.warn('Non-fatal audit log write error:', error); }
 }
