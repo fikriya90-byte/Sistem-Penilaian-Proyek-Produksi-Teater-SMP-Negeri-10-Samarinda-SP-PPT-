@@ -24,7 +24,7 @@ interface DashboardModuleProps {
 }
 
 // =====================================================
-// DATA HOOK — Baca deadlines + deadlineSubmissions
+// DATA HOOK — FIX #4: filter deadline per user & progress fallback
 // =====================================================
 function useDashboardData() {
   const { activeClass, user } = useAuth();
@@ -46,7 +46,57 @@ function useDashboardData() {
     return () => { u1(); u2(); u3(); u4(); u5(); };
   }, [activeClass]);
 
-  const tasks: TaskItem[] = deadlines.map((d: any) => {
+  // Helper: cek apakah deadline untuk user ini
+  const isDeadlineForUser = (d: any, u: UserProfile): boolean => {
+    if (d.status === 'CANCELLED') return false;
+    const scope = d.targetScope;
+    if (scope === 'SEMUA') return true;
+    if (scope === 'PERAN') return d.targetRole === u.role;
+    if (scope === 'DIVISI') return d.targetDivision === u.divisionName;
+    if (scope === 'CUSTOM') {
+      const tr: string[] = d.targetRoles || [];
+      const td: string[] = d.targetDivisions || [];
+      const tu: string[] = d.targetUserIds || [];
+      if (tr.length > 0 && tr.includes(u.role)) return true;
+      if (td.length > 0 && u.divisionName && td.includes(u.divisionName)) return true;
+      if (tu.length === 0) return true;
+      return tu.includes(u.uid);
+    }
+    return false;
+  };
+
+  // Helper: hitung target IDs (fallback kalau targetUserIds kosong)
+  const getTargetIds = (d: any): string[] => {
+    if (Array.isArray(d.targetUserIds) && d.targetUserIds.length > 0) {
+      return d.targetUserIds;
+    }
+    const students = users.filter(u =>
+      !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(u.role)
+    );
+    if (d.targetScope === 'SEMUA') return students.map(u => u.uid);
+    if (d.targetScope === 'DIVISI') return students.filter(u => u.divisionName === d.targetDivision).map(u => u.uid);
+    if (d.targetScope === 'PERAN') return students.filter(u => u.role === d.targetRole).map(u => u.uid);
+    if (d.targetScope === 'CUSTOM') {
+      const tr = d.targetRoles || [];
+      const td = d.targetDivisions || [];
+      const tu = d.targetUserIds || [];
+      const out = new Set<string>();
+      students.forEach(u => {
+        if (tr.includes(u.role)) out.add(u.uid);
+        if (td.includes(u.divisionName)) out.add(u.uid);
+        if (tu.includes(u.uid)) out.add(u.uid);
+      });
+      return Array.from(out);
+    }
+    return [];
+  };
+
+  // Hanya tampilkan deadline yang relevan untuk user
+  const visibleDeadlines = user
+    ? deadlines.filter(d => isDeadlineForUser(d, user))
+    : deadlines;
+
+  const tasks: TaskItem[] = visibleDeadlines.map((d: any) => {
     if (d.status === 'CANCELLED') {
       return {
         id: d.id, classId: d.classId, title: d.title || '', description: d.description || '',
@@ -57,10 +107,12 @@ function useDashboardData() {
         createdBy: d.createdBy, createdAt: d.createdAt,
       } as TaskItem;
     }
-    const totalTargets = (d.targetUserIds || []).length;
-    const mySubs = deadlineSubs.filter(s => s.deadlineId === d.id);
+
+    const targetIds = getTargetIds(d);
+    const totalTargets = targetIds.length;
+    const mySubs = deadlineSubs.filter(s => s.deadlineId === d.id && targetIds.includes(s.studentId));
     const doneCount = mySubs.filter(s => s.status === 'SELESAI' || s.status === 'TERLAMBAT').length;
-    const isApproved = totalTargets > 0 && doneCount === totalTargets;
+    const isApproved = totalTargets > 0 && doneCount >= totalTargets;
     const dueMs = new Date(d.dueDate || 0).getTime();
     const isOverdue = !isApproved && dueMs < Date.now();
     const mySub = user ? mySubs.find(s => s.studentId === user.uid) : null;
@@ -222,14 +274,12 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-5">
-      {/* HEADER */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-amber-700 via-amber-800 to-orange-900 text-white shadow-lg">
         <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">Dashboard Guru Pengampu</span>
         <h2 className="text-2xl font-black mt-1">Monitoring Produksi & Penilaian</h2>
         <p className="text-xs opacity-90 mt-1">Pantau progres, nilai, dan aktivitas seluruh divisi</p>
       </div>
 
-      {/* AKSI CEPAT */}
       <QuickActionsPanel
         accentColor="amber"
         actions={[
@@ -244,7 +294,6 @@ const GuruDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         ]}
       />
 
-      {/* STAT CARDS */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Users} label="Total Siswa" value={totalUsers} color="blue" />
         <StatCard icon={CheckCircle} label="Tugas Selesai" value={`${completedTasks}/${tasks.length}`} color="emerald" sub={`${taskProgress}% selesai`} />
@@ -333,7 +382,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
 
   return (
     <div className="space-y-5">
-      {/* HEADER */}
       <div className={`p-6 rounded-3xl bg-gradient-to-r text-white shadow-lg ${
         statusColor === 'emerald' ? 'from-emerald-700 to-emerald-900' :
         statusColor === 'amber' ? 'from-amber-700 to-amber-900' : 'from-rose-700 to-rose-900'
@@ -351,7 +399,6 @@ const PimprodDashboard: React.FC<DashboardModuleProps> = ({ onNavigate }) => {
         </div>
       </div>
 
-      {/* AKSI CEPAT */}
       <QuickActionsPanel
         accentColor="blue"
         actions={[
