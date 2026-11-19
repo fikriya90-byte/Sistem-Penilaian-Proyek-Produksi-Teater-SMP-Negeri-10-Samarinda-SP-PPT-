@@ -13,7 +13,7 @@ import { LoginModal } from './components/auth/LoginModal';
 import { LoginConfirmModal } from './components/auth/LoginConfirmModal';
 import { StudentWelcomePage } from './components/welcome/StudentWelcomePage';
 import { DashboardReminder } from './components/common/DashboardReminder';
-import { PageGuide } from './components/common/PageGuide'; // ✅ IMPORT PANDUAN BARU
+import { PageGuide } from './components/common/PageGuide';
 
 import { DashboardModule } from './components/modules/DashboardModule';
 import { AssessmentModule } from './components/modules/AssessmentModule';
@@ -194,14 +194,25 @@ const MainLayout: React.FC = () => {
     }
   }, [user?.uid, isGuruPengampu, isAdminRole, activeClass, loading]);
 
+  // ✅ FIX #5: reminder interval 30 menit
   useEffect(() => {
     if (!user || !activeClass) return;
-    const timer = setTimeout(() => {
-      import('./utils/reminder').then(({ runAllReminders }) => {
-        runAllReminders(activeClass.id).catch(err => console.warn('Reminder error:', err));
-      }).catch(err => console.warn('Reminder import error:', err));
-    }, 3000);
-    return () => clearTimeout(timer);
+
+    const run = () => {
+      import('./utils/reminder')
+        .then(({ runAllReminders }) => {
+          runAllReminders(activeClass.id).catch(err => console.warn('Reminder error:', err));
+        })
+        .catch(err => console.warn('Reminder import error:', err));
+    };
+
+    const initialTimer = setTimeout(run, 3000);
+    const interval = setInterval(run, 30 * 60 * 1000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
   }, [user?.uid, activeClass?.id]);
 
   const handleNavigate = useCallback((target: string) => {
@@ -352,7 +363,6 @@ const MainLayout: React.FC = () => {
           </button>
         </div>
 
-        {/* ✅ NAVIGASI BAWAH UNTUK MOBILE (Menu RAB diganti menjadi Tugas) */}
         <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200/80 px-2 py-1.5 flex items-center justify-around lg:hidden shadow-lg print:hidden">
           <button onClick={() => handleNavigate('dashboard')} className={`flex flex-col items-center p-1 rounded-xl transition ${currentModule === 'dashboard' ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
             <Home className="w-5 h-5" /><span className="text-[10px] mt-0.5">Beranda</span>
