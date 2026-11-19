@@ -1,43 +1,25 @@
 // src/services/firestoreService.ts
 import {
-  collection,
-  deleteDoc,
-  doc,
-  getDoc,
-  getDocs,
-  onSnapshot,
-  query,
-  setDoc,
-  updateDoc,
-  where,
-  writeBatch,
+  collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query,
+  setDoc, updateDoc, where, writeBatch,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../core/firebase';
 import {
-  AssessmentRecord,
-  AttendanceRecord,
-  AttendanceSession,
-  AuditLogItem,
-  BroadcastMessage,
-  ClassRoom,
-  ProductionDocument,
-  ProductionProject,
-  PromptBookScene,
-  ScheduleEvent,
-  StudentComplaint,
-  SystemNotification,
-  TaskItem,
-  UserProfile,
+  AssessmentRecord, AttendanceRecord, AttendanceSession, AuditLogItem,
+  BroadcastMessage, ClassRoom, ProductionDocument, ProductionProject,
+  PromptBookScene, ScheduleEvent, StudentComplaint, SystemNotification,
+  TaskItem, UserProfile,
 } from '../core/types';
 import { normalizeUserRole } from '../core/constants';
 
 // ==========================================
-// ✅ FUNGSI SAKTI: PENCEGAH ERROR UNDEFINED
+// SANITIZE
 // ==========================================
 function sanitizeData<T extends Record<string, any>>(data: T): T {
   const cleaned: any = {};
   for (const key in data) {
-    if (Object.prototype.hasOwnProperty.call(data, key) && data[key] !== undefined && data[key] !== null) {
+    if (Object.prototype.hasOwnProperty.call(data, key) &&
+        data[key] !== undefined && data[key] !== null) {
       cleaned[key] = data[key];
     }
   }
@@ -116,21 +98,21 @@ export async function fetchUsersByClass(classId: string): Promise<UserProfile[]>
       const q = query(collection(db, path), where('classId', '==', classId));
       const snap = await getDocs(q);
       snap.docs.forEach(d => { found[d.id] = enrichUser({ ...d.data(), uid: d.id } as UserProfile); });
-    } catch (err) { }
+    } catch (err) { /* ignore */ }
   }
 
   try {
     const q2 = query(collection(db, path), where('classIds', 'array-contains', classId));
     const snap2 = await getDocs(q2);
     snap2.docs.forEach(d => { if (!found[d.id]) found[d.id] = enrichUser({ ...d.data(), uid: d.id } as UserProfile); });
-  } catch (err) { }
+  } catch (err) { /* ignore */ }
 
   if (Object.keys(found).length === 0 && className) {
     try {
       const q = query(collection(db, path), where('className', '==', className));
       const snap = await getDocs(q);
       snap.docs.forEach(d => { found[d.id] = enrichUser({ ...d.data(), uid: d.id } as UserProfile); });
-    } catch (err) { }
+    } catch (err) { /* ignore */ }
   }
 
   return Object.values(found).sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
@@ -208,13 +190,21 @@ export async function updateProductionStage(prodId: string, stage: any): Promise
 // ==========================================
 // TASKS
 // ==========================================
-export function subscribeTasksByClass(classId: string, onUpdate: (tasks: TaskItem[]) => void, onError?: (err: any) => void) {
+export function subscribeTasksByClass(
+  classId: string,
+  onUpdate: (tasks: TaskItem[]) => void,
+  onError?: (err: any) => void
+) {
   const q = query(collection(db, 'tasks'), where('classId', '==', classId));
   return onSnapshot(q, snap => {
     const tasks = snap.docs.map(d => ({ ...d.data(), id: d.id } as TaskItem));
     const now = new Date().getTime();
     onUpdate(tasks.map(t => (t.status !== 'APPROVED' && new Date(t.dueDate).getTime() < now) ? { ...t, status: 'OVERDUE' as const } : t));
-  }, error => { if (onError) onError(error); handleFirestoreError(error, OperationType.LIST, 'tasks'); });
+  }, error => {
+    // ✅ FIX: cukup log, jangan throw di callback
+    console.warn('[subscribeTasksByClass] error:', error);
+    if (onError) onError(error);
+  });
 }
 
 export async function createTask(task: Omit<TaskItem, 'id'>): Promise<string> {
@@ -238,25 +228,52 @@ export async function deleteTask(taskId: string): Promise<void> {
 // ==========================================
 // DEADLINES
 // ==========================================
-export function subscribeDeadlinesByClass(classId: string, onUpdate: (deadlines: any[]) => void, onError?: (err: any) => void) {
+export function subscribeDeadlinesByClass(
+  classId: string,
+  onUpdate: (deadlines: any[]) => void,
+  onError?: (err: any) => void
+) {
   const q = query(collection(db, 'deadlines'), where('classId', '==', classId));
-  return onSnapshot(q, snap => { onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id }))); }, 
-  error => { if (onError) onError(error); handleFirestoreError(error, OperationType.LIST, 'deadlines'); });
+  return onSnapshot(q,
+    snap => { onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id }))); },
+    error => {
+      console.warn('[subscribeDeadlinesByClass] error:', error);
+      if (onError) onError(error);
+    }
+  );
 }
 
-export function subscribeDeadlineSubmissionsByClass(classId: string, onUpdate: (subs: any[]) => void, onError?: (err: any) => void) {
+export function subscribeDeadlineSubmissionsByClass(
+  classId: string,
+  onUpdate: (subs: any[]) => void,
+  onError?: (err: any) => void
+) {
   const q = query(collection(db, 'deadlineSubmissions'), where('classId', '==', classId));
-  return onSnapshot(q, snap => { onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id }))); }, 
-  error => { if (onError) onError(error); handleFirestoreError(error, OperationType.LIST, 'deadlineSubmissions'); });
+  return onSnapshot(q,
+    snap => { onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id }))); },
+    error => {
+      console.warn('[subscribeDeadlineSubmissionsByClass] error:', error);
+      if (onError) onError(error);
+    }
+  );
 }
 
 // ==========================================
 // ASSESSMENTS
 // ==========================================
-export function subscribeAssessments(classId: string, onUpdate: (assessments: AssessmentRecord[]) => void, onError?: (err: any) => void) {
+export function subscribeAssessments(
+  classId: string,
+  onUpdate: (assessments: AssessmentRecord[]) => void,
+  onError?: (err: any) => void
+) {
   const q = query(collection(db, 'assessments'), where('classId', '==', classId));
-  return onSnapshot(q, snap => { onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AssessmentRecord))); }, 
-  error => { if (onError) onError(error); handleFirestoreError(error, OperationType.LIST, 'assessments'); });
+  return onSnapshot(q,
+    snap => { onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AssessmentRecord))); },
+    error => {
+      console.warn('[subscribeAssessments] error:', error);
+      if (onError) onError(error);
+    }
+  );
 }
 
 export async function saveAssessment(assessment: Omit<AssessmentRecord, 'id'>): Promise<string> {
@@ -286,15 +303,22 @@ export function subscribeAssessmentHistory(classId: string, onUpdate: (records: 
 }
 
 // ==========================================
-// ATTENDANCE (PRESENSI)
+// ATTENDANCE (PRESENSI) — FIX #2
 // ==========================================
-export function subscribeAttendanceSessions(classId: string, onUpdate: (sessions: AttendanceSession[]) => void, onError?: (err: any) => void) {
+export function subscribeAttendanceSessions(
+  classId: string,
+  onUpdate: (sessions: AttendanceSession[]) => void,
+  onError?: (err: any) => void
+) {
   const q = query(collection(db, 'attendanceSessions'), where('classId', '==', classId));
   return onSnapshot(q, snap => {
     const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceSession));
     list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     onUpdate(list);
-  }, error => { if (onError) onError(error); handleFirestoreError(error, OperationType.LIST, 'attendanceSessions'); });
+  }, error => {
+    console.warn('[subscribeAttendanceSessions] error:', error);
+    if (onError) onError(error);
+  });
 }
 
 export async function createAttendanceSession(session: Omit<AttendanceSession, 'id'>): Promise<string> {
@@ -306,27 +330,98 @@ export async function createAttendanceSession(session: Omit<AttendanceSession, '
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, 'attendanceSessions'); }
 }
 
+// ✅ FIX #2b: Auto-mark ALPA saat close
 export async function closeAttendanceSession(sessionId: string): Promise<void> {
-  try { await updateDoc(doc(db, 'attendanceSessions', sessionId), { isOpen: false }); }
-  catch (error) { handleFirestoreError(error, OperationType.UPDATE, `attendanceSessions/${sessionId}`); }
+  try {
+    const sessionRef = doc(db, 'attendanceSessions', sessionId);
+    const sessionSnap = await getDoc(sessionRef);
+    if (!sessionSnap.exists()) {
+      throw new Error('Session tidak ditemukan');
+    }
+    const session: any = sessionSnap.data();
+    const classId = session.classId;
+
+    const users = await fetchUsersByClass(classId);
+    const students = users.filter(u =>
+      !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(u.role)
+    );
+
+    const recordsSnap = await getDocs(
+      query(collection(db, 'attendanceRecords'), where('sessionId', '==', sessionId))
+    );
+    const recorded = new Set(recordsSnap.docs.map(d => d.data().studentId));
+
+    const batch = writeBatch(db);
+    let autoMarked = 0;
+    students.forEach(s => {
+      if (!recorded.has(s.uid)) {
+        const recId = `${sessionId}_${s.uid}`;
+        batch.set(doc(db, 'attendanceRecords', recId), {
+          id: recId,
+          sessionId,
+          studentId: s.uid,
+          studentName: s.displayName,
+          classId,
+          status: 'Alpa',
+          timestamp: new Date().toISOString(),
+          autoMarked: true,
+          autoMarkedAt: new Date().toISOString(),
+        });
+        autoMarked++;
+      }
+    });
+
+    batch.update(sessionRef, {
+      isOpen: false,
+      closedAt: new Date().toISOString(),
+      autoMarkedCount: autoMarked,
+    });
+
+    await batch.commit();
+    console.log(`[closeAttendanceSession] ${autoMarked} siswa otomatis ditandai ALPA`);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `attendanceSessions/${sessionId}`);
+  }
 }
 
 export function subscribeAttendanceRecords(sessionId: string, onUpdate: (records: AttendanceRecord[]) => void) {
   const q = query(collection(db, 'attendanceRecords'), where('sessionId', '==', sessionId));
-  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))));
+  return onSnapshot(q,
+    snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))),
+    error => { console.warn('[subscribeAttendanceRecords] error:', error); }
+  );
 }
 
 export function subscribeAllAttendanceRecords(classId: string, onUpdate: (records: AttendanceRecord[]) => void) {
   const q = query(collection(db, 'attendanceRecords'), where('classId', '==', classId));
-  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))));
+  return onSnapshot(q,
+    snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))),
+    error => { console.warn('[subscribeAllAttendanceRecords] error:', error); }
+  );
 }
 
+// ✅ FIX #2a: Auto-inject classId
 export async function submitAttendanceRecord(record: Omit<AttendanceRecord, 'id'>): Promise<void> {
   try {
+    let classId = (record as any).classId;
+    if (!classId) {
+      try {
+        const sessionSnap = await getDoc(doc(db, 'attendanceSessions', record.sessionId));
+        if (sessionSnap.exists()) classId = sessionSnap.data().classId;
+      } catch { /* ignore */ }
+    }
+
     const recId = `${record.sessionId}_${record.studentId}`;
-    const payload = sanitizeData({ ...record, id: recId, timestamp: new Date().toISOString() });
+    const payload = sanitizeData({
+      ...record,
+      classId,
+      id: recId,
+      timestamp: new Date().toISOString(),
+    });
     await setDoc(doc(db, 'attendanceRecords', recId), payload, { merge: true });
-  } catch (error) { handleFirestoreError(error, OperationType.CREATE, 'attendanceRecords'); }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'attendanceRecords');
+  }
 }
 
 // ==========================================
@@ -334,7 +429,10 @@ export async function submitAttendanceRecord(record: Omit<AttendanceRecord, 'id'
 // ==========================================
 export function subscribeSchedules(classId: string, onUpdate: (schedules: ScheduleEvent[]) => void) {
   const q = query(collection(db, 'schedules'), where('classId', '==', classId));
-  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ScheduleEvent))));
+  return onSnapshot(q,
+    snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ScheduleEvent))),
+    error => { console.warn('[subscribeSchedules] error:', error); }
+  );
 }
 
 export async function createSchedule(event: Omit<ScheduleEvent, 'id'>): Promise<string> {
@@ -355,7 +453,10 @@ export async function deleteSchedule(id: string): Promise<void> {
 // ==========================================
 export function subscribeDocuments(classId: string, onUpdate: (docs: ProductionDocument[]) => void) {
   const q = query(collection(db, 'documents'), where('classId', '==', classId));
-  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ProductionDocument))));
+  return onSnapshot(q,
+    snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as ProductionDocument))),
+    error => { console.warn('[subscribeDocuments] error:', error); }
+  );
 }
 
 export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>): Promise<string> {
@@ -366,13 +467,20 @@ export async function uploadDocumentMeta(docData: Omit<ProductionDocument, 'id'>
   } catch (error) { handleFirestoreError(error, OperationType.CREATE, 'documents'); }
 }
 
-export function subscribeDriveSubmissions(classId: string, onUpdate: (subs: any[]) => void, onError?: (err: any) => void) {
+export function subscribeDriveSubmissions(
+  classId: string,
+  onUpdate: (subs: any[]) => void,
+  onError?: (err: any) => void
+) {
   const q = query(collection(db, 'driveSubmissions'), where('classId', '==', classId));
   return onSnapshot(q, snap => {
     const list = snap.docs.map(d => ({ ...d.data(), id: d.id }));
     list.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     onUpdate(list);
-  }, error => { if (onError) onError(error); });
+  }, error => {
+    console.warn('[subscribeDriveSubmissions] error:', error);
+    if (onError) onError(error);
+  });
 }
 
 // ==========================================
@@ -384,7 +492,7 @@ export function subscribeNotifications(userId: string, onUpdate: (notifs: System
     const items = snap.docs.map(d => ({ ...d.data(), id: d.id } as SystemNotification));
     items.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     onUpdate(items);
-  });
+  }, error => { console.warn('[subscribeNotifications] error:', error); });
 }
 
 export async function markNotificationAsRead(notifId: string): Promise<void> {
@@ -445,7 +553,10 @@ export async function notifyUsers(userIds: string[], notif: any): Promise<void> 
 // ==========================================
 export function subscribeBroadcasts(classId: string, onUpdate: (broadcasts: BroadcastMessage[]) => void) {
   const q = query(collection(db, 'broadcasts'), where('classId', '==', classId));
-  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as BroadcastMessage))));
+  return onSnapshot(q,
+    snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as BroadcastMessage))),
+    error => { console.warn('[subscribeBroadcasts] error:', error); }
+  );
 }
 
 export async function sendBroadcast(msg: Omit<BroadcastMessage, 'id'>): Promise<void> {
@@ -457,7 +568,10 @@ export async function sendBroadcast(msg: Omit<BroadcastMessage, 'id'>): Promise<
 
 export function subscribeComplaints(classId: string, onUpdate: (complaints: StudentComplaint[]) => void) {
   const q = query(collection(db, 'complaints'), where('classId', '==', classId));
-  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as StudentComplaint))));
+  return onSnapshot(q,
+    snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as StudentComplaint))),
+    error => { console.warn('[subscribeComplaints] error:', error); }
+  );
 }
 
 export async function submitComplaint(data: Omit<StudentComplaint, 'id'>): Promise<string> {
@@ -478,7 +592,10 @@ export async function replyComplaint(id: string, response: string, status: 'IN_P
 // ==========================================
 export function subscribePromptBooks(classId: string, onUpdate: (books: PromptBookScene[]) => void) {
   const q = query(collection(db, 'promptBooks'), where('classId', '==', classId));
-  return onSnapshot(q, snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as PromptBookScene))));
+  return onSnapshot(q,
+    snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as PromptBookScene))),
+    error => { console.warn('[subscribePromptBooks] error:', error); }
+  );
 }
 
 export async function savePromptBookScene(sceneData: PromptBookScene): Promise<void> {
