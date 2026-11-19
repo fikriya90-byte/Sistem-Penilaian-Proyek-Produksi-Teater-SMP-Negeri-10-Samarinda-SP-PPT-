@@ -1,19 +1,9 @@
-// =====================================================
-// AUTO SCORE SERVICE
-// Hitung skor otomatis: Tanggung Jawab, Kehadiran, Kedisiplinan
-// dari data Tasks & Attendance. Sesuai Section 4.3, 4.4, 5.3
-// =====================================================
-
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from '../core/firebase';
-import {
-  AttendanceRecord, AttendanceSession, DeadlineItem, DeadlineSubmission,
-  ProductionStage, TaskItem, UserProfile,
-} from '../core/types';
+// src/services/autoScoreService.ts
+import { AttendanceRecord, AttendanceSession, DeadlineSubmission, ProductionStage, TaskItem, UserProfile } from '../core/types';
 import { AUTO_SCORE_THRESHOLDS } from '../core/constants';
 
 // =====================================================
-// HITUNG SKOR TANGGUNG JAWAB (4.3)
+// SKOR TANGGUNG JAWAB (4.3) — FIX
 // =====================================================
 export interface TaskResponsibilityResult {
   score: 1 | 2 | 3 | 4;
@@ -35,12 +25,26 @@ export function computeTaskResponsibility(
   submissions: DeadlineSubmission[],
   stage: ProductionStage
 ): TaskResponsibilityResult {
-  // Filter tugas untuk siswa ini & tahap ini
   const myTasks = tasks.filter(t => {
-    // ✅ FIX: Task schema pakai field `stage` (bukan `stageId`)
-    //    Cek keduanya untuk kompatibilitas data lama & baru
     const tStage = (t as any).stage ?? (t as any).stageId;
     if (tStage && tStage !== stage) return false;
+    if (t.status === 'CANCELLED') return false;
+
+    const scope = (t as any).targetScope;
+    if (scope === 'SEMUA') return true;
+    if (scope === 'PERAN') return (t as any).targetRole === student.role;
+    if (scope === 'DIVISI') return (t as any).targetDivision === student.divisionName;
+    if (scope === 'CUSTOM') {
+      const tr = (t as any).targetRoles || [];
+      const td = (t as any).targetDivisions || [];
+      const tu = (t as any).targetUserIds || [];
+      if (tr.length > 0 && tr.includes(student.role)) return true;
+      if (td.length > 0 && student.divisionName && td.includes(student.divisionName)) return true;
+      if (tu.length > 0) return tu.includes(student.uid);
+      return true;
+    }
+
+    // Legacy fallback
     return (
       t.assigneeId === student.uid ||
       (t as any).targetRole === student.role ||
@@ -52,12 +56,11 @@ export function computeTaskResponsibility(
 
   let awal = 0, tepat = 0, telatRingan = 0, telatBerat = 0, belum = 0;
   let criticalLate = 0, criticalMissed = 0;
-
   const details: TaskResponsibilityResult['details'] = [];
 
   myTasks.forEach(task => {
     const sub = submissions.find(s => s.deadlineId === task.id && s.studentId === student.uid);
-    const isCritical = !!task.isCritical || (task as any).isCritical === true;
+    const isCritical = !!task.isCritical;
 
     if (!sub || sub.status === 'BELUM') {
       belum += 1;
@@ -94,17 +97,19 @@ export function computeTaskResponsibility(
   });
 
   const totalTasks = myTasks.length;
+
+  // ✅ FIX: kalau tidak ada task → netral (3), bukan 4
   if (totalTasks === 0) {
     return {
-      score: 4, totalTasks: 0, awal: 0, tepat: 0, telatRingan: 0, telatBerat: 0, belum: 0,
-      pctOnTime: 100, criticalLate: 0, criticalMissed: 0, details: [],
+      score: 3, totalTasks: 0,
+      awal: 0, tepat: 0, telatRingan: 0, telatBerat: 0, belum: 0,
+      pctOnTime: 0, criticalLate: 0, criticalMissed: 0, details: [],
     };
   }
 
   const onTime = awal + tepat;
   const pctOnTime = Math.round((onTime / totalTasks) * 100);
 
-  // Skor sesuai tabel 4.3
   let score: 1 | 2 | 3 | 4;
   if (pctOnTime >= 90 && criticalLate === 0 && criticalMissed === 0) {
     score = 4;
@@ -118,7 +123,6 @@ export function computeTaskResponsibility(
     score = 1;
   }
 
-  // Override: tugas kritis tidak dikerjakan → 1
   if (criticalMissed > 0) score = 1;
 
   return {
@@ -128,7 +132,7 @@ export function computeTaskResponsibility(
 }
 
 // =====================================================
-// HITUNG SKOR KEHADIRAN (4.4)
+// SKOR KEHADIRAN (4.4) — FIX
 // =====================================================
 export interface AttendanceResult {
   score: 1 | 2 | 3 | 4;
@@ -137,7 +141,7 @@ export interface AttendanceResult {
   izinSakit: number;
   alpa: number;
   pct: number;
-  hasFatalAlpa: boolean; // Alpa pada Gladi/Pementasan
+  hasFatalAlpa: boolean;
 }
 
 export function computeAttendanceScore(
@@ -146,16 +150,16 @@ export function computeAttendanceScore(
   records: AttendanceRecord[],
   stage: ProductionStage
 ): AttendanceResult {
-  // Filter sesi di tahap ini
+  // ✅ FIX 1: filter KETAT by stage
   const stageSessions = sessions.filter(s => {
-    // ✅ FIX: AttendanceSession schema pakai field `stage` (bukan `stageId`)
     const sStage = (s as any).stage ?? (s as any).stageId;
-    if (sStage && sStage !== stage) return false;
-    return true;
+    return sStage === stage;
   });
 
   const sessionIds = new Set(stageSessions.map(s => s.id));
-  const myRecords = records.filter(r => r.studentId === student.uid && sessionIds.has(r.sessionId));
+  const myRecords = records.filter(r =>
+    r.studentId === student.uid && sessionIds.has(r.sessionId)
+  );
 
   let hadir = 0, izinSakit = 0, alpa = 0;
   let hasFatalAlpa = false;
@@ -172,9 +176,25 @@ export function computeAttendanceScore(
     }
   });
 
-  const totalSessions = myRecords.length;
+  const totalSessions = stageSessions.length;
+  const totalMyRecords = myRecords.length;
+
+  // ✅ FIX 2: tidak ada session di tahap ini → NETRAL (3)
   if (totalSessions === 0) {
-    return { score: 4, totalSessions: 0, hadir: 0, izinSakit: 0, alpa: 0, pct: 100, hasFatalAlpa: false };
+    return {
+      score: 3, totalSessions: 0,
+      hadir: 0, izinSakit: 0, alpa: 0,
+      pct: 0, hasFatalAlpa: false,
+    };
+  }
+
+  // ✅ FIX 3: ada session tapi siswa tidak record sama sekali → ALPA semua
+  if (totalMyRecords === 0) {
+    return {
+      score: 1, totalSessions,
+      hadir: 0, izinSakit: 0, alpa: totalSessions,
+      pct: 0, hasFatalAlpa: true,
+    };
   }
 
   const effectiveHadir = hadir + izinSakit;
@@ -186,14 +206,13 @@ export function computeAttendanceScore(
   else if (pct >= AUTO_SCORE_THRESHOLDS.attendance.fair) score = 2;
   else score = 1;
 
-  // Batas maksimal 2 jika alpa ≥3 atau alpa di Gladi/Pementasan
   if (alpa >= 3 || hasFatalAlpa) score = Math.min(score, 2) as any;
 
   return { score, totalSessions, hadir, izinSakit, alpa, pct, hasFatalAlpa };
 }
 
 // =====================================================
-// HITUNG KEDISIPLINAN PEMERAN (rata-rata 4.3 & 4.4)
+// KEDISIPLINAN PEMERAN
 // =====================================================
 export function computePemeranDiscipline(taskScore: number, attendScore: number): 1 | 2 | 3 | 4 {
   const avg = (taskScore + attendScore) / 2;
