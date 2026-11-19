@@ -201,7 +201,6 @@ export function subscribeTasksByClass(
     const now = new Date().getTime();
     onUpdate(tasks.map(t => (t.status !== 'APPROVED' && new Date(t.dueDate).getTime() < now) ? { ...t, status: 'OVERDUE' as const } : t));
   }, error => {
-    // ✅ FIX: cukup log, jangan throw di callback
     console.warn('[subscribeTasksByClass] error:', error);
     if (onError) onError(error);
   });
@@ -303,8 +302,78 @@ export function subscribeAssessmentHistory(classId: string, onUpdate: (records: 
 }
 
 // ==========================================
-// ATTENDANCE (PRESENSI) — FIX #2
+// ATTENDANCE (PRESENSI) — REVISI LENGKAP
 // ==========================================
+
+// ✅ HELPER: Tentukan siswa yang WAJIB hadir di sebuah sesi (berdasarkan targetScope)
+export function getExpectedStudentsForSession(
+  session: any,
+  allStudents: UserProfile[]
+): UserProfile[] {
+  const scope = session?.targetScope || 'SEMUA';
+
+  switch (scope) {
+    case 'SEMUA':
+      return allStudents;
+
+    case 'PEMAIN_MUSIK':
+      return allStudents.filter(u =>
+        u.role === 'Pemeran' ||
+        u.role === 'Sutradara' ||
+        u.role === 'Asisten Sutradara' ||
+        u.divisionName === 'Tata Musik & Suara'
+      );
+
+    case 'PENGURUS_INTI':
+    case 'PIMPINAN':
+      return allStudents.filter(u =>
+        ['Pimpinan Produksi', 'Sekretaris', 'Bendahara'].includes(u.role)
+      );
+
+    case 'DIVISI':
+      return session.targetDivision
+        ? allStudents.filter(u => u.divisionName === session.targetDivision)
+        : [];
+
+    case 'PERAN':
+      return session.targetRole
+        ? allStudents.filter(u => u.role === session.targetRole)
+        : [];
+
+    case 'CUSTOM': {
+      const tr: string[] = session.targetRoles || [];
+      const td: string[] = session.targetDivisions || [];
+      const tu: string[] = session.targetUserIds || [];
+      return allStudents.filter(u =>
+        tr.includes(u.role) ||
+        (u.divisionName && td.includes(u.divisionName)) ||
+        tu.includes(u.uid)
+      );
+    }
+
+    default:
+      return allStudents;
+  }
+}
+
+// ✅ HELPER: Cek apakah user berhak mengisi absen untuk orang lain
+export function canFillAttendanceFor(
+  session: any,
+  fillerRole: string,
+  targetUserId: string
+): { allowed: boolean; reason?: string } {
+  const canOnBehalf = [
+    'Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin',
+    'Pimpinan Produksi', 'Sekretaris',
+  ].includes(fillerRole);
+
+  if (!canOnBehalf) {
+    return { allowed: false, reason: 'Hanya Guru, Pimpro, atau Sekretaris yang dapat mengisi absen untuk orang lain.' };
+  }
+
+  return { allowed: true };
+}
+
 export function subscribeAttendanceSessions(
   classId: string,
   onUpdate: (sessions: AttendanceSession[]) => void,
@@ -321,17 +390,32 @@ export function subscribeAttendanceSessions(
   });
 }
 
-export async function createAttendanceSession(session: Omit<AttendanceSession, 'id'>): Promise<string> {
+export async function createAttendanceSession(
+  session: Omit<AttendanceSession, 'id'>,
+  creatorInfo?: { uid: string; displayName: string; role: string }
+): Promise<string> {
   try {
     const newRef = doc(collection(db, 'attendanceSessions'));
-    const payload = sanitizeData({ ...session, id: newRef.id, createdAt: new Date().toISOString() });
+    const payload = sanitizeData({
+      ...session,
+      id: newRef.id,
+      createdAt: new Date().toISOString(),
+      createdBy: creatorInfo?.uid || '',
+      creatorName: creatorInfo?.displayName || '',
+      creatorRole: creatorInfo?.role || '',
+      isOpen: true,
+    });
     await setDoc(newRef, payload);
     return newRef.id;
-  } catch (error) { handleFirestoreError(error, OperationType.CREATE, 'attendanceSessions'); }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'attendanceSessions');
+  }
 }
 
-// ✅ FIX #2b: Auto-mark ALPA saat close
-export async function closeAttendanceSession(sessionId: string): Promise<void> {
+export async function closeAttendanceSession(sessionId: string): Promise<{
+  autoMarked: number;
+  expectedCount: number;
+}> {
   try {
     const sessionRef = doc(db, 'attendanceSessions', sessionId);
     const sessionSnap = await getDoc(sessionRef);
@@ -342,9 +426,11 @@ export async function closeAttendanceSession(sessionId: string): Promise<void> {
     const classId = session.classId;
 
     const users = await fetchUsersByClass(classId);
-    const students = users.filter(u =>
+    const allStudents = users.filter(u =>
       !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(u.role)
     );
+
+    const expectedStudents = getExpectedStudentsForSession(session, allStudents);
 
     const recordsSnap = await getDocs(
       query(collection(db, 'attendanceRecords'), where('sessionId', '==', sessionId))
@@ -353,7 +439,7 @@ export async function closeAttendanceSession(sessionId: string): Promise<void> {
 
     const batch = writeBatch(db);
     let autoMarked = 0;
-    students.forEach(s => {
+    expectedStudents.forEach(s => {
       if (!recorded.has(s.uid)) {
         const recId = `${sessionId}_${s.uid}`;
         batch.set(doc(db, 'attendanceRecords', recId), {
@@ -366,6 +452,7 @@ export async function closeAttendanceSession(sessionId: string): Promise<void> {
           timestamp: new Date().toISOString(),
           autoMarked: true,
           autoMarkedAt: new Date().toISOString(),
+          targetScope: session.targetScope || 'SEMUA',
         });
         autoMarked++;
       }
@@ -375,16 +462,23 @@ export async function closeAttendanceSession(sessionId: string): Promise<void> {
       isOpen: false,
       closedAt: new Date().toISOString(),
       autoMarkedCount: autoMarked,
+      expectedCount: expectedStudents.length,
     });
 
     await batch.commit();
-    console.log(`[closeAttendanceSession] ${autoMarked} siswa otomatis ditandai ALPA`);
+    console.log(`[closeAttendanceSession] ${autoMarked}/${expectedStudents.length} siswa otomatis ALPA (scope: ${session.targetScope || 'SEMUA'})`);
+
+    return { autoMarked, expectedCount: expectedStudents.length };
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `attendanceSessions/${sessionId}`);
+    return { autoMarked: 0, expectedCount: 0 };
   }
 }
 
-export function subscribeAttendanceRecords(sessionId: string, onUpdate: (records: AttendanceRecord[]) => void) {
+export function subscribeAttendanceRecords(
+  sessionId: string,
+  onUpdate: (records: AttendanceRecord[]) => void
+) {
   const q = query(collection(db, 'attendanceRecords'), where('sessionId', '==', sessionId));
   return onSnapshot(q,
     snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))),
@@ -392,7 +486,10 @@ export function subscribeAttendanceRecords(sessionId: string, onUpdate: (records
   );
 }
 
-export function subscribeAllAttendanceRecords(classId: string, onUpdate: (records: AttendanceRecord[]) => void) {
+export function subscribeAllAttendanceRecords(
+  classId: string,
+  onUpdate: (records: AttendanceRecord[]) => void
+) {
   const q = query(collection(db, 'attendanceRecords'), where('classId', '==', classId));
   return onSnapshot(q,
     snap => onUpdate(snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceRecord))),
@@ -400,27 +497,118 @@ export function subscribeAllAttendanceRecords(classId: string, onUpdate: (record
   );
 }
 
-// ✅ FIX #2a: Auto-inject classId
-export async function submitAttendanceRecord(record: Omit<AttendanceRecord, 'id'>): Promise<void> {
+export async function submitAttendanceRecord(
+  record: Omit<AttendanceRecord, 'id'> & {
+    filledBy?: string;
+    filledByName?: string;
+    filledByRole?: string;
+  }
+): Promise<void> {
   try {
-    let classId = (record as any).classId;
-    if (!classId) {
-      try {
-        const sessionSnap = await getDoc(doc(db, 'attendanceSessions', record.sessionId));
-        if (sessionSnap.exists()) classId = sessionSnap.data().classId;
-      } catch { /* ignore */ }
+    const sessionSnap = await getDoc(doc(db, 'attendanceSessions', record.sessionId));
+    if (!sessionSnap.exists()) {
+      throw new Error('Session tidak ditemukan');
+    }
+    const session = sessionSnap.data();
+
+    if (!session.isOpen) {
+      throw new Error('Session sudah ditutup, tidak bisa mengisi');
     }
 
+    const userSnap = await getDoc(doc(db, 'users', record.studentId));
+    if (userSnap.exists()) {
+      const users = await fetchUsersByClass(session.classId);
+      const allStudents = users.filter(u =>
+        !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(u.role)
+      );
+      const expected = getExpectedStudentsForSession(session, allStudents);
+      const isTarget = expected.some(s => s.uid === record.studentId);
+
+      if (!isTarget) {
+        throw new Error('Siswa ini tidak terdaftar sebagai peserta sesi ini');
+      }
+    }
+
+    if (record.filledBy && record.filledBy !== record.studentId) {
+      const check = canFillAttendanceFor(session, record.filledByRole || '', record.studentId);
+      if (!check.allowed) {
+        throw new Error(check.reason || 'Tidak berhak mengisi absen untuk orang lain');
+      }
+    }
+
+    let classId = (record as any).classId || session.classId;
     const recId = `${record.sessionId}_${record.studentId}`;
     const payload = sanitizeData({
       ...record,
       classId,
       id: recId,
       timestamp: new Date().toISOString(),
+      isOnBehalf: !!(record.filledBy && record.filledBy !== record.studentId),
     });
     await setDoc(doc(db, 'attendanceRecords', recId), payload, { merge: true });
-  } catch (error) {
+  } catch (error: any) {
+    const businessErrors = [
+      'tidak ditemukan',
+      'sudah ditutup',
+      'tidak terdaftar',
+      'Tidak berhak',
+      'Hanya Guru',
+    ];
+    if (businessErrors.some(msg => error?.message?.includes(msg))) {
+      throw error;
+    }
     handleFirestoreError(error, OperationType.CREATE, 'attendanceRecords');
+  }
+}
+
+export async function bulkFillAttendance(
+  sessionId: string,
+  fillerInfo: { uid: string; displayName: string; role: string },
+  entries: Array<{ studentId: string; studentName: string; status: 'Hadir' | 'Izin' | 'Sakit' | 'Alpa' }>
+): Promise<{ filled: number; errors: string[] }> {
+  const errors: string[] = [];
+  let filled = 0;
+
+  try {
+    const sessionSnap = await getDoc(doc(db, 'attendanceSessions', sessionId));
+    if (!sessionSnap.exists()) {
+      return { filled: 0, errors: ['Session tidak ditemukan'] };
+    }
+    const session = sessionSnap.data();
+
+    if (!session.isOpen) {
+      return { filled: 0, errors: ['Session sudah ditutup'] };
+    }
+
+    const check = canFillAttendanceFor(session, fillerInfo.role, '');
+    if (!check.allowed) {
+      return { filled: 0, errors: [check.reason || 'Tidak berhak'] };
+    }
+
+    const batch = writeBatch(db);
+    entries.forEach(e => {
+      const recId = `${sessionId}_${e.studentId}`;
+      batch.set(doc(db, 'attendanceRecords', recId), {
+        id: recId,
+        sessionId,
+        studentId: e.studentId,
+        studentName: e.studentName,
+        classId: session.classId,
+        status: e.status,
+        timestamp: new Date().toISOString(),
+        isOnBehalf: true,
+        filledBy: fillerInfo.uid,
+        filledByName: fillerInfo.displayName,
+        filledByRole: fillerInfo.role,
+        targetScope: session.targetScope || 'SEMUA',
+      });
+      filled++;
+    });
+
+    await batch.commit();
+    return { filled, errors };
+  } catch (err: any) {
+    return { filled, errors: [err?.message || 'Unknown error'] };
   }
 }
 
