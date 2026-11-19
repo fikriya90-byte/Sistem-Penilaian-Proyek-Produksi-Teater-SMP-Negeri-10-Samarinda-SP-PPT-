@@ -19,7 +19,7 @@ import {
 import { db } from '../../core/firebase';
 
 // =====================================================
-// ROLE GROUP (dengan icon, tanpa emoji)
+// ROLE GROUP
 // =====================================================
 const ROLE_OPTIONS: { group: string; icon: any; roles: UserRole[] }[] = [
   {
@@ -51,6 +51,9 @@ const ROLE_OPTIONS: { group: string; icon: any; roles: UserRole[] }[] = [
     ],
   },
 ];
+
+// ✅ FIX #7: batas tanggal minimal siswa dianggap punya kredensial tersimpan
+const CREDENTIALS_MIN_DATE = new Date('2025-01-01');
 
 export const StructureModule: React.FC = () => {
   const {
@@ -220,7 +223,6 @@ export const StructureModule: React.FC = () => {
     return true;
   });
 
-  // ✅ WA link dengan template salam
   const getWhatsAppLink = (phone?: string, name?: string) => {
     if (!phone) return '#';
     let clean = phone.replace(/\D/g, '');
@@ -255,6 +257,16 @@ export const StructureModule: React.FC = () => {
     if (role.startsWith('Anggota ')) return 'bg-slate-100 text-slate-700 border-slate-300';
     if (role === 'Pemain' || role === 'Pemeran') return 'bg-rose-100 text-rose-800 border-rose-300';
     return 'bg-slate-100 text-slate-700 border-slate-300';
+  };
+
+  // ✅ FIX #7: cek apakah member punya kredensial tersimpan
+  const memberHasCredentials = (m: UserProfile): boolean => {
+    if (!m.createdAt) return true; // data lama tanpa createdAt → anggap punya (fallback)
+    try {
+      return new Date(m.createdAt) >= CREDENTIALS_MIN_DATE;
+    } catch {
+      return true;
+    }
   };
 
   // =====================================================
@@ -352,7 +364,6 @@ export const StructureModule: React.FC = () => {
     } catch { showToast('Gagal menyalin.', 'error'); }
   };
 
-  // ✅ Guru multi-kelas: kelas yang diampu
   const myClassIds = Array.isArray(user?.classIds) && user.classIds.length > 0
     ? user.classIds
     : (user?.classId ? [user.classId] : []);
@@ -429,7 +440,6 @@ export const StructureModule: React.FC = () => {
                 {members.length} anggota terdaftar
               </p>
 
-              {/* ✅ Multi-class badge (guru multi-kelas) */}
               {isGuruMultiClass && (
                 <div className="flex items-center gap-1 mt-1.5 flex-wrap">
                   <span className="text-[9px] font-bold text-slate-400 uppercase flex items-center gap-1">
@@ -660,10 +670,22 @@ export const StructureModule: React.FC = () => {
                     className="p-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-amber-200 dark:border-amber-500/40 text-slate-700 dark:text-slate-200 font-bold text-[11px] flex items-center justify-center gap-1.5">
                     <UserCog className="w-3.5 h-3.5" /> Edit Data
                   </button>
-                  <button onClick={() => handleViewCredentials(selectedMember)}
-                    className="p-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-amber-200 dark:border-amber-500/40 text-purple-700 dark:text-purple-300 font-bold text-[11px] flex items-center justify-center gap-1.5">
-                    <KeyRound className="w-3.5 h-3.5" /> Lihat Pass
-                  </button>
+
+                  {/* ✅ FIX #7: Lihat Pass hanya untuk member yang punya kredensial */}
+                  {memberHasCredentials(selectedMember) ? (
+                    <button onClick={() => handleViewCredentials(selectedMember)}
+                      className="p-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-amber-200 dark:border-amber-500/40 text-purple-700 dark:text-purple-300 font-bold text-[11px] flex items-center justify-center gap-1.5">
+                      <KeyRound className="w-3.5 h-3.5" /> Lihat Pass
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => showToast('Siswa lama tidak punya kredensial tersimpan. Gunakan "Reset Pass" saja.', 'info')}
+                      className="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500 font-bold text-[11px] flex items-center justify-center gap-1.5 opacity-60 cursor-not-allowed"
+                      title="Kredensial tidak tersedia untuk siswa lama">
+                      <KeyRound className="w-3.5 h-3.5" /> Lihat Pass
+                    </button>
+                  )}
+
                   <button onClick={() => handleResetPassword(selectedMember)}
                     disabled={resettingId === selectedMember.uid}
                     className="p-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-amber-200 dark:border-amber-500/40 text-orange-700 dark:text-orange-300 font-bold text-[11px] flex items-center justify-center gap-1.5 disabled:opacity-50">
