@@ -12,6 +12,7 @@ import { ProductionStage } from '../../core/types';
 import {
   doc, setDoc, getDoc, collection, query, where, getDocs, writeBatch,
 } from 'firebase/firestore';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import { db } from '../../core/firebase';
 import { recordAuditLog } from '../../services/firestoreService';
 
@@ -84,7 +85,7 @@ function getStageStatus(cfg: StageDeadline): {
   if (startMs && endMs && startMs >= endMs) {
     return {
       status: 'incomplete',
-      label: 'Waktu tidak valid (mulai >= selesai)',
+      label: 'Waktu tidak valid (mulai lebih besar/sama dengan selesai)',
       color: 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/30',
       startMs,
       endMs,
@@ -134,6 +135,18 @@ function getStageStatus(cfg: StageDeadline): {
   };
 }
 
+// Memastikan Firebase Auth memiliki token aktif sebelum operasi Firestore
+async function ensureFirebaseAuthSession(): Promise<void> {
+  try {
+    const auth = getAuth();
+    if (!auth.currentUser) {
+      await signInAnonymously(auth);
+    }
+  } catch (e) {
+    console.warn('Fallback auth check:', e);
+  }
+}
+
 export const StageManagerModule: React.FC = () => {
   const { user, activeClass, isGuruPengampu, isTeacher, isAdminRole } = useAuth();
   const { showToast } = useToast();
@@ -176,6 +189,7 @@ export const StageManagerModule: React.FC = () => {
     if (!activeClass) return;
     setLoading(true);
     try {
+      await ensureFirebaseAuthSession();
       const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
       const snap = await getDoc(ref);
       if (snap.exists()) {
@@ -258,6 +272,7 @@ export const StageManagerModule: React.FC = () => {
 
     setIsCarryingOver(true);
     try {
+      await ensureFirebaseAuthSession();
       const currentIdx = STAGE_ORDER.indexOf(currentStage);
       const previousStages = STAGE_ORDER.slice(0, currentIdx);
       const q = query(collection(db, 'deadlines'), where('classId', '==', activeClass.id));
@@ -307,14 +322,14 @@ export const StageManagerModule: React.FC = () => {
       showToast(`${toCarry.length} deadline dipindah!`, 'success');
       setCarryOverCount(0);
     } catch (err: any) {
-      showToast('Gagal: ' + (err?.message || 'Unknown error'), 'error');
+      showToast('Gagal memindahkan deadline: ' + (err?.message || 'Unknown error'), 'error');
     } finally {
       setIsCarryingOver(false);
     }
   };
 
   const handleSave = async () => {
-    if (!activeClass || !user) return;
+    if (!activeClass || !user || submitting) return;
 
     for (const stageId of STAGE_ORDER) {
       const cfg = stageDeadlines[stageId];
@@ -330,6 +345,8 @@ export const StageManagerModule: React.FC = () => {
 
     setSubmitting(true);
     try {
+      await ensureFirebaseAuthSession();
+
       const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
       let existing: any = {};
       try {
@@ -366,7 +383,6 @@ export const StageManagerModule: React.FC = () => {
         updatedByName: user.displayName,
       }, { merge: true });
 
-      // Audit log dibungkus terpisah agar tidak membatalkan notifikasi sukses jika gagal
       try {
         await recordAuditLog({
           userId: user.uid,
