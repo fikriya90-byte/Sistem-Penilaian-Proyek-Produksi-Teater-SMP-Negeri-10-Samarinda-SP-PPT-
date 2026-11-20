@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ExternalLink, MessageCircle, Phone, Search, Share2, Sparkles,
   Users, Camera, Pencil, Check, X, Lock, Unlock, Download, Eye,
-  KeyRound, EyeOff, Copy, Mail, UserCog, Save, Trash2, ShieldAlert,
+  KeyRound, EyeOff, Copy, Mail, UserCog, Save, ShieldAlert,
   RefreshCw, AlertTriangle, Info, Shield, Layers,
 } from 'lucide-react';
 import { useAuth } from '../../core/authContext';
@@ -52,7 +52,7 @@ const ROLE_OPTIONS: { group: string; icon: any; roles: UserRole[] }[] = [
   },
 ];
 
-// ✅ FIX #7: batas tanggal minimal siswa dianggap punya kredensial tersimpan
+// Batas tanggal minimal siswa dianggap punya kredensial tersimpan
 const CREDENTIALS_MIN_DATE = new Date('2025-01-01');
 
 export const StructureModule: React.FC = () => {
@@ -166,6 +166,9 @@ export const StructureModule: React.FC = () => {
       details: `Ganti foto ${photoModalMember.displayName}`,
     });
     setMembers(prev => prev.map(m => m.uid === photoModalMember.uid ? { ...m, photoURL: photoUrl } : m));
+    if (selectedMember && selectedMember.uid === photoModalMember.uid) {
+      setSelectedMember({ ...selectedMember, photoURL: photoUrl });
+    }
     setPhotoModalMember(null);
   };
 
@@ -259,9 +262,8 @@ export const StructureModule: React.FC = () => {
     return 'bg-slate-100 text-slate-700 border-slate-300';
   };
 
-  // ✅ FIX #7: cek apakah member punya kredensial tersimpan
   const memberHasCredentials = (m: UserProfile): boolean => {
-    if (!m.createdAt) return true; // data lama tanpa createdAt → anggap punya (fallback)
+    if (!m.createdAt) return true;
     try {
       return new Date(m.createdAt) >= CREDENTIALS_MIN_DATE;
     } catch {
@@ -301,10 +303,23 @@ export const StructureModule: React.FC = () => {
   };
 
   const handleResetPassword = async (m: UserProfile) => {
+    if (!m.email || !m.email.includes('@')) {
+      showToast('Email siswa tidak tersedia atau tidak valid.', 'warning');
+      return;
+    }
     if (!confirm(`Kirim link reset password ke ${m.displayName}?\n\nEmail: ${m.email}`)) return;
     setResettingId(m.uid);
     try {
-      const res = await resetStudentPassword(m.email);
+      const res = await resetStudentPassword(m.email.trim().toLowerCase());
+      if (res.success && user) {
+        try {
+          await recordAuditLog({
+            userId: user.uid, userName: user.displayName, role: user.role,
+            action: 'UPDATE', targetType: 'ResetPassword', targetId: m.uid,
+            details: `Kirim link reset password ke: ${m.displayName} (${m.email})`,
+          });
+        } catch { /* ignore */ }
+      }
       showToast(res.message, res.success ? 'success' : 'error');
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
     finally { setResettingId(null); }
@@ -340,7 +355,9 @@ export const StructureModule: React.FC = () => {
 
       await updateDoc(doc(db, 'users', m.uid), updateData);
       if (emailChanged) {
-        try { await updateDoc(doc(db, 'userCredentials', m.uid), { email: editEmail.trim().toLowerCase() }); } catch { /* ignore */ }
+        try {
+          await setDoc(doc(db, 'userCredentials', m.uid), { email: editEmail.trim().toLowerCase() }, { merge: true });
+        } catch { /* ignore */ }
       }
       await recordAuditLog({
         userId: user.uid, userName: user.displayName, role: user.role,
@@ -350,7 +367,9 @@ export const StructureModule: React.FC = () => {
       showToast('Data siswa diperbarui!', 'success');
       setEditModal({ open: false, member: null });
       setSelectedMember(null);
-      await fetchUsersByClass(activeClass!.id).then(setMembers);
+      if (activeClass) {
+        await fetchUsersByClass(activeClass.id).then(setMembers);
+      }
     } catch (err: any) { showToast('Gagal: ' + err.message, 'error'); }
     finally { setSavingEdit(false); }
   };
@@ -671,7 +690,6 @@ export const StructureModule: React.FC = () => {
                     <UserCog className="w-3.5 h-3.5" /> Edit Data
                   </button>
 
-                  {/* ✅ FIX #7: Lihat Pass hanya untuk member yang punya kredensial */}
                   {memberHasCredentials(selectedMember) ? (
                     <button onClick={() => handleViewCredentials(selectedMember)}
                       className="p-2.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 border border-amber-200 dark:border-amber-500/40 text-purple-700 dark:text-purple-300 font-bold text-[11px] flex items-center justify-center gap-1.5">
