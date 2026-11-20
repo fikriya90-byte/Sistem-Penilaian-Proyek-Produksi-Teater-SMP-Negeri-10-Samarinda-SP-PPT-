@@ -305,7 +305,6 @@ export function subscribeAssessmentHistory(classId: string, onUpdate: (records: 
 // ATTENDANCE (PRESENSI) — REVISI LENGKAP
 // ==========================================
 
-// ✅ HELPER: Tentukan siswa yang WAJIB hadir di sebuah sesi (berdasarkan targetScope)
 export function getExpectedStudentsForSession(
   session: any,
   allStudents: UserProfile[]
@@ -356,7 +355,6 @@ export function getExpectedStudentsForSession(
   }
 }
 
-// ✅ HELPER: Cek apakah user berhak mengisi absen untuk orang lain
 export function canFillAttendanceFor(
   session: any,
   fillerRole: string,
@@ -613,6 +611,59 @@ export async function bulkFillAttendance(
 }
 
 // ==========================================
+// STAGE MANAGER CONFIG — untuk Opsi B
+// ==========================================
+
+export interface StageConfig {
+  activeStage: 'PERSIAPAN' | 'PELAKSANAAN' | 'PERTUNJUKAN' | 'PASCA';
+  deadlines: Record<string, {
+    active: boolean;
+    startDate?: string;
+    endDate?: string;
+    notes?: string;
+  }>;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export function subscribeStageConfig(
+  classId: string,
+  onUpdate: (config: StageConfig | null) => void,
+  onError?: (err: any) => void
+) {
+  const ref = doc(db, 'classes', classId);
+  return onSnapshot(ref,
+    snap => {
+      if (snap.exists()) {
+        onUpdate(snap.data().stageManager || null);
+      } else {
+        onUpdate(null);
+      }
+    },
+    error => {
+      console.warn('[subscribeStageConfig] error:', error);
+      if (onError) onError(error);
+    }
+  );
+}
+
+export async function saveStageConfig(
+  classId: string,
+  config: StageConfig,
+  updatedBy: { uid: string; displayName: string }
+): Promise<void> {
+  const ref = doc(db, 'classes', classId);
+  await setDoc(ref, {
+    stageManager: {
+      ...config,
+      updatedAt: new Date().toISOString(),
+      updatedBy: updatedBy.displayName,
+      updatedByUid: updatedBy.uid,
+    }
+  }, { merge: true });
+}
+
+// ==========================================
 // SCHEDULES
 // ==========================================
 export function subscribeSchedules(classId: string, onUpdate: (schedules: ScheduleEvent[]) => void) {
@@ -796,4 +847,4 @@ export async function recordAuditLog(log: Omit<AuditLogItem, 'id' | 'timestamp'>
     const newRef = doc(collection(db, 'auditLogs'));
     await setDoc(newRef, sanitizeData({ ...log, id: newRef.id, timestamp: log.timestamp || new Date().toISOString() }));
   } catch (error) { console.warn('Non-fatal audit log write error:', error); }
-}
+                 }
