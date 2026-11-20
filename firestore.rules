@@ -2,78 +2,481 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     // ==========================================
-    // HELPER FUNCTIONS
+    // HELPER FUNCTIONS & RBAC GUARDS
     // ==========================================
-    function isSignedIn() { 
-      return request.auth != null; 
+
+    function isSignedIn() {
+      return request.auth != null;
     }
-    
-    function userDoc() { 
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; 
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
     }
-    
-    function role() { 
-      return userDoc().role; 
+
+    function getUserDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data;
     }
-    
-    function isGuru() { 
-      return isSignedIn() && 
-        (role() == 'Guru Pengampu' || role() == 'Admin' || role() == 'Super Admin'); 
+
+    function hasUserDoc() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
-    
-    function isAdmin() { 
-      return isSignedIn() && 
-        (role() == 'Admin' || role() == 'Super Admin'); 
+
+    function currentUserData() {
+      return getUserDoc(request.auth.uid);
     }
-    
-    function isClassMember(classId) {
+
+    function isTeacherOrAdmin() {
       return isSignedIn() && (
-        userDoc().classId == classId ||
-        classId in userDoc().classIds
+        request.auth.token.email in [
+          'fikriya90@gmail.com',
+          'fikri.yassaar15@guru.smp.belajar.id'
+        ] ||
+        (hasUserDoc() && currentUserData().role in ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'])
       );
     }
 
-    // ==========================================
-    // USERS
-    // ==========================================
-    match /users/{uid} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.auth.uid == uid;
-      allow update: if isSignedIn() && (request.auth.uid == uid || isGuru());
-      allow delete: if isAdmin();
+    function isPimprod() {
+      return hasUserDoc() && currentUserData().role == 'Pimpinan Produksi';
+    }
+
+    function isSutradara() {
+      return hasUserDoc() && currentUserData().role == 'Sutradara';
+    }
+
+    function isAsisten() {
+      return hasUserDoc() && currentUserData().role == 'Asisten Sutradara';
+    }
+
+    function isSekretaris() {
+      return hasUserDoc() && currentUserData().role == 'Sekretaris';
+    }
+
+    function isBendahara() {
+      return hasUserDoc() && currentUserData().role == 'Bendahara';
+    }
+
+    function isKoordinator() {
+      return hasUserDoc() && currentUserData().role.matches('^Koordinator .*');
+    }
+
+    function isSameClass(classId) {
+      return isTeacherOrAdmin() || (hasUserDoc() && currentUserData().classId == classId);
     }
 
     // ==========================================
-    // USER CREDENTIALS
+    // 1. USERS & CREDENTIALS COLLECTIONS
     // ==========================================
-    match /userCredentials/{uid} {
-      allow read: if isGuru();
-      allow write: if isSignedIn() && (request.auth.uid == uid || isGuru());
+    match /users/{userId} {
+      allow read: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        isOwner(userId) ||
+        (hasUserDoc() && resource.data.classId == currentUserData().classId)
+      );
+
+      allow create: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        (
+          isOwner(userId) &&
+          request.resource.data.uid == request.auth.uid &&
+          !(request.resource.data.role in ['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'])
+        )
+      );
+
+      allow update: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        (
+          isOwner(userId) &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.classId == resource.data.classId &&
+          request.resource.data.uid == resource.data.uid
+        )
+      );
+
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    match /userCredentials/{userId} {
+      allow read: if isSignedIn() && (isTeacherOrAdmin() || isOwner(userId));
+      allow create, update: if isSignedIn() && (isTeacherOrAdmin() || isOwner(userId));
+      allow delete: if isTeacherOrAdmin();
     }
 
     // ==========================================
-    // CLASSES
+    // 2. CLASSES & SETTINGS COLLECTIONS
     // ==========================================
     match /classes/{classId} {
       allow read: if isSignedIn();
-      allow create: if isGuru();
-      allow update: if isSignedIn() && (isGuru() || isClassMember(classId));
-      allow delete: if isAdmin();
+      allow create, delete: if isTeacherOrAdmin();
+      allow update: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        (isSameClass(classId) && (isPimprod() || isSekretaris() || isSutradara()))
+      );
+    }
 
-      // ✅ KUNCI PERBAIKAN — SUBCOLLECTION CONFIG (stageManager, dll)
-      match /config/{docId} {
-        allow read: if isSignedIn() && isClassMember(classId);
-        allow write: if isSignedIn() && (isGuru() || isClassMember(classId));
-      }
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isTeacherOrAdmin();
+    }
+
+    match /systemSettings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isTeacherOrAdmin();
     }
 
     // ==========================================
-    // COLLECTIONS LAINNYA (fallback)
+    // 3. PRODUCTIONS & STAGES (TAHAPAN PRODUKSI)
     // ==========================================
-    match /{collection}/{docId} {
+    match /productions/{productionId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSutradara()
+      );
+      allow update: if isSignedIn() && isSameClass(resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSutradara()
+      );
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    match /stages/{stageId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod()
+      );
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    // ==========================================
+    // 4. TASKS, DEADLINES & SUBMISSIONS
+    // ==========================================
+    match /tasks/{taskId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSutradara() || isSekretaris() || isKoordinator()
+      );
+
+      allow update: if isSignedIn() && isSameClass(resource.data.classId) && (
+        isTeacherOrAdmin() ||
+        isPimprod() ||
+        (isKoordinator() && resource.data.divisionName == currentUserData().divisionName) ||
+        (
+          resource.data.assigneeId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proofUrl', 'proofNote', 'status', 'progress', 'updatedAt', 'submittedAt']) &&
+          request.resource.data.status != 'APPROVED'
+        )
+      );
+
+      allow delete: if isTeacherOrAdmin() || isPimprod();
+    }
+
+    match /deadlineSubmissions/{subId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isKoordinator() ||
+        request.resource.data.studentId == request.auth.uid
+      );
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    // ==========================================
+    // 5. ASSESSMENTS COLLECTION (PENILAIAN 360)
+    // ==========================================
+    match /assessments/{assessmentId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId) && (
+        isTeacherOrAdmin() ||
+        resource.data.studentId == request.auth.uid ||
+        resource.data.assessorId == request.auth.uid ||
+        isPimprod()
+      );
+
+      allow create: if isSignedIn() &&
+        isSameClass(request.resource.data.classId) &&
+        request.resource.data.assessorId == request.auth.uid &&
+        request.resource.data.studentId != request.auth.uid &&
+        (
+          isTeacherOrAdmin() ||
+          (isPimprod() && request.resource.data.studentRole in [
+            'Sekretaris', 'Bendahara', 'Sutradara',
+            'Koordinator Perlengkapan', 'Koordinator Publikasi',
+            'Koordinator Tata Panggung', 'Koordinator Tata Rias',
+            'Koordinator Tata Busana', 'Koordinator Tata Musik'
+          ]) ||
+          (isSutradara() && (request.resource.data.studentRole in ['Pemeran', 'Pemain', 'Asisten Sutradara'])) ||
+          (isAsisten() && (request.resource.data.studentRole in ['Pemeran', 'Pemain'])) ||
+          (isKoordinator() && request.resource.data.studentDivision == currentUserData().divisionName) ||
+          (request.resource.data.assessorType == 'REKAN')
+        );
+
+      allow update: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        (
+          resource.data.assessorId == request.auth.uid &&
+          resource.data.studentId != request.auth.uid &&
+          resource.data.isFinal == false
+        )
+      );
+
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    // ==========================================
+    // 6. ATTENDANCE SESSIONS & RECORDS
+    // ==========================================
+    match /attendanceSessions/{sessionId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() ||
+        isPimprod() ||
+        isSekretaris() ||
+        ((isSutradara() || isAsisten()) && request.resource.data.targetScope == 'PEMAIN_MUSIK') ||
+        (isKoordinator() && request.resource.data.targetScope == 'DIVISI')
+      );
+
+      allow update, delete: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        resource.data.createdBy == request.auth.uid
+      );
+    }
+
+    match /attendanceRecords/{recordId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() ||
+        isPimprod() ||
+        isSekretaris() ||
+        isKoordinator() ||
+        request.resource.data.studentId == request.auth.uid
+      );
+
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    // ==========================================
+    // 7. SCHEDULES, TIMELINE & DIVISION SCHEDULES
+    // ==========================================
+    match /schedules/{scheduleId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSekretaris() || isSutradara() || isAsisten() || isKoordinator()
+      );
+
+      allow update: if isSignedIn() && isSameClass(resource.data.classId) && (
+        isTeacherOrAdmin() ||
+        resource.data.createdBy == request.auth.uid ||
+        isPimprod() ||
+        isSekretaris() ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['attendees', 'confirmedUsers', 'declinedUsers', 'rsvp', 'updatedAt'])
+      );
+
+      allow delete: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        resource.data.createdBy == request.auth.uid
+      );
+    }
+
+    match /timelineWeeks/{weekId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSekretaris() || isSutradara() || isKoordinator()
+      );
+      allow delete: if isTeacherOrAdmin() || isPimprod();
+    }
+
+    match /divisionSchedules/{divSchedId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSekretaris() || isKoordinator()
+      );
+      allow delete: if isTeacherOrAdmin() || isKoordinator();
+    }
+
+    // ==========================================
+    // 8. NOTIFICATIONS, BROADCASTS & REMINDERS
+    // ==========================================
+    match /notifications/{notificationId} {
+      allow read, update, delete: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        isTeacherOrAdmin()
+      );
+      allow create: if isSignedIn();
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSekretaris() || isSutradara() || isKoordinator()
+      );
+      allow update, delete: if isTeacherOrAdmin() || resource.data.senderId == request.auth.uid;
+    }
+
+    match /reminderLog/{logId} {
+      allow read, create, update: if isSignedIn();
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    // ==========================================
+    // 9. STUDIO ARTISTIC (SCRIPTS, MUSIC, VOICE, PROMPTBOOK)
+    // ==========================================
+    match /scripts/{scriptId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSutradara() || isAsisten() || isSekretaris()
+      );
+      allow delete: if isTeacherOrAdmin() || isSutradara();
+    }
+
+    match /musicReferences/{musicId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSutradara() || isAsisten() || isKoordinator() ||
+        currentUserData().divisionName == 'Tata Musik'
+      );
+      allow delete: if isTeacherOrAdmin() || resource.data.uploadedBy == request.auth.uid;
+    }
+
+    match /voiceRecordings/{recId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isSutradara() || isAsisten() ||
+        request.resource.data.userId == request.auth.uid
+      );
+      allow delete: if isTeacherOrAdmin() || resource.data.userId == request.auth.uid;
+    }
+
+    match /promptBooks/{promptBookId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isSutradara() || isAsisten()
+      );
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    // ==========================================
+    // 10. DOCUMENTS, TEMPLATES & ARCHIVES
+    // ==========================================
+    match /documents/{documentId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId);
+      allow update, delete: if isTeacherOrAdmin() || resource.data.uploadedBy == request.auth.uid;
+    }
+
+    match /templateDrafts/{draftId} {
+      allow read: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        isSameClass(resource.data.classId)
+      );
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || request.resource.data.userId == request.auth.uid
+      );
+      allow delete: if isTeacherOrAdmin() || resource.data.userId == request.auth.uid;
+    }
+
+    match /templateSubmissions/{subId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId);
+      allow delete: if isTeacherOrAdmin() || resource.data.submittedBy == request.auth.uid;
+    }
+
+    // ==========================================
+    // 11. LOGISTICS, FINANCE & BOOKINGS (KAS, RAB, PROPS, COSTUME, MAKEUP)
+    // ==========================================
+    match /kas/{kasId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isBendahara()
+      );
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    match /kasPayments/{paymentId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow create, update: if isSignedIn() && (
+        isTeacherOrAdmin() || isPimprod() || isBendahara() ||
+        request.resource.data.studentId == request.auth.uid
+      );
+      allow delete: if isTeacherOrAdmin() || isBendahara();
+    }
+
+    match /rab/{rabId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isBendahara() || isKoordinator()
+      );
+      allow delete: if isTeacherOrAdmin() || isBendahara();
+    }
+
+    match /props/{propId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId);
+      allow delete: if isTeacherOrAdmin() || isPimprod() || isKoordinator();
+    }
+
+    match /costumes/{costumeId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId);
+      allow delete: if isTeacherOrAdmin() || isPimprod() || isKoordinator();
+    }
+
+    match /makeup/{makeupId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId);
+      allow delete: if isTeacherOrAdmin() || isPimprod() || isKoordinator();
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create, update: if isSignedIn() && isSameClass(request.resource.data.classId);
+      allow delete: if isTeacherOrAdmin() || isPimprod() || isKoordinator();
+    }
+
+    // ==========================================
+    // 12. COMPLAINTS & AUDIT LOGS
+    // ==========================================
+    match /complaints/{complaintId} {
+      allow read: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        resource.data.studentId == request.auth.uid
+      );
+
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        request.resource.data.studentId == request.auth.uid
+      );
+
+      allow update: if isSignedIn() && (
+        isTeacherOrAdmin() ||
+        (resource.data.studentId == request.auth.uid && resource.data.status == 'OPEN')
+      );
+
+      allow delete: if isTeacherOrAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isTeacherOrAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /activityLogs/{logId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create: if isSignedIn();
+      allow update, delete: if isTeacherOrAdmin();
+    }
+
+    // ==========================================
+    // 13. CONNECTION HEALTHCHECK
+    // ==========================================
+    match /test/{docId} {
+      allow read, write: if isSignedIn();
     }
   }
 }
