@@ -473,6 +473,28 @@ service cloud.firestore {
     }
 
     // ==========================================
+    // 12b. TAHAPAN (config/stageManager) & PENUGASAN (deadlines)
+    // Dibutuhkan: StageManager, AssessmentSchedule, DeadlineModule
+    // ==========================================
+    match /classes/{classId}/config/{configId} {
+      allow read: if isSignedIn() && isSameClass(classId);
+      allow write: if isSignedIn() && isSameClass(classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSekretaris() || isSutradara()
+      );
+    }
+
+    match /deadlines/{deadlineId} {
+      allow read: if isSignedIn() && isSameClass(resource.data.classId);
+      allow create: if isSignedIn() && isSameClass(request.resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSekretaris() || isSutradara() || isKoordinator()
+      );
+      allow update: if isSignedIn() && isSameClass(resource.data.classId) && (
+        isTeacherOrAdmin() || isPimprod() || isSekretaris() || isSutradara() || isKoordinator()
+      );
+      allow delete: if isTeacherOrAdmin() || isPimprod();
+    }
+
+    // ==========================================
     // 13. CONNECTION HEALTHCHECK
     // ==========================================
     match /test/{docId} {
