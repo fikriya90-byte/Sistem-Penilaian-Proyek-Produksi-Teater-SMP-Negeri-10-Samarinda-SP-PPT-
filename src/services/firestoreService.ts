@@ -380,7 +380,11 @@ export function subscribeAttendanceSessions(
   const q = query(collection(db, 'attendanceSessions'), where('classId', '==', classId));
   return onSnapshot(q, snap => {
     const list = snap.docs.map(d => ({ ...d.data(), id: d.id } as AttendanceSession));
-    list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    list.sort((a: any, b: any) => {
+      const da = a.date || a.startAt || a.createdAt || '';
+      const db_ = b.date || b.startAt || b.createdAt || '';
+      return new Date(db_).getTime() - new Date(da).getTime();
+    });
     onUpdate(list);
   }, error => {
     console.warn('[subscribeAttendanceSessions] error:', error);
@@ -421,8 +425,14 @@ export async function closeAttendanceSession(sessionId: string): Promise<{
       throw new Error('Session tidak ditemukan');
     }
     const session: any = sessionSnap.data();
-    const classId = session.classId;
 
+    // ✅ FIX: Guard jika session sudah ditutup
+    if (session.isOpen === false) {
+      console.warn('[closeAttendanceSession] Session sudah ditutup sebelumnya.');
+      return { autoMarked: 0, expectedCount: session.expectedCount || 0 };
+    }
+
+    const classId = session.classId;
     const users = await fetchUsersByClass(classId);
     const allStudents = users.filter(u =>
       !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(u.role)
@@ -464,8 +474,6 @@ export async function closeAttendanceSession(sessionId: string): Promise<{
     });
 
     await batch.commit();
-    console.log(`[closeAttendanceSession] ${autoMarked}/${expectedStudents.length} siswa otomatis ALPA (scope: ${session.targetScope || 'SEMUA'})`);
-
     return { autoMarked, expectedCount: expectedStudents.length };
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `attendanceSessions/${sessionId}`);
@@ -583,8 +591,28 @@ export async function bulkFillAttendance(
       return { filled: 0, errors: [check.reason || 'Tidak berhak'] };
     }
 
+    // ✅ FIX: Validasi entries terhadap expected students
+    const users = await fetchUsersByClass(session.classId);
+    const allStudents = users.filter(u =>
+      !['Guru Pengampu', 'Guru Pembina', 'Admin', 'Super Admin'].includes(u.role)
+    );
+    const expected = getExpectedStudentsForSession(session, allStudents);
+    const validIds = new Set(expected.map(s => s.uid));
+
+    const validEntries = entries.filter(e => {
+      if (!validIds.has(e.studentId)) {
+        errors.push(`${e.studentName}: tidak terdaftar di sesi ini`);
+        return false;
+      }
+      return true;
+    });
+
+    if (validEntries.length === 0) {
+      return { filled: 0, errors };
+    }
+
     const batch = writeBatch(db);
-    entries.forEach(e => {
+    validEntries.forEach(e => {
       const recId = `${sessionId}_${e.studentId}`;
       batch.set(doc(db, 'attendanceRecords', recId), {
         id: recId,
@@ -846,5 +874,7 @@ export async function recordAuditLog(log: Omit<AuditLogItem, 'id' | 'timestamp'>
   try {
     const newRef = doc(collection(db, 'auditLogs'));
     await setDoc(newRef, sanitizeData({ ...log, id: newRef.id, timestamp: log.timestamp || new Date().toISOString() }));
-  } catch (error) { console.warn('Non-fatal audit log write error:', error); }
-                 }
+  } catch (error) {
+    console.warn('Non-fatal audit log write error:', error);
+  }
+}
