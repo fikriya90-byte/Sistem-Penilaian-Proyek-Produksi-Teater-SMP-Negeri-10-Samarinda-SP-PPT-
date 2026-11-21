@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   BarChart3, TrendingUp, Users, CheckCircle, AlertTriangle,
   Search, Star, Filter, RefreshCw, Clock, Lock, Award,
@@ -12,7 +12,7 @@ import { STAGES } from '../../core/constants';
 import { UserProfile, DeadlineItem, DeadlineSubmission, ProductionStage } from '../../core/types';
 import { fetchUsersByClass } from '../../services/firestoreService';
 import { useToast } from '../common/Toast';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../core/firebase';
 
 type StageFilter = 'ALL' | ProductionStage;
@@ -31,6 +31,7 @@ export const TaskProgressModule: React.FC = () => {
   // ✅ NEW: Filter tahapan — default ke tahap aktif dari stage config
   const [selectedStage, setSelectedStage] = useState<StageFilter>('ALL');
   const [stageConfig, setStageConfig] = useState<any>(null);
+  const autoSelectedRef = useRef(false);
 
   // ═══════════════════════════════════════════════════════
   // SUBSCRIBE: deadlines + deadlineSubmissions + users + stage config
@@ -64,25 +65,6 @@ export const TaskProgressModule: React.FC = () => {
       console.warn('Subscribe submissions error:', err);
     });
 
-    // Subscribe stage config untuk auto-select tahap aktif
-    const stageRef = collection(db, 'classes');
-    const stageDocRef = `classes/${activeClass.id}/config/stageManager`;
-    // Karena firestore path dinamis, pakai onSnapshot langsung ke doc
-    import('firebase/firestore').then(({ doc }) => {
-      const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
-      const unsubStage = onSnapshot(ref, snap => {
-        if (snap.exists()) {
-          const data = snap.data();
-          setStageConfig(data);
-          // ✅ Auto-set tahap aktif kalau belum dipilih user
-          if (selectedStage === 'ALL' && data.currentStage) {
-            setSelectedStage(data.currentStage);
-          }
-        }
-      });
-      return () => unsubStage();
-    });
-
     // Fetch users
     fetchUsersByClass(activeClass.id).then(setUsers);
 
@@ -90,22 +72,20 @@ export const TaskProgressModule: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeClass]);
 
-  // Subscribe stage config — dibutuhkan supaya tahap aktif diketahui
+  // Subscribe stage config (satu listener saja) — dipakai untuk tahap aktif
   useEffect(() => {
     if (!activeClass) return;
-    const ref = (async () => {
-      const { doc } = await import('firebase/firestore');
-      return doc(db, 'classes', activeClass.id, 'config', 'stageManager');
-    })();
-    let unsub: () => void = () => {};
-    ref.then(r => {
-      unsub = onSnapshot(r, snap => {
-        if (snap.exists()) {
-          const data = snap.data();
-          setStageConfig(data);
-        }
-      });
-    });
+    const ref = doc(db, 'classes', activeClass.id, 'config', 'stageManager');
+    const unsub = onSnapshot(ref, snap => {
+      if (!snap.exists()) return;
+      const data = snap.data();
+      setStageConfig(data);
+      // Auto-pilih tahap aktif hanya sekali, supaya tidak menimpa pilihan user
+      if (!autoSelectedRef.current && data.currentStage) {
+        autoSelectedRef.current = true;
+        setSelectedStage(data.currentStage);
+      }
+    }, err => console.warn('Subscribe stage config error:', err));
     return () => unsub();
   }, [activeClass]);
 
